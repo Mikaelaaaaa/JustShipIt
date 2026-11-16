@@ -63,10 +63,14 @@ st_pending_nonempty() {
   [ -f "$1/explore.md" ] || return 1
   awk '/^## 待決/{f=1;next} /^## /{f=0} f' "$1/explore.md" | grep -vE '^\s*$|^\s*<!--|^\s*-\s*$|^\s*（' | grep -q .
 }
-# 沒 grill.md 的卡要進 grill，但舊規則下已經寫了 proposal.md 的卡留在 propose。
-# 有 grill.md 時，待決裡還留著題（等前一題答案的題）就回 grill。
+st_pending_waiting() { # 待決裡有 grill 標明等哪個 gate 的題
+  [ -f "$1/explore.md" ] || return 1
+  awk '/^## 待決/{f=1;next} /^## /{f=0} f' "$1/explore.md" | grep -qE '^\s*-\s*waits on gate:'
+}
+# 有 grill.md：只有等 gate 的題要回 grill；答過留在待決的行不算。
+# 沒 grill.md：一律進 grill，只有已有 proposal.md 且待決空的卡留在 propose。
 st_needs_grill() {
-  if [ -f "$1/grill.md" ]; then st_pending_nonempty "$1"; else [ ! -f "$1/proposal.md" ]; fi
+  if [ -f "$1/grill.md" ]; then st_pending_waiting "$1"; else [ ! -f "$1/proposal.md" ] || st_pending_nonempty "$1"; fi
 }
 # 第一個 MR 網址。整檔一次比對，字元類排除換行，跟 grep 逐行找第一個相同
 st_mr_url() {

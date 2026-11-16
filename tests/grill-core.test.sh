@@ -21,7 +21,6 @@ assert_not_fixed '`/opsx-workflow:propose <slug>` when it is empty' "$EXP"
 assert_fixed 'kind is chore or bug-fix' "$EXP"
 assert_not_fixed 'If `explore.md` has a non-empty 待決 and no `grill.md`' "$PROP"
 assert_fixed 'there is neither `grill.md` nor `proposal.md`' "$PROP"
-assert_fixed 'If `grill.md` exists but 待決 still lists an item' "$PROP"
 assert_not_fixed '待決空 → 直接 /propose' "$HEAD"
 assert_not_fixed '只在 explore.md 的待決非空時才有' "$HEAD"
 assert_not_fixed '回一句「沒有待決」就停' "$REQ"
@@ -85,6 +84,20 @@ assert_fixed 'a whole item of the `split_into:` list' "$FX/read"
 # --- R1.4 Step 1 先看 kind；autopilot 下不做與藏著選擇的已知一律是使用者題 ---
 grep -m1 -E '^1\. ' "$FX/steps" | grep -q '^1\. Kind chore or bug-fix: reply' || fail "Step 1 要先看 kind"
 assert_fixed 'Every 不做 item and every 已知 entry that hides a choice is a product choice' "$FX/auto"
+
+# --- R2.2 等前題的題用 router 認得的標記；重進 grill 讀自己的 grill.md 與 gates.md，D 接著編號 ---
+assert_fixed '  - waits on gate: <gate id>' "$FX/auto"
+assert_fixed "The card's own \`grill.md\` and \`gates.md\`" "$FX/read"
+assert_fixed 'continue numbering after the last D' "$FX/read"
+assert_fixed 'If `grill.md` exists but an item in 待決 still carries `waits on gate:`' "$PROP"
+assert_fixed 'if 2b changes it to anything else while there is neither `grill.md` nor `proposal.md`' "$PROP"
+
+# --- R2.3 explore 模板的待決註解 ---
+assert_not_fixed '空的話直接 /propose' "$OPSX_ROOT/schemas/opsx/templates/explore.md"
+assert_fixed 'kind 不是 chore 或 bug-fix 時，空的也接 /grill' "$OPSX_ROOT/schemas/opsx/templates/explore.md"
+
+# --- R2.4 autopilot 下使用者答不做或藏著選擇的已知，答案都寫成 D ---
+assert_fixed "the user's answer becomes a D whether it keeps the item as it is or changes it" "$FX/auto"
 
 # --- R1.5 舊規則殘句 ---
 for s in '待決為空 → 直接 propose' 'explore 做完待決非空' '改為待決段為空即跳過' '只在 explore.md 待決非空時有事'; do assert_not_fixed "$s" "$REQ"; done

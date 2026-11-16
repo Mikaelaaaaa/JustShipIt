@@ -40,12 +40,16 @@ e-bug|propose
 TABLE
 mk_empty e-grilled dev; printf '# grill\n' > "$R/openspec/changes/e-grilled/grill.md"
 assert_eq "$(bash_fn stage_name "$R" e-grilled)" propose "已有 grill.md 不再進 grill"
-# grill 寫了部分 grill.md、待決還留著等前題的題：回 grill，不接 propose
+# 有 grill.md：待決裡有標明等哪個 gate 的題才回 grill，答過留著的題不算
 mk_card c-left dev; printf '# grill\n' > "$R/openspec/changes/c-left/grill.md"
-assert_eq "$(bash_fn stage_name "$R" c-left)" grill "有 grill.md 但待決還有題 → grill"
-# 舊規則下已進 propose（有 proposal.md、沒 grill.md）的卡不送回 grill
+assert_eq "$(bash_fn stage_name "$R" c-left)" propose "有 grill.md、待決留著答過的題 → propose"
+printf '## 已知\n- x\n\n## 待決\n- 要不要 B？\n  - waits on gate: g1\n\n## 不做\n' > "$R/openspec/changes/c-left/explore.md"
+assert_eq "$(bash_fn stage_name "$R" c-left)" grill "有 grill.md、待決有 waits on gate → grill"
+# 沒 grill.md、有 proposal.md：待決空留在 propose，待決非空進 grill
 mk_empty e-legacy dev; printf '# proposal\n' > "$R/openspec/changes/e-legacy/proposal.md"
-assert_eq "$(bash_fn stage_name "$R" e-legacy)" propose "已有 proposal.md 的舊卡留在 propose"
+assert_eq "$(bash_fn stage_name "$R" e-legacy)" propose "有 proposal.md、待決空 → propose"
+mk_card c-legacy dev; printf '# proposal\n' > "$R/openspec/changes/c-legacy/proposal.md"
+assert_eq "$(bash_fn stage_name "$R" c-legacy)" grill "有 proposal.md、待決非空 → grill"
 
 CONT="$OPSX_ROOT/references/continue.md"
 GRILL="$OPSX_ROOT/skills/grill/SKILL.md"

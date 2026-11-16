@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stage_of / stage_name 與它們的 helper 的 characterization test：期望值是 dc086e8 舊 code 跑出來的輸出，逐字比對。
+# stage_of / stage_name 與它們的 helper 的逐字比對。grill 與 propose 兩站的列照 openspec/changes/me-20261116-1046 的規則，其他列是 dc086e8 跑出來的輸出。
 # 驗收：openspec/changes/collect-background/subs/stage-fewer-forks/specs/board-collect/spec.md「stage 判斷結果不因效能改動而變」
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -26,7 +26,10 @@ card grill-empty-perf perf; nopending grill-empty-perf
 card prop-chore-empty chore; nopending prop-chore-empty
 card prop-chore chore; pending prop-chore
 card prop-bugfix bug-fix; pending prop-bugfix
-card grill-left dev; pending grill-left; printf '# grill\n' > "$C/grill-left/grill.md"
+card grill-left dev; printf '## 已知\n- x\n\n## 待決\n- 要不要 B？\n  - waits on gate: g1\n\n## 不做\n' > "$C/grill-left/explore.md"; printf '# grill\n' > "$C/grill-left/grill.md"
+card prop-answered-left dev; pending prop-answered-left; printf '# grill\n' > "$C/prop-answered-left/grill.md"
+card prop-tomb dev; printf '## 已知\n- x\n\n## 待決\n- （原待決 1：grill D1 已定）\n\n## 不做\n' > "$C/prop-tomb/explore.md"; printf '# grill\n' > "$C/prop-tomb/grill.md"
+card grill-legacy-pending dev; pending grill-legacy-pending; printf '# proposal\n' > "$C/grill-legacy-pending/proposal.md"
 card prop-grilled dev; nopending prop-grilled; printf '# grill\n' > "$C/prop-grilled/grill.md"
 card prop-legacy dev; nopending prop-legacy; printf '# proposal\n' > "$C/prop-legacy/proposal.md"
 card prop-chore-grilled chore; pending prop-chore-grilled; printf '# grill\n' > "$C/prop-chore-grilled/grill.md"
@@ -104,6 +107,9 @@ prop-chore-empty|propose · prop-chore-empty · chore · skills/propose/SKILL.md
 prop-chore|propose · prop-chore · chore · skills/propose/SKILL.md
 prop-bugfix|propose · prop-bugfix · bug-fix · skills/propose/SKILL.md
 grill-left|grill · grill-left · dev · skills/grill/SKILL.md
+prop-answered-left|propose · prop-answered-left · dev · skills/propose/SKILL.md
+prop-tomb|propose · prop-tomb · dev · skills/propose/SKILL.md
+grill-legacy-pending|grill · grill-legacy-pending · dev · skills/grill/SKILL.md
 prop-grilled|propose · prop-grilled · dev · skills/propose/SKILL.md
 prop-legacy|propose · prop-legacy · dev · skills/propose/SKILL.md
 prop-chore-grilled|propose · prop-chore-grilled · chore · skills/propose/SKILL.md

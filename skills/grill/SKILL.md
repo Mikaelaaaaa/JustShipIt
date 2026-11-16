@@ -49,6 +49,7 @@ Read all of these before the first question. A dispatch worktree has no `openspe
 - `CONTEXT.md` (or `CONTEXT-MAP.md` and the context it points at), `docs/adr/`, `openspec/workplan.yaml`.
 - The parent card, when there is one. A card split out of a bigger one is listed in the parent's `inbox.md` frontmatter as `split_into:`; find it with `grep -l '<slug>' <main checkout>/openspec/changes/*/inbox.md` and keep only the hit where the slug is a whole item of the `split_into:` list (`kb-export` does not match `kb-export-csv`). A sub-change (`openspec/changes/<main>/subs/<sub>/`) names its main change as `parent:` in its own `inbox.md` frontmatter. Read the parent's `explore.md` and `grill.md`. A D the parent card already decided is not asked again; cite it by the parent's slug and D-id where it matters.
 - No parent card: do not look further and do not ask about it.
+- The card's own `grill.md` and `gates.md`, when grill ran on this card before (a gate answer came back, or the pane was relaunched). The Ds already written stay as they are: continue numbering after the last D, and handle only the branches still open in 待決 or waiting on a gate.
 
 ## Reopen 已知 and 不做
 
@@ -108,7 +109,11 @@ When the router line carries `autopilot：`, nobody is watching the pane. AskUse
   The options follow the same rules as an AskUserQuestion: 2–4 real alternatives, recommended first. `type` is `approval` (a permission) or `decision` (a choice) and nothing else; when 建議 is a command the user must run themselves, add a `needs: run` line; when a `decision` can only be answered after another card merges into main, add `waits-on: <that card's name>`.
 - **Anything else.** Take the option you would have marked Recommended. Write it as a D like any other, add a `  - 自動採用：autopilot，沒問使用者` line under it, and log one line in decisions.tsv. The user can overturn it at review or on the MR.
 
-Open every bucket-3 gate that does not depend on another at once, each as its own gate, so one round of answers clears most of them. A question whose options depend on another question's answer is not opened yet: leave it in explore.md's 待決 with a line saying which gate it waits on, and open it when that answer comes back.
+Open every bucket-3 gate that does not depend on another at once, each as its own gate, so one round of answers clears most of them. A question whose options depend on another question's answer is not opened yet: leave it in explore.md's 待決 with this line under it, and open it when that answer comes back:
+```
+  - waits on gate: <gate id>
+```
+The router reads that line: while a 待決 item carries it, the card goes back to grill instead of propose. Remove the line when you open the gate.
 
 While any gate is open, do not continue to /opsx-workflow:propose. Write grill.md with the Ds you have, say which branches wait on which gate, and stop. Each answer comes back as a prompt: turn it into its D, remove the item from 待決, open any gate that was waiting on it, and carry on. When every branch is resolved and no gate is open, propose comes next.
 

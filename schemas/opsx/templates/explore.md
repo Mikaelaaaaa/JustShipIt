@@ -5,7 +5,7 @@
 
 ## 待決
 
-<!-- 只有人能答的題。每題 2–4 個具體選項，推薦的標 (Recommended)。空的話直接 /propose。 -->
+<!-- 只有人能答的題。每題 2–4 個具體選項，推薦的標 (Recommended)。kind 不是 chore 或 bug-fix 時，空的也接 /grill。 -->
 - 
 
 ## 不做
