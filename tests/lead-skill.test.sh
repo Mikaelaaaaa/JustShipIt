@@ -42,6 +42,26 @@ for s in '同一件事' '只併小事' 'decisions.tsv' '④' 'kind_of_work' 'imp
   case "$DEDUP" in *"$s"*) ;; *) fail "去重職責缺：$s — $DEDUP" ;; esac
 done
 
+# 怎麼問 gate（specs/opsx-lead「協調者用跳卡問 gate」「跳卡不代答」「有 sketch 外掛時先畫 cards」）：
+# 只讀「## 怎麼問 gate」到下一個 ## 標題，別段的字不算
+ASK="$(sed -n '/^## 怎麼問 gate/,/^## Report format/p' "$F" | sed '$d')"
+[ -n "$ASK" ] || fail "找不到「## 怎麼問 gate」段，或它不在 ## Report format 前面"
+n_duties="$(line_of '## Duties')"; n_ask="$(line_of '## 怎麼問 gate')"
+[ "$n_ask" -gt "$n_duties" ] || fail "「## 怎麼問 gate」要在 ## Duties 後面"
+for s in 'AskUserQuestion' '(Recommended)' '最多 4 題' '卡名' '例子' '--grant' \
+  'opsx answer' '原文' 'Other' '重講' '不代答' \
+  'sketch' 'cards' '沒裝' 'enabledPlugins' 'opsx init --global'; do
+  case "$ASK" in *"$s"*) ;; *) fail "怎麼問 gate 段缺：$s" ;; esac
+done
+# needs: run 的 gate 給指令、不跳卡
+printf '%s\n' "$ASK" | grep -F 'needs: run' | grep -qF '指令' || fail "怎麼問 gate 段要寫 needs: run 的 gate 給指令"
+# 不替使用者選
+case "$ASK" in *自動採用*) fail "怎麼問 gate 段不能有「自動採用」" ;; esac
+# 提到 compare 的每一行都是在說不用它選
+printf '%s\n' "$ASK" | grep -F 'compare' | grep -vF '不用' && fail "怎麼問 gate 段提到 compare 的行都要含「不用」"
+# 職責 2 指向這段
+printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 echo ok

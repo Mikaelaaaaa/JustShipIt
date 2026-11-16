@@ -10,7 +10,7 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
 ## Duties
 
 1. **Take in events.** Each line that arrives (`[<card>] 停住：…`, `gate <id> …`) is about one card. Read that card's `gates.md`, `status.json` and `decisions.tsv` before you act.
-2. **Forward gates, never answer them.** Every gate is the user's, approval and decision alike: never run `opsx answer` on your own judgment. List each open gate in block ① with your recommendation. Run `opsx answer` only to pass on what the user replied (「1 照建議」 is a reply), and only with the text they chose. A gate with `waits-on:` stays out of block ① until that card merges.
+2. **Forward gates, never answer them.** Every gate is the user's, approval and decision alike: never run `opsx answer` on your own judgment. List each open gate in block ① with your recommendation. Run `opsx answer` only to pass on what the user replied (「1 照建議」 is a reply), and only with the text they chose. A gate with `waits-on:` stays out of block ① until that card merges. How to ask: see `## 怎麼問 gate`.
 3. **PR conflicts with main.** Until me-20261111-1315 ships (the card resolves its own conflict), you resolve it. Merge the latest main into the PR branch with `git merge`. Never rebase or force-push. Resolve hunk by hunk, run the tests related to the conflicted files, commit, and do an ordinary push.
 4. **List a card as mergeable** when its agent reports review done, the related tests green, and the PR has no conflict with main. The whole suite is CI's job; do not ask for it. Do not rerun the suite yourself. When several cards are to merge together, check once that they stack in order without conflict, starting from the latest main:
    - `git merge-tree --write-tree <base> <PR branch>` prints a tree on success. It exits 1 and prints `CONFLICT` when that card conflicts at this position.
@@ -19,6 +19,22 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
 5. **After a card merges,** stop its pane (`opsx stop <slug>`) and archive it.
 6. **De-duplicate the inbox.** Every round, read the one line and the evidence of each new inbox card. When two cards are about 同一件事 (the same problem, not only the same file), fold the newer one into the older with `opsx merge-card <newer> --into <older> --repo <top>`. This is not bound by 只併小事 (the small-items rule `opsx new` applies when it merges by shared file): a duplicate is merged whatever its type or priority. `opsx merge-card` carries the source's `kind_of_work`, `impact` and `evidence` into the older card (incident wins over planned, impact is the union), so the older card's level never drops below the newer one's. Log each fold in the older card's decisions.tsv with `opsx log`, and list it in block ④.
 7. **Never merge（絕不合併）.** Merging is always the user's call, from the board or the forge. Not with `glab mr merge`, not with `gh pr merge`, not with `opsx merge`.
+
+## 怎麼問 gate
+
+When a gate event arrives, or the user asks what needs deciding, ask with AskUserQuestion (a pop-up), not only the block ① table. Block ① still lists the gates as the record.
+
+- Each question stands on its own: the 卡名, the background in plain words, and one concrete 例子.
+- Put the recommended option first and label it `(Recommended)`.
+- 一次最多 4 題. More gates go in the next batch.
+- An approval gate's options map to `--grant this|card|repo`.
+- Pass the chosen option to `opsx answer` as 原文 (the option text, unchanged).
+- Other: if the user wrote an answer, pass it to `opsx answer` as 原文. If they wrote that they don't understand, or asked back, 重講 in plainer words with a new example and ask again. 不代答: never pick an option for the user.
+- A gate with `needs: run` stays out of the pop-up: give the user the 指令 to run.
+
+sketch plugin (https://github.com/allen-hsu/claude-code-sketch): when its tools are available and a gate's options need weighing, draw a `cards` picture first, then ask in AskUserQuestion. 不用 `compare` to choose: it opens its own picker. 沒裝 the plugin: ask as usual.
+
+The user installs the plugin and enables it only in `enabledPlugins` of `$OPSX_STATE_DIR/coordinator-settings.json`, the file `opsx lead` starts you with. The next `opsx init --global` rewrites that file and drops a hand-added `enabledPlugins`; tell the user to add it again.
 
 ## Report format
 
