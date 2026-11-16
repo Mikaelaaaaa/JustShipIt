@@ -146,22 +146,47 @@ assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "沒有東西排隊時不叫 herdr"
 
 # --- 寫入與補送互斥：有人拿著佇列的鎖時，寫入與補送都要等，鎖放掉才動（R1.1） ---
 # 寫入者先開檔、補送再換名讀走，之後寫進去的那則會跟著批次檔被刪掉；兩邊都在同一把鎖底下才不會發生
-hold_lock() { "$PY" -I -c 'import fcntl, sys, time; f = open(sys.argv[1], "w"); fcntl.flock(f, fcntl.LOCK_EX); open(sys.argv[2], "w").close(); time.sleep(float(sys.argv[3]))' "$OPSX_STATE_DIR/coordinator-queue.lock" "$FX/locked" "$1"; }
-reset; rm -f "$FX/locked"; hold_lock 2 & pl=$!
-n=0; until [ -e "$FX/locked" ] || [ "$n" -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
+# 持鎖到放行檔被刪掉為止：何時放鎖由測試決定，不靠持鎖幾秒
+hold_lock() { "$PY" -I -c 'import fcntl, os, sys, time
+f = open(sys.argv[1], "w"); fcntl.flock(f, fcntl.LOCK_EX); open(sys.argv[2], "w").write("x")
+while os.path.exists(sys.argv[3]): time.sleep(0.05)' "$OPSX_STATE_DIR/coordinator-queue.lock" "$FX/locked" "$FX/release"; }
+wait_for() { # <檔> <grep 樣式>：最多等 10 秒
+  local n=0; until grep -q -- "$2" "$1" 2>/dev/null || [ "$n" -ge 100 ]; do sleep 0.1; n=$((n + 1)); done
+  grep -q -- "$2" "$1" || fail "等不到 $1 出現 $2"
+}
+# 寫入者讀完畫面（fake 記到 agent read）之後只剩開檔寫入；有鎖就停在鎖前，沒鎖就在這 2 秒內寫出佇列檔
+reset; rm -f "$FX/locked"; : > "$FX/release"; hold_lock & pl=$!
+wait_for "$FX/locked" .
 OPSX_TEST_AGENT_READ="$FX/typed.ansi" say '[w] 鎖住時寫入' > /dev/null & pw=$!
-sleep 1
+wait_for "$OPSX_FAKE_LOG" '^agent read'
+n=0; until [ -e "$Q" ] || [ "$n" -ge 20 ]; do sleep 0.1; n=$((n + 1)); done
 assert_no_file "$Q"
-wait "$pl"; wait "$pw" || fail "鎖放掉後寫入 rc：$(cat "$FX/err")"
+rm -f "$FX/release"; wait "$pl"; wait "$pw" || fail "鎖放掉後寫入 rc：$(cat "$FX/err")"
 assert_eq "$(cat "$Q")" "[w] 鎖住時寫入" "鎖放掉後才寫進佇列"
-rm -f "$FX/locked"; hold_lock 2 & pl=$!
-n=0; until [ -e "$FX/locked" ] || [ "$n" -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
+# 補送讀完畫面之後只剩取走與送出；有鎖就停在鎖前，沒鎖就在這 2 秒內送出
+: > "$OPSX_FAKE_LOG"; rm -f "$FX/locked"; : > "$FX/release"; hold_lock & pl=$!
+wait_for "$FX/locked" .
 flush & pf=$!
-sleep 1
+wait_for "$OPSX_FAKE_LOG" '^agent read'
+n=0; until grep -q '^agent prompt' "$OPSX_FAKE_LOG" || [ "$n" -ge 20 ]; do sleep 0.1; n=$((n + 1)); done
 assert_eq "$(prompts)" 0 "鎖住時補送不能取走佇列"
 assert_file "$Q"
-wait "$pl"; wait "$pf" || fail "鎖放掉後補送 rc：$(cat "$FX/err")"
+rm -f "$FX/release"; wait "$pl"; wait "$pf" || fail "鎖放掉後補送 rc：$(cat "$FX/err")"
 assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [w] 鎖住時寫入" "鎖放掉後補送送出"
+assert_no_file "$Q"
+
+# --- 補送拿著批次、送到一半時另一個程序寫入：那則只進佇列，批次不動；下一次補送恰好送出一次（R1.1 驗收） ---
+reset; printf '[a] 先排的\n' > "$Q"; : > "$FX/hold"
+OPSX_TEST_PROMPT_HOLD="$FX/hold" flush & p1=$!
+wait_for "$OPSX_FAKE_LOG" '^agent prompt'
+OPSX_TEST_AGENT_READ="$FX/typed.ansi" say '[w] 送到一半時寫入' > /dev/null || fail "送到一半時寫入 rc：$(cat "$FX/err")"
+assert_eq "$(cat "$Q")" "[w] 送到一半時寫入" "寫入只進佇列"
+assert_eq "$(cat "$Q".sending.*)" "[a] 先排的" "第一個補送的批次不動"
+rm -f "$FX/hold"; wait "$p1" || fail "第一個 flush rc：$(cat "$FX/err")"
+flush || fail "第二次 flush rc：$(cat "$FX/err")"
+grep '^agent prompt' "$OPSX_FAKE_LOG" > "$FX/sent"
+assert_eq "$(grep -c '\[a\] 先排的' "$FX/sent")" 1 "先排的恰好送一次：$(cat "$FX/sent")"
+assert_eq "$(grep -c '\[w\] 送到一半時寫入' "$FX/sent")" 1 "中途寫入的恰好送一次：$(cat "$FX/sent")"
 assert_no_file "$Q"
 
 # --- 命令列參數不對：非 0，不叫 herdr ---
