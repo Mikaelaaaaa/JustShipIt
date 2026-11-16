@@ -23,6 +23,19 @@ case "$(rule_autopilot "$R")" in *'不用 AskUserQuestion'*'一個 Bash 呼叫�
 ctx_int="$(router interactive)"
 case "$ctx_int" in *" · $(rule_interactive)") ;; *) fail "router interactive 要以 ' · ' 接 rule_interactive: $ctx_int" ;; esac
 
+# 測試在 agent 的 worktree 跑，主 checkout 可能在別的分支：router 要看 worktree 有沒有 tests/run.sh
+mkdir -p "$R/openspec/changes/eval-wt"
+printf 'schema: opsx\ncreated: 2026-11-16\nkind: dev\n' > "$R/openspec/changes/eval-wt/.openspec.yaml"
+XW="$R/.claude/worktrees/eval-wt"
+git -C "$R" worktree add -q -b feat/eval-wt/mikaela "$XW"
+mkdir -p "$XW/tests/sub"; printf '#!/usr/bin/env bash\n' > "$XW/tests/run.sh"
+git -C "$XW" add tests/run.sh; git -C "$XW" commit -q -m "add runner"
+printf '{"Acmecorp-AI/eval-wt":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+ctx_wt="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$XW/tests/sub" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+case "$ctx_wt" in *'opsx：'*'eval-wt'*) ;; *) fail "router 沒認出 worktree 的卡 eval-wt: $ctx_wt" ;; esac
+case "$ctx_wt" in *'bash tests/run.sh'*) ;; *) fail "worktree 有 tests/run.sh、主 checkout 沒有，router 要注入 bash tests/run.sh: $ctx_wt" ;; esac
+
 # --- 2.1 render_agents_md ---
 source "$OPSX_ROOT/bin/lib/agents-md.sh"
 has() { case "$1" in *"$2"*) ;; *) fail "${3:-內容}缺 [$2]" ;; esac; }
@@ -100,6 +113,18 @@ assert_eq "$(cat "$TW/AGENTS.md")" "repo-rule-xyz" "tracked 的 AGENTS.md 不能
 has "$(cat "$TW/AGENTS.override.md")" 'repo-rule-xyz' override
 has "$(cat "$TW/AGENTS.override.md")" "$(rule_interactive)" override
 assert_eq "$(git -C "$TW" status --porcelain)" "" "override 不進 git"
+
+# repo 有 tests/run.sh：dispatch 出的 AGENTS.md 拿到 bash tests/run.sh 那段，place_agents_md 傳錯根就紅
+P="$(mk_repo Acmecorp-Runner git@gitlab.example.com:acmecorp/Acmecorp-Runner.git)"
+mkdir -p "$P/tests"; printf '#!/usr/bin/env bash\n' > "$P/tests/run.sh"
+git -C "$P" add tests/run.sh; git -C "$P" commit -q -m "add runner"
+mkdir -p "$P/openspec/changes/rn"; printf 'schema: opsx\ncreated: 2026-11-16\nkind: chore\n' > "$P/openspec/changes/rn/.openspec.yaml"
+printf '[repos]\n"Acmecorp-CS" = "acmecorp-ai"\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-Runner" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
+cd "$P"
+out="$(opsx dispatch rn --agent codex --mode autopilot --kind chore 2>&1)" || fail "dispatch codex 有 tests/run.sh 的 repo: $out"
+wait_drive Acmecorp-Runner rn
+has "$(cat "$P/.claude/worktrees/rn/AGENTS.md")" 'bash tests/run.sh' "有 tests/run.sh 的 worktree 的 AGENTS.md"
+opsx stop rn >/dev/null 2>&1 || fail "stop rn"
 
 # git dir 沒有 info/（自訂 template 的 repo）：exclude 要建得起來，AGENTS.md 不能留成會進 git 的檔
 G="$(mk_repo NoInfo)"

@@ -20,7 +20,8 @@ if [ -n "$slug" ] && [ -n "${OPSX_PY:-}" ]; then
   mode="$(card_mode "$(basename "$top")" "$slug" 2>/dev/null || true)"
   case "$mode" in
     autopilot|drive)
-      rule=" · $(rule_autopilot "$top")"
+      # 測試在 agent 所在的 worktree 跑，主 checkout 可能在別的分支，所以看 cwd 的 toplevel 不看 $top
+      rule=" · $(rule_autopilot "$(git -C "$(hook_cwd)" rev-parse --show-toplevel)")"
       if [ "$ev" = SessionStart ]; then
         lost_rc=0; lost_why="$(args_lost_status "$(basename "$top")" "$slug" "$mode")" || lost_rc=$?
         case "$lost_rc" in

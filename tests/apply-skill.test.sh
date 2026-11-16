@@ -81,4 +81,6 @@ has 'cd <worktree root>' "$SK"
 # agent-20261116-1405 Scenario：skill 的測試步驟依 repo
 has 'When the repo has `tests/run.sh`, the command is `bash tests/run.sh' "$SK"
 ! grep -qF 'In this repo the command is `bash tests/run.sh' "$SK" || fail "apply SKILL.md 不能無條件寫 bash tests/run.sh"
+! grep -qF '(`bash tests/run.sh <name>` filters by file name)' "$SK" || fail "apply SKILL.md 的檔名過濾說明要限於有 tests/run.sh 的 repo"
+! grep -qF 'and read its output file: `tests/run.sh` prints' "$SK" || fail "apply SKILL.md 的 START 進度說明要限於有 tests/run.sh 的 repo"
 echo ok
