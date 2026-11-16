@@ -40,7 +40,14 @@ look() { # <期望結果> <說明>：其餘條件由呼叫前設好的環境變�
     unavailable) assert_eq "$rc" 1 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_no_file "$Q" ;;
   esac
 }
-# 一般場景
+# 一般場景：實跑樣本（2026-11-16 協調者 pane w9:p2，--format ansi，輸入框空、裡面是 dim 的提示字）
+EMPTY_ANSI="$OPSX_ROOT/tests/fakes/herdr-samples/coordinator-empty.ansi"
+reset; OPSX_TEST_AGENT_READ="$EMPTY_ANSI" look sent "實跑樣本：輸入框只有 dim 的提示字"
+# 有字的畫面是手寫的：使用者沒空在協調者打字取樣，照實跑空樣本把 dim 的提示字換成一般顏色的字，其餘位元組不動
+perl -pe 's/\e\[2mPress up to edit queued messages/幫我看一下/' "$EMPTY_ANSI" > "$FX/typed.ansi"
+grep -q '幫我看一下' "$FX/typed.ansi" || fail "手寫的有字樣本沒換到輸入框那一行"
+reset; OPSX_TEST_AGENT_READ="$FX/typed.ansi" look queued "手寫樣本：❯ 後面有一般顏色的字"
+# 舊版 Claude Code 的純文字樣本（沒有提示字）
 reset; look sent "實跑樣本：只有 ❯"
 reset; OPSX_TEST_AGENT_READ="$(screen typed '❯ 幫我看一下')" look queued "❯ 後面有字"
 # 邊界場景
@@ -55,6 +62,12 @@ reset; got="$(OPSX_TEST_AGENT_GET_ERR=socket_unreachable say '[x] 一則')"; rc=
 assert_eq "$got" error "agent get 其他錯誤的結果"; assert_eq "$rc" 1 "agent get 其他錯誤的 rc"
 assert_eq "$(prompts)" 0 "agent get 其他錯誤不送"; assert_no_file "$Q"
 reset; OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"pane_id":"w3:p7","agent_status":"blocked"}}}' look unavailable "agent_status 是 blocked"
+# 色碼裡的 2 不是 dim：38;2;r;g;b 是顏色，接在後面的字仍算使用者打的
+reset; printf '\e[38;2;88;166;255m────\e[0m\n\e[38;2;138;144;149m❯ \e[0m\e[38;2;230;237;243m打到一半\e[0m\n\e[38;2;88;166;255m────\e[0m\n' > "$FX/color2"
+OPSX_TEST_AGENT_READ="$FX/color2" look queued "38;2 顏色裡的 2 不當成 dim"
+# dim 之後用 22 關掉：關掉之後的字算使用者打的
+reset; printf '────\n\e[38;2;138;144;149m❯ \e[0m\e[2m提示\e[22m真的字\n────\n' > "$FX/undim"
+OPSX_TEST_AGENT_READ="$FX/undim" look queued "22 關掉 dim 之後的字算有字"
 # 輸入框有好幾行：第一行是 ❯ 開頭，後面接著打的字
 reset; awk '{ print } /^❯$/ && !d { print "第二行"; d=1 }' "$SAMPLE" > "$FX/multi"; OPSX_TEST_AGENT_READ="$FX/multi" look queued "❯ 之後還有一行字"
 

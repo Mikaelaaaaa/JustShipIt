@@ -24,6 +24,7 @@ QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 RULE = re.compile(r"^\s*─{3,}\s*$")
 PROMPT = "❯"
+SGR = re.compile(r"\x1b\[([0-9;]*)m")
 
 
 def run(argv):
@@ -31,10 +32,43 @@ def run(argv):
     return p.returncode, p.stdout, p.stderr
 
 
+def dim_flag(params, dim):
+    """一個 SGR 序列套用後的 dim 狀態。38、48 的參數（38;2;r;g;b、38;5;n）要整段跳過，裡面的 2 不是 dim。"""
+    codes = params.split(";") if params else ["0"]
+    i = 0
+    while i < len(codes):
+        code = codes[i]
+        if code in ("38", "48"):
+            i += 5 if i + 1 < len(codes) and codes[i + 1] == "2" else 3
+            continue
+        if code in ("0", ""):
+            dim = False
+        elif code == "2":
+            dim = True
+        elif code == "22":
+            dim = False
+        i += 1
+    return dim
+
+
+def bright_text(line):
+    """去掉 ANSI 色碼，也去掉 dim 的字。Claude Code 空輸入框裡的提示字（Press up to edit queued messages）是 dim。"""
+    out, dim, pos = [], False, 0
+    for m in SGR.finditer(line):
+        if not dim:
+            out.append(line[pos:m.start()])
+        dim = dim_flag(m.group(1), dim)
+        pos = m.end()
+    if not dim:
+        out.append(line[pos:])
+    return "".join(out)
+
+
 def box_state(screen):
     """Claude Code 的輸入框是兩條 ─ 橫線夾住、第一行以 ❯ 開頭。只看畫面最下面那一個框。
+    畫面是 --format ansi：dim 的提示字不算使用者打的字。
     回 empty、typed，或 unknown（找不到這樣的框：在對話框裡、或不是 Claude Code）。"""
-    lines = screen.splitlines()
+    lines = [bright_text(line) for line in screen.splitlines()]
     rules = [i for i, line in enumerate(lines) if RULE.match(line)]
     if len(rules) < 2:
         return "unknown"

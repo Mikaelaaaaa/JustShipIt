@@ -138,7 +138,7 @@ bad_mode wait ""
 # --- 回報協調者：先看輸入框，空的才送；有字排進佇列也回 0；送不出去記 coordinator.log、回 1 ---
 reset; OPSX_TEST_COORDINATOR_UP=1 coordinator_say "[c] 停住" || fail "協調者在時要回 0"
 assert_eq "$(calls)" "agent get opsx-coordinator
-agent read w3:p7 --source visible --format text
+agent read w3:p7 --source visible --format ansi
 agent prompt opsx-coordinator [c] 停住" "coordinator_say 先讀輸入框再送"
 sed 's/^❯$/❯ 打到一半/' "$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt" > "$FX/typed-screen"
 reset; OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" coordinator_say "[c] 停住" || fail "輸入框有字排隊要回 0"
