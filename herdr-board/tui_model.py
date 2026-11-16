@@ -44,6 +44,9 @@ def _line(card: dict) -> str:
         detail = "%s %s/%s · %s" % (s.get("phase"), s.get("step"), s.get("total"), s.get("label"))
     else:
         detail = "階段 %s" % card.get("stage", "")
+    stopped = card.get("stopped")
+    if not w and stopped:
+        detail += " · 停住：%s %s" % (stopped["reason"], datetime.fromisoformat(stopped["at"]).strftime("%H:%M"))
     return "%s  %s  %s  %s" % (card.get("repo", ""), card.get("title") or card.get("slug"), detail, card.get("since") or "")
 
 

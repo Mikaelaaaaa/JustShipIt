@@ -988,14 +988,21 @@ done_report() { printf '# report\n\n## MR\nhttps://gitlab.example.com/a/b/-/merg
 CL="$FX/coord.log"; mkdir -p "$FX/cbin"
 printf '#!/usr/bin/env bash\nexec bash "%s/tests/fakes/herdr" "$@"\n' "$OPSX_ROOT" > "$FX/cbin/herdr"; chmod +x "$FX/cbin/herdr"
 sgc() { : > "$CL"; [ -n "${KEEP_SAID:-}" ] || rm -rf "$OPSX_STATE_DIR/stop-said"; PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" OPSX_TEST_COORDINATOR_UP=1 sg; }
+# 停住紀錄（看板讀）：第一行原因、第二行放行時間；推給協調者的去重另記在 .sent
+SAID="$OPSX_STATE_DIR/stop-said/Acmecorp-AI-eval-core"
+said() { sed -n "${1}p" "$SAID"; }
+said_fresh() { python3 -I -c 'import datetime, sys, time; sys.exit(0 if abs(time.time() - datetime.datetime.fromisoformat(sys.argv[1]).timestamp()) < 30 else 1)' "$(said 2)" || fail "停住紀錄的時間要是這次放行的時間：$(said 2)"; }
 printf '## 1. x\n\n- [x] 1.1 a\n- [ ] 1.2 b\n' > "$C/tasks.md"
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: 有未勾"; reason "$out" | grep -q '1 個 task 沒勾' || fail "stop: 沒 gates.md 要說幾個 task 沒勾"
 out="$(sgc)"; assert_eq "$(decision "$out")" block "stop: 擋住時不回報協調者"; assert_eq "$(cat "$CL")" "" "stop: 擋住時不回報協調者"
+assert_no_file "$SAID"
 out="$(sg true)"; assert_eq "$(decision "$out")" block "stop: stop_hook_active 不再是放行條件"
 printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
 out="$(sg)"; assert_eq "$out" "" "stop: 有未勾但有 open gate 放行"
+# 等人答 gate：coordinate 另送 gate 事件，這裡只記不推
 out="$(sgc)"; assert_eq "$out" "" "stop: open gate 放行（回報版）"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等人答 gate（apply 站）' "$CL"
+assert_not_grep '^agent prompt' "$CL"
+assert_eq "$(said 1)" "等人答 gate（apply 站）" "stop: open gate 放行記下原因"; said_fresh
 printf '## real-herdr\nstatus: answered\n' > "$C/gates.md"
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: gate 都 answered 仍擋未勾"; reason "$out" | grep -q '1 個 task 沒勾' || fail "stop: answered gate 要說幾個 task 沒勾"
 printf '## real-herdr\nstatus: open (等 push 授權)\n' > "$C/gates.md"
@@ -1015,40 +1022,25 @@ rm -f "$C/report.md"; out="$(sg)"; assert_eq "$(decision "$out")" block "stop: �
 done_report; sleep 1
 out="$(sg)"; assert_eq "$out" "" "stop: 全齊放行"
 out="$(sgc)"; assert_eq "$out" "" "stop: 全齊放行（回報版）"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 一輪做完，等 MR 合併' "$CL"
-assert_not_grep '完成 → 下一站' "$CL"
-# 同一行不重送；內容變了才再送
-out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 同一行放行（去重）"; assert_eq "$(cat "$CL")" "" "stop: 同一行不重送"
-printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
-out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 原因變了放行"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等人答 gate' "$CL"
-# 放行、被擋、再放行同一原因：被擋代表卡又動過，要再送
-rm -f "$C/gates.md"; printf '## 1. x\n\n- [x] 1.1 a\n- [ ] 1.2 b\n' > "$C/tasks.md"
-out="$(sg)"; assert_eq "$(decision "$out")" block "stop: 夾在兩次放行之間的擋"
-printf '## 1. x\n\n- [x] 1.1 a\n- [x] 1.2 b\n' > "$C/tasks.md"; printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
-out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 擋過之後同一原因放行"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等人答 gate' "$CL"
-# 協調者輸入框有字：回報排進佇列、不打進輸入框，hook 照常放行；排隊算交出去，同樣的 Stop 再來不再排一次
+# babysit 做完：coordinate 另送「可以合併」，這裡只記不推
+assert_not_grep '^agent prompt' "$CL"
+assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: babysit 做完記下原因"; said_fresh
+# 不推的等待，協調者輸入框有字時也不排進佇列
 QUEUE="$OPSX_STATE_DIR/coordinator-queue"; rm -f "$QUEUE"
 sed 's/^❯$/❯ 幫我看一下/' "$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt" > "$FX/typed-screen"
-out="$(OPSX_TEST_AGENT_READ="$FX/typed-screen" sgc)"; assert_eq "$out" "" "stop: 協調者輸入框有字照常放行"
+printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
+: > "$CL"; rm -rf "$OPSX_STATE_DIR/stop-said"
+out="$(printf '{"cwd":"%s"}' "$R" | PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" bash "$H/openspec-stop-gate.sh" 2>/dev/null)"
+assert_eq "$?" 0 "stop: 不推的等待在輸入框有字時 hook 以 0 結束"; assert_eq "$out" "" "stop: 不推的等待在輸入框有字時放行"
 assert_not_grep '^agent prompt' "$CL"
-assert_eq "$(grep -c . "$QUEUE")" 1 "stop: 回報排進佇列一行"
-assert_grep '^\[eval-core\] 停住：等人答 gate' "$QUEUE"
-out="$(KEEP_SAID=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" sgc)"; assert_eq "$out" "" "stop: 有字時同一行再放行"
-assert_eq "$(grep -c . "$QUEUE")" 1 "stop: 排過的同一行不再排"
-rm -f "$QUEUE" "$C/gates.md"
-# 協調者不在：hook 照常放行，只在 coordinator.log 記一行；送失敗不記，下一次 Stop 會再試
-rm -rf "$OPSX_STATE_DIR/stop-said"; : > "$OPSX_STATE_DIR/coordinator.log"
-out="$(PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" sg)"; assert_eq "$out" "" "stop: 協調者不在照常放行"
-assert_grep 'opsx-coordinator' "$OPSX_STATE_DIR/coordinator.log"
 assert_no_file "$QUEUE"
-out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 協調者回來後放行"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 一輪做完' "$CL"
-# 記去重的檔寫不進去（symlink）：回報照送，hook 仍以 0 放行
-rm -rf "$OPSX_STATE_DIR/stop-said"; mkdir -p "$OPSX_STATE_DIR/stop-said"; ln -s "$FX/nowhere" "$OPSX_STATE_DIR/stop-said/Acmecorp-AI-eval-core"
-printf '{"cwd":"%s"}' "$R" | PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" OPSX_TEST_COORDINATOR_UP=1 bash "$H/openspec-stop-gate.sh" > /dev/null 2>&1
-assert_eq "$?" 0 "stop: 去重檔寫不進去不能讓 hook 以非 0 結束"
+assert_eq "$(said 1)" "等人答 gate（babysit 站）" "stop: 輸入框有字照樣記下原因"
+rm -f "$C/gates.md"
+# 停住紀錄寫不進去（symlink 指向不存在的位置）：hook 仍以 0 放行，沒有擋停理由
+rm -rf "$OPSX_STATE_DIR/stop-said"; mkdir -p "$OPSX_STATE_DIR/stop-said"; ln -s "$FX/nowhere" "$SAID"
+out="$(printf '{"cwd":"%s"}' "$R" | PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" OPSX_TEST_COORDINATOR_UP=1 bash "$H/openspec-stop-gate.sh" 2>/dev/null)"
+assert_eq "$?" 0 "stop: 停住紀錄寫不進去不能讓 hook 以非 0 結束"; assert_eq "$out" "" "stop: 停住紀錄寫不進去照樣放行"
+assert_no_file "$FX/nowhere"
 rm -rf "$OPSX_STATE_DIR/stop-said"
 git -C "$R" commit -q --allow-empty -m "feat: later"   # report 之後又 commit
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: report 後有新 commit"
@@ -1061,19 +1053,29 @@ rm -f "$C/gates.md"; rm -rf "$STOP_STATE"
 out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"
 out="$(KEEP=1 sgc)"; assert_eq "$out" "" "stop: 擋滿放行（回報版）"
 assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：連續 3 次沒接 review' "$CL"
+assert_eq "$(said 1)" "連續 3 次沒接 review，已開「卡在接」gate" "stop: 擋滿放行記下原因"; said_fresh
 assert_grep '^## 卡在接 /review' "$C/gates.md"; assert_not_grep '卡在接 /babysit' "$C/gates.md"
 rm -f "$C/gates.md"; rm -rf "$STOP_STATE"
 # reviewer 在背景跑（status.json 是 review 且步數未到最後一步）：主 agent 結束 turn 不是沒接下一站，不計次、不寫 gate
 printf '{"phase":"review","step":2,"total":7,"label":"三個 reviewer 已派出","tests":"green","at":"2026-11-10T14:28:10+08:00"}' > "$C/status.json"
 out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"
 assert_eq "$out" "" "stop: reviewer 在跑連停五次都放行"
+# 還沒有 report.md 時卡在 review 站
+mv "$C/report.md" "$C/report.md.keep"
 out="$(sgc)"; assert_eq "$out" "" "stop: reviewer 在跑放行（回報版）"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等 reviewer' "$CL"
+assert_not_grep '^agent prompt' "$CL"
+assert_eq "$(said 1)" "等 reviewer（review 站）" "stop: reviewer 在跑記下原因"; said_fresh
 assert_eq "$([ -e "$C/gates.md" ] && echo y || echo n)" n "stop: reviewer 在跑不寫「卡在接 /review」gate"
 assert_eq "$([ -e "$STOP_STATE/Acmecorp-AI-eval-core" ] && echo y || echo n)" n "stop: reviewer 在跑不留擋的次數"
-# review 走到最後一步仍沒有 report.md：不再是「在等 reviewer」，照擋
+# 原因相同再放行：時間換成這次的
+printf '等 reviewer（review 站）\n2026-11-16T10:00:00+08:00\n' > "$SAID"
+out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: reviewer 在跑再放行"
+assert_eq "$(said 1)" "等 reviewer（review 站）" "stop: 同一原因再放行原因不變"; said_fresh
+mv "$C/report.md.keep" "$C/report.md"
+# review 走到最後一步仍沒有 report.md：不再是「在等 reviewer」，照擋，停住紀錄清掉
 printf '{"phase":"review","step":7,"total":7,"label":"report.md 寫好","tests":"green","at":"2026-11-10T14:40:00+08:00"}' > "$C/status.json"
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: review 最後一步 report 後有新 commit 照擋"
+assert_no_file "$SAID"
 printf '{"phase":"apply","step":8,"total":8,"label":"x","tests":"green","at":"2026-11-05T15:00:00+08:00"}' > "$C/status.json"
 rm -f "$C/gates.md"; rm -rf "$STOP_STATE"
 # 子 change 的 subagent 在背景做：主殼未勾但只能等通知，不計次、不寫 gate
@@ -1093,7 +1095,8 @@ mk_sub attach-cli subagent-attach-cli "$FRESH"
 out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"
 assert_eq "$out" "" "stop: subagent 在做未疊的子 change，連停五次都放行"
 out="$(sgc)"; assert_eq "$out" "" "stop: subagent 在做放行（回報版）"
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等背景 subagent' "$CL"
+assert_not_grep '^agent prompt' "$CL"
+case "$(said 1)" in 等背景\ subagent（*站）) ;; *) fail "stop: subagent 在做要記下等背景 subagent：$(said 1)" ;; esac
 assert_eq "$([ -e "$C/gates.md" ] && echo y || echo n)" n "stop: subagent 在做不寫「卡在接 /apply」gate"
 assert_eq "$([ -e "$STOP_STATE/Acmecorp-AI-eval-core" ] && echo y || echo n)" n "stop: subagent 在做不留擋的次數"
 printf '## 1. x\n\n- [x] 1.1 `attach-cli`：a\n- [ ] 1.2 `attach-board`：b\n' > "$C/tasks.md"
@@ -1158,7 +1161,14 @@ rm -rf "$C/subs"; rm -f "$C/gates.md"; rm -rf "$STOP_STATE"
 assert_eq "$( source "$OPSX_ROOT/bin/lib/stage.sh"; st_open_gates "$C" )" 0 "stop: 沒有 subs 也沒有 gates.md 是 0"
 # hook 自己寫的「卡在接」gate：建議是選項之一，不是 hook 內部說明
 printf '## 1. x\n\n- [ ] 1.1 a\n' > "$C/tasks.md"
-out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"
+out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"; out="$(KEEP=1 sg)"
+# 第 4 次放行時協調者輸入框有字：要推的回報排進佇列，不打進輸入框
+rm -f "$QUEUE"
+out="$(KEEP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" sgc)"; assert_eq "$out" "" "stop: 擋滿放行（輸入框有字）"
+assert_not_grep '^agent prompt' "$CL"
+assert_grep '^\[eval-core\] 停住：連續 3 次沒接 apply' "$QUEUE"
+assert_eq "$(said 1)" "連續 3 次沒接 apply，已開「卡在接」gate" "stop: apply 擋滿放行記下原因"
+rm -f "$QUEUE"
 assert_grep '^建議: 重做 /opsx-workflow:apply 一次，做不完就把卡在哪寫進 gates.md$' "$C/gates.md"
 assert_grep '^選項: 重做 /opsx-workflow:apply 一次' "$C/gates.md"
 assert_not_grep '先看 pane' "$C/gates.md"
@@ -1191,7 +1201,25 @@ reason "$out" | grep -q '/opsx-workflow:propose' || fail "stop: bug-fix 要叫 /
 reason "$out" | grep -q '/opsx-workflow:grill' && fail "stop: bug-fix 不提 /grill"
 # 沒有 explore.md → 不擋
 mv "$C/explore.md" "$C/explore.md.bak"; out="$(sg)"; assert_eq "$out" "" "stop: 沒 explore.md 不擋"
+# 站放行、沒有要擋的條件：沒有別的通知蓋得到，推給協調者
+out="$(sgc)"; assert_eq "$out" "" "stop: explore 站放行（回報版）"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：explore 站放行，沒有要擋的條件' "$CL"
+assert_eq "$(said 1)" "explore 站放行，沒有要擋的條件" "stop: explore 站放行記下原因"; said_fresh
+# 同一行不重送
+out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 同一行放行（去重）"; assert_eq "$(cat "$CL")" "" "stop: 同一行不重送"
+# 協調者不在：照常放行，coordinator.log 記一行；送失敗不算送過，下一次放行再試
+rm -rf "$OPSX_STATE_DIR/stop-said"; : > "$OPSX_STATE_DIR/coordinator.log"; : > "$CL"
+out="$(PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" sg)"; assert_eq "$out" "" "stop: 協調者不在照常放行"
+assert_grep 'opsx-coordinator' "$OPSX_STATE_DIR/coordinator.log"
+assert_not_grep '^agent prompt' "$CL"
+assert_no_file "$SAID.sent"
+assert_eq "$(said 1)" "explore 站放行，沒有要擋的條件" "stop: 送不出去照樣記下原因"
+out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 協調者回來後放行"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：explore 站放行' "$CL"
 mv "$C/explore.md.bak" "$C/explore.md"
+# 被擋：停住紀錄與推送去重都清掉
+out="$(sg)"; assert_eq "$(decision "$out")" block "stop: explore.md 寫好後擋"
+assert_no_file "$SAID"; assert_no_file "$SAID.sent"
 # 缺步的新卡（created 2026-11-11 之後）擋在 explore：router 注入 explore，Stop 列出缺的步驟
 printf 'schema: opsx\ncreated: 2026-11-12\nkind: bug-fix\n' > "$C/.openspec.yaml"
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: 新卡缺步要擋"
