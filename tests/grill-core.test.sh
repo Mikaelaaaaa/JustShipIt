@@ -90,6 +90,7 @@ assert_fixed '  - waits on gate: <gate id>' "$FX/auto"
 assert_fixed "The card's own \`grill.md\` and \`gates.md\`" "$FX/read"
 assert_fixed 'continue numbering after the last D' "$FX/read"
 assert_fixed 'If `grill.md` exists but an item in 待決 still carries `waits on gate:`' "$PROP"
+assert_fixed 'If there is no `grill.md` but `proposal.md` exists and 待決 still lists an item, stop the same way' "$PROP"
 assert_fixed 'if 2b changes it to anything else while there is neither `grill.md` nor `proposal.md`' "$PROP"
 
 # --- R2.3 explore 模板的待決註解 ---
