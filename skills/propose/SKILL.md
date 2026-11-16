@@ -132,7 +132,7 @@ Run `opsx check <name>` for every change, not only a main change with `subs/`: i
 
 If `openspec/workplan.yaml` exists, check whether this change is already listed:
 - **Listed** → verify status is `pending`, no action needed
-- **Not listed** → ask which PR group it belongs to (show existing PR groups from workplan), then add it. PR name must match `[a-z][a-z0-9_-]{0,31}` (it becomes the herdr agent name); branch `{feat|fix|chore|refactor|docs|sec}/<slug>/mikaela`; `depends-on` from design.md.
+- **Not listed** → ask which PR group it belongs to (show existing PR groups from workplan), then add it. PR name must match `[a-z][a-z0-9_-]{0,31}` (it becomes the herdr agent name); branch `{feat|fix|chore|refactor|docs|sec}/<slug>/mikaela`; `depends-on` from design.md. When the change touches only `openspec/`, add `mr: none` to the PR (`../explore/SKILL.md`, after the workplan example).
 
 If no workplan exists, create it with this one feature / PR / change; the commit gate turns on once the file exists.
 

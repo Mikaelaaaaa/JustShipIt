@@ -2,6 +2,7 @@
 # 主流程狀態判斷，純函式，參數明示（top、slug）。hook 的 router 和 drive.sh 都用這一份，
 # 所以「下一步是什麼」只有一個答案。要求檔 §8.3 Router 表。
 source "$(dirname "${BASH_SOURCE[0]}")/check.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"   # primary_remote；hooks/_lib.sh 只 source 這支
 
 # slug 含 `--` 是子殼：<主>--<子> 對到 changes/<主>/subs/<子>。只印路徑，不檢查存在
 st_card_dir() { # <top> <slug>
@@ -133,6 +134,18 @@ wp_pr_field() { # <top> <slug> <field>
   ' "$1/openspec/workplan.yaml"
 }
 st_workplan_merged() { [ "$(wp_pr_field "$1" "$2" status)" = merged ]; } # <top> <slug>
+# 這個 PR 本來就不開 MR（workplan 的 mr: none），且 branch 相對 <primary remote>/main 沒有自己的 commit：沒東西可推，下一站是 archive。
+# branch 或 base 查不到都不成立，交回 pr 處理。workplan 沒標就不跑 git，collect 掃整個 repo 時不多 fork。
+st_no_mr_done() { # <top> <slug>
+  local branch base
+  [ "$(wp_pr_field "$1" "$2" mr)" = none ] || return 1
+  branch="$(wp_pr_field "$1" "$2" branch)"
+  [ -n "$branch" ] || return 1
+  base="$(primary_remote "$1")/main"
+  git -C "$1" show-ref --verify --quiet "refs/heads/$branch" || return 1
+  git -C "$1" show-ref --verify --quiet "refs/remotes/$base" || return 1
+  [ "$(git -C "$1" rev-list --count "$base..refs/heads/$branch" 2>/dev/null)" = 0 ]
+}
 # 只看 frontmatter（第一行是 --- 才算有）裡第一個 split_into:；空值、[]、""、''、~、null 算沒拆
 st_split_into() {
   local line n=0 empty='^(\[ *\]|""|'"''"'|~|null)?$'
@@ -170,6 +183,7 @@ stage_of() { # <top> <slug>
   if [ -f "$d/report.md" ]; then
     if st_mr_in_report "$d"; then printf 'babysit · %s · %s · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）\n' "$slug" "$kind"
     elif [ -f "$d/tasks.md" ] && [ "$(st_tasks_open "$d")" -gt 0 ]; then printf 'apply · %s · %s · %s（review 退回了 task，先做完）\n' "$slug" "$kind" "$reads"
+    elif st_no_mr_done "$top" "$slug"; then printf 'archive · %s · %s · skills/archive/SKILL.md（沒有 MR：workplan mr: none、branch 沒有 commit）\n' "$slug" "$kind"
     else printf 'pr · %s · %s · skills/pr/SKILL.md · skills/pr/references/mr-note.md\n' "$slug" "$kind"; fi; return
   fi
   if [ -f "$d/tasks.md" ]; then

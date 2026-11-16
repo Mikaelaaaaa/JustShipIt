@@ -5,7 +5,8 @@
 #   （report.md 有「確認: <sha>」且 HEAD 等於該 sha 時不算）、report.md 的「待修（範圍內）」還有項目；
 #   explore 站（explore.md 已存在、卡建立日期晚於 2026-11-10）## 步驟 不齊；
 #   grill / propose / pr / babysit 站該 invoke 下一站而沒有會擋的 open gate；
-#   babysit 站若 forge 說 MR 已合併（workplan 還沒標 merged），下一站改成 /archive。
+#   babysit 站若 forge 說 MR 已合併（workplan 還沒標 merged），下一站改成 /archive；
+#   workplan 標 mr: none 且 branch 沒有 commit 的卡在 archive 站也推 /archive（workplan 標 merged 的 archive 站不推）。
 # 同一站最多擋 MAX_BLOCKS 次，再停就由這支 hook 寫「卡在接 /<站>」gate 放行；不看 stop_hook_active。
 # 背景工作（Monitor、背景 Bash、背景 subagent）還在跑時放行且不計次；「卡在接」gate 剛答覆的那一輪照擋但不計次。
 # 要求檔 §8.5。
@@ -126,7 +127,7 @@ $missing
     fi
   fi
   case "$stage" in
-    grill|propose|pr|babysit) ;;
+    grill|propose|pr|babysit|archive) ;;
     *) return 0 ;;
   esac
   [ "$(st_open_gates_blocking "$d")" -gt 0 ] && return 0
@@ -217,6 +218,8 @@ slug="$(card_slug)"
 stage="$(stage_name "$(repo_top)" "$slug")"
 case "$stage" in
   explore|grill|propose|apply|review|pr|babysit) ;;
+  # 沒有 MR 的卡 review 完就該歸檔；workplan 標 merged 的 archive 站不推
+  archive) st_no_mr_done "$(repo_top)" "$slug" || exit 0 ;;
   *) exit 0 ;;
 esac
 

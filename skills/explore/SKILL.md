@@ -160,6 +160,8 @@ features:
 
 Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-infra`), or individual changes.
 
+A PR whose changes touch only `openspec/` (not in git, so nothing to push) gets `mr: none` next to its `status`. Once review is done and its branch has no commits beyond `<primary remote>/main`, the next stage is `/opsx-workflow:archive` instead of `/opsx-workflow:pr`. Leave it off any PR that changes tracked files.
+
 This file is the **planning artifact** (not authoritative state) for:
 - Which changes belong to which PR, which PRs belong to which feature
 - Which branch each PR uses

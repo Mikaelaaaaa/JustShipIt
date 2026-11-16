@@ -76,7 +76,9 @@ opsx_drive() {
     local stage; stage="$(stage_name "$top" "$slug")"
     case "$stage" in
       archive)
-        say "drive: $slug 已 merged，結束"; return 0 ;;
+        if st_no_mr_done "$top" "$slug"; then say "drive: $slug 沒有 MR（workplan mr: none、branch 沒有 commit），下一步 /opsx-workflow:archive，結束"
+        else say "drive: $slug 已 merged，結束"; fi
+        return 0 ;;
       split)
         say "drive: $slug 已拆成別的卡，結束"; return 0 ;;
       babysit)
