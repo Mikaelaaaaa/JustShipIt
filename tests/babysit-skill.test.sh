@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# skills/babysit/SKILL.md：threads-only 的 push wave 之後、回覆之前照 pr 步 5c 重產邏輯表檔案（不發留言）；
+# skills/babysit/SKILL.md：threads-only 的 push wave 之後、回覆之前照 review 的產表步重產邏輯表檔案（不發留言）；
 # check、merge 與沒 push 的輪次不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 SK="$OPSX_ROOT/skills/babysit/SKILL.md"
@@ -13,9 +13,9 @@ STEP="$FX/step8"
 awk '/^8\. /{on=1} /^9\. /{on=0} on' "$SK" > "$STEP"
 [ -s "$STEP" ] || fail "skills/babysit/SKILL.md 沒有步 8"
 
-# --- 重產照 pr 步 5c，不複製指令；編輯 report.md 記的那則 ---
-assert_fixed '../pr/SKILL.md' "$STEP"
-assert_fixed 'step 5c' "$STEP"
+# --- 重產照 review 的產表步，不複製指令；編輯 report.md 記的那則 ---
+assert_fixed '../review/SKILL.md' "$STEP"
+assert_fixed 'step 1b' "$STEP"
 assert_fixed '## 邏輯表' "$STEP"
 assert_fixed 'openspec/changes/<slug>/logic-map.md' "$STEP"
 ! grep -qF 'gh pr comment' "$STEP" || fail "babysit 複製了 5c 的指令"
@@ -31,8 +31,9 @@ if not push < regen < reply:
     sys.exit("順序：push=%d regen=%d reply=%d" % (push, regen, reply))
 PY
 
-# --- R1.4 只跑 5c 的子步，出口回 babysit 回覆，不走 pr 步 6（它會再叫 babysit）；remote 照 pr 步 1 的規則 ---
-assert_fixed 'run sub-steps 1–4 of `../pr/SKILL.md` step 5c' "$STEP"
+# --- R1.4 只跑產表步的子步，出口回 babysit 回覆，不走 pr 步 6（它會再叫 babysit）；remote 照 pr 步 1 的規則 ---
+assert_fixed 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' "$STEP"
+assert_not_fixed 'step 5c' "$STEP"
 assert_fixed 'come back here and reply to the threads; never run pr step 6' "$STEP"
 assert_fixed '`<remote>` is the primary remote by pr step 1'"'"'s rule' "$STEP"
 

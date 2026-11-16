@@ -41,11 +41,37 @@ git log --oneline main...HEAD > /tmp/review-<slug>-commits.txt
 
 Paths to hand every agent: project root, branch, `proposal.md`, `design.md` (D-ids), `tasks.md`, `grill.md` if present, `CLAUDE.md`, `ARCHITECTURE.md`, `CONTEXT.md` when they exist. Scope from `$ARGUMENTS`: a slug, an MR number (`glab mr diff <n>`), or auto-detect the one in-progress change; several → **AskUserQuestion**.
 
+## Step 1b: logic map
+
+Every round builds the logic map of the current head before the reviewers start, so the bugs in it reach Agent A and the product decisions in it reach the user before the MR opens. Wait for the map before Step 2. The confirm pass and the base-merge confirm pass in Step 4 do not run this step. `/opsx-workflow:pr` step 5c and babysit run sub-steps 1–4 below when the head has moved since.
+
+1. `git fetch <remote> main`. `<remote>` is the primary remote by pr step 1's rule: `gitlab` in Acmecorp-AI and Acmecorp-Infrastructure, otherwise `origin`. A stale local `main` gives an old merge-base, and the map would include other people's commits. When the fetch exits non-zero, the map would be built on that stale base: take the failure path of sub-step 3 with `產表失敗：fetch 失敗`.
+2. `<map path>` is the absolute path of `openspec/changes/<slug>/logic-map.md` in the checkout that holds `openspec/`. In a dispatch worktree that is the main checkout, not the current directory, so every command below uses the absolute `<map path>`, never a relative one. Delete `<map path>` before spawning: `openspec/` is not in git, so the previous run's map is still on disk, and only a file this run wrote can count as success in sub-step 3. Spawn one fresh subagent with the Agent tool (general-purpose). The prompt is exactly these five lines, with absolute paths written in:
+
+   ```
+   repo: <absolute path of this checkout>
+   range: <remote>/main...HEAD
+   output: <map path>
+   design: <absolute path of openspec/changes/<slug>/design.md>
+   Load <absolute path of ../logic-map/SKILL.md, next to this skill> and follow it.
+   ```
+
+   Nothing else goes into the prompt: no spec, proposal, report, tasks, explore, grill, conversation, PR title or description. The map exists to show where the code and the intent differ, and an agent that has read the intent describes the intent. design.md is the one exception, and the logic-map skill reads it only after the condition tables are final, to sort the ⚠ marks.
+3. Without the Agent tool (codex, for example), never build the map in this session: it has read the intent. Write `產表失敗：無 Agent 工具`. When the subagent fails, or `<map path>` does not exist afterwards, write `產表失敗：<reason>` with the first line of its report. A failure line replaces the one line under `## 邏輯表` (add the heading when it is missing), the same way sub-step 4 overwrites it; never write it as a second line. Then end this step and go on to the caller's next step. A failed map stops nothing.
+4. Write the `## 邏輯表` section of report.md. It holds one line, and a later run must overwrite the whole line, not append:
+
+   ```
+   ## 邏輯表
+   openspec/changes/<slug>/logic-map.md · <head sha 前 7 碼>
+   ```
+
+Then read the map's `### ⚠ 要看的地方` lists for Step 2 and Step 4: `bug：違反 design Dn` items go to Agent A; `沒經過決定` items, and every item of a map that says 沒有 design.md，未分類, go to the gate in Step 4; `程式整理` items and the 照 design D line stay on the map for the user to read.
+
 ## Step 2: three agents, one message
 
 A small card spawns one merged reviewer (model `claude-sonnet-5-5`) instead: it gets both the Agent A brief and the Agent B brief below and returns one list in the shape below with `AGENT: AB`; Agent C does not run. Any other card spawns all three in a single message so they run concurrently. None of them sees the others' output. Each reads the diff and every changed file in full, plus two or three sibling files per changed file for the local pattern.
 
-**Agent A, spec conformance** (model `claude-sonnet-5-5`). For each D-id in design.md: the file:line that implements it, or a finding. Goals have code; non-goals have none (scope creep is a finding). Each `- [x]` task does what it says, and its `測試：` file tests the `驗收：` scenario it names. Risks in design.md have their stated mitigation. Classification: BUG = task checked and the diff has no code for it (cite task number, plus the D-id it serves); MUST_FIX = the diff has code for the task or goal but it contradicts a decision (cite D-id), even if the task feels unfinished. For a Scenario with an Examples table (a Scenario Outline), every row needs a matching case in the `測試：` file; a missing row is MUST_FIX, since the task's code is there but the tests do not prove every row its `驗收：` points at, and the finding names the missing row. Do not flag trade-offs design.md already acknowledges. Also return `D_TABLE`: one row per D-id in design.md, followed as well as violated; a followed D gets its file:line, a violated D points at its finding.
+**Agent A, spec conformance** (model `claude-sonnet-5-5`). For each D-id in design.md: the file:line that implements it, or a finding. Goals have code; non-goals have none (scope creep is a finding). Each `- [x]` task does what it says, and its `測試：` file tests the `驗收：` scenario it names. Risks in design.md have their stated mitigation. Classification: BUG = task checked and the diff has no code for it (cite task number, plus the D-id it serves); MUST_FIX = the diff has code for the task or goal but it contradicts a decision (cite D-id), even if the task feels unfinished. For a Scenario with an Examples table (a Scenario Outline), every row needs a matching case in the `測試：` file; a missing row is MUST_FIX, since the task's code is there but the tests do not prove every row its `驗收：` points at, and the finding names the missing row. Do not flag trade-offs design.md already acknowledges. Also return `D_TABLE`: one row per D-id in design.md, followed as well as violated; a followed D gets its file:line, a violated D points at its finding. Also confirm every `bug：違反 design Dn` item of the logic map that the lead hands over (Step 1b): read the code at the node's 位置 and the design Dn it names, and return a finding with that `d_id` when the code really contradicts it; say so in SUMMARY when it does not.
 
 **Agent B, code quality** (model `claude-sonnet-5-5`). Knows nothing about the spec. Reviews for the six ponytail categories, each finding with a concrete failure case or it is downgraded: bug (input → wrong output), 安全 (trust boundary crossed without validation), 負載 (what breaks at 10× rows or users), 沒測試的風險 (new branch / loop / parser / money / auth with no test), 慢 (N+1, unbounded scan, sync I/O in a hot path), 多餘 (dead code, unused dep, duplicate helper, abstraction with one caller). Plus the code-quality lens from `../interrogate/references/code-quality-review.md`. MUST_FIX requires quoting the convention line from CLAUDE.md / ARCHITECTURE.md. Read `references/ponytail-review.md` for the category definitions.
 
@@ -81,6 +107,8 @@ Read `../interrogate/references/lead-judgment.md`. Merge: same file:line from tw
 
 Evidence you cannot verify downgrades the finding one level, so an unverifiable finding in scope goes to Consider, not back to apply.
 
+A logic-map bug item that Agent A confirms is an ordinary MUST_FIX against its design Dn and goes through the scope rule below. A logic-map bug item that Agent A does not confirm goes to Dismissed, with Agent A's reason.
+
 Then scope every BUG and MUST_FIX left in Act on. 範圍內 = the failure scenario cannot happen on main (a caller this change broke counts); run the scenario on main when you can. When it cannot be run, 範圍內 = the cited file:line is inside the added or changed lines of `git diff -U0 main...HEAD` (take `main` as the remote default branch, `origin/main` after `git fetch`; a stale local main pulls already-merged code into scope, and the "on main" scenario runs on the same base). 範圍外 = the scenario happens on main too. Only 範圍內 BUG and MUST_FIX are sent back to `/opsx-workflow:apply`.
 
 Run `opsx check <slug>` and read every `Must-fix 候選` line it prints: the card's explore.md wrote 影響範圍 as skip, yet the diff touches a file other files reference. A candidate is a grep hit, not proof: it misses shell variables and config keys, and it flags files only their own tests reference. Read the cited reference yourself; a candidate you confirm is a Must-fix, and review sends it back to explore (the `## R<N>. review 退回` group in tasks.md, so `/opsx-workflow:apply` and explore's 影響範圍 step redo it); one you cannot confirm goes to Consider.
@@ -91,11 +119,13 @@ A BUG of the kind 「task 已勾但沒實作」 is 範圍內: the task is this c
 
 ## Step 4: hand back, do not fix
 
-In this step review changes no code: it touches only `tasks.md`, `report.md` and the inbox.
+In this step review changes no code: it touches only `tasks.md`, `report.md`, `gates.md`, `design.md` (for an answered logic-map gate) and the inbox.
 
 - **範圍內, verified.** Append a group `## R<N>. review 退回` to tasks.md, one task per finding, each with the same `驗收：` and `測試：` sub-lines as any task (the `測試：` is the finding's regression test). List each under `### 待修（範圍內）` in report.md with its file:line. Then invoke `/opsx-workflow:apply <slug>` in this turn: apply writes the test first, fixes, checks the task off.
 - **範圍外.** Do not fix it in this PR. Run `opsx new --type <bug|技術債|功能|想法|待定> --kind-of-work planned --repo <top> -- "<finding, failure scenario, path:line, 優先度 P2>"` (a security or data-loss incident takes the priority workplan-priority gives it instead of P2: `--kind-of-work incident --impact <值,…> --evidence "<一行>"`). `opsx new` refuses a card from a worker without `--kind-of-work`, and marks its source `agent:<this card>` by itself, so 不要帶 `--source` (`--source me` is refused for a dispatch agent, wherever its cwd is). `--type` defaults to `bug`; only a P2 `bug` or `技術債` that names a file another unstarted card also names is merged, so write the file as `path:line` in the one line or in `--evidence`. Put everything about the finding into the one-line text and `--evidence` before you know whether it merges, because nothing can amend them afterwards. The printed slug may be an existing card that this finding was merged into (stderr says `併進 <target>（id <id>）`); never edit that card's `## 證據`, and when the evidence did not fit, give the finding its own card with `opsx split-out <target> <id>` and write the rest there. Write `開卡 <slug>` on the finding's line in Consider.
 - **Unverifiable or a design question.** Consider, as before.
+- **Logic map, undecided.** Every `沒經過決定` item of the map, and every item of a map that says 沒有 design.md，未分類, goes into one gate in `gates.md` with id `logic-map-undecided` and `type: decision`, not verified by you or the reviewers: they are product decisions, not defects. Number the items, quote each one with its node, and give each 2 to 4 options with the first marked Recommended, so the user can answer them all at once (`1A 2B`). `程式整理` items and 照 design D items never go into the gate. With no such item, write no gate.
+- **Logic map gate answered.** When the answer to `logic-map-undecided` arrives, write each item's answer into design.md as a new D, numbered after its largest D, with the 理由 line `使用者 <日期> 回邏輯表 ⚠ 選 <選項>`. An answer that changes the code becomes a task in a `## R<N>. review 退回` group (with `驗收：` and `測試：` like any task) and the card goes to `/opsx-workflow:apply <slug>`; when no answer changes the code, continue to `/opsx-workflow:pr <slug>`. This is not a round: the round count in report.md does not change.
 - **Confirm pass** (round 2 is done and its R tasks are checked): re-read only the diff of the fixed items, not the whole change. Move each confirmed item from `待修（範圍內）` to Act on with the fixing commit, and write one line `確認: <sha>` (the current HEAD) in report.md. An item that is still wrong is not sent back to `/opsx-workflow:apply` (every R task is already checked, so apply would have nothing to do and the card would loop): it gets a `type: decision` gate, and the flow waits for the user. No third full review.
 - **Base-merge confirm pass** (the branch merged the base branch, `origin/main` or the forge's main, after the last review round, and the merge commit is the only thing new): this does not count as a round, so it never uses up round 2. Re-read only the merge commit's conflict resolutions and the diff of the files the change touches, run the change's tests, then write one line `確認: <sha>` (the current HEAD) in report.md. The Stop hook treats `確認: <sha>` as covering HEAD when no ordinary commit of the branch itself (first-parent, merge commits excluded) lies between `<sha>` and HEAD, so the merge does not send the card back to review. The merged side must already be on a remote-tracking branch (`git branch -r --contains <second parent>`); a local side branch merged in carries unreviewed work and needs a real review round, like any commit the branch adds after the merge.
 
@@ -125,6 +155,9 @@ If a hook or safety check blocks any action here, follow `../../references/harne
 
 確認: <sha>   <!-- 只在第 2 輪後的確認 pass 寫 -->
 
+## 邏輯表
+<Step 1b 寫的那一行；確認 pass 照抄上一輪的>
+
 ## 測試
 <test agent 最後一次的摘要：N passed，lint 狀態>
 
@@ -134,7 +167,7 @@ If a hook or safety check blocks any action here, follow `../../references/harne
 
 A later round rewrites the file from this template but keeps an existing `## MR` section verbatim: `/opsx-workflow:pr` appends it, and the router and merge read the URL from it.
 
-`opsx status review 7/7 "report.md 寫好"`. Reply with the bucket counts, what was sent back to apply, which inbox cards were opened, what the user should look at in Consider, and the two closing lines. Then continue per `../../references/continue.md`: `/opsx-workflow:apply <slug>` while `待修（範圍內）` has items, otherwise `/opsx-workflow:pr <slug>`, in this turn, unless a gate is open. Consider never opens a gate and never sends the card back to apply. Only an item that needs a user decision and cannot be fixed opens a gate.
+`opsx status review 7/7 "report.md 寫好"`. Reply with the bucket counts, what was sent back to apply, which inbox cards were opened, what the user should look at in Consider, and the two closing lines. Then continue per `../../references/continue.md`: `/opsx-workflow:apply <slug>` while `待修（範圍內）` has items, otherwise `/opsx-workflow:pr <slug>`, in this turn, unless a gate is open. Consider never opens a gate and never sends the card back to apply. Only an item that needs a user decision and cannot be fixed opens a gate. A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`. While `logic-map-undecided` is open, reply with its question and stop.
 
 ## Guardrails
 
