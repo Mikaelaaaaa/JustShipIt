@@ -49,7 +49,7 @@ opsx_collect() {
   # stage 用 stage_of，MR 用 mr_json，不另算；這裡不 fork python，1000 張卡就是 1000 次啟動。mr_json 只對有 MR 的卡跑。
   # repo 的判準：<root>/<name>/openspec/changes 存在，而且 <name>/.git 是目錄。linked worktree 的 .git 是檔案，跳過，
   # 不然 Acmecorp-AI-langflow、*-wt-* 會被當成別的 repo。archive 只取最新 N 張，已完成不能無限長。
-  local repo_dir repo d slug archived stage mrfile n=0 archive_cap="${OPSX_COLLECT_ARCHIVE_CAP:-30}" seen_archive real
+  local repo_dir repo d slug archived stage mrfile no_mr n=0 archive_cap="${OPSX_COLLECT_ARCHIVE_CAP:-30}" seen_archive real
   : > "$work/cards.tsv"; : > "$work/legacy"; : > "$work/seen"; mkdir -p "$work/mr"
   # repo 清單（D1）：<root>/*/ 加上 sources.toml 登記的 path，init 過的 repo 不在 root 底下也算（opsx-workflow 在 ~/code/<子資料夾>/）
   local -a repo_dirs=()
@@ -76,9 +76,11 @@ opsx_collect() {
         *) if collect_is_legacy "$d"; then printf '%s\n' "$repo" >> "$work/legacy"; continue; fi
            archived=false; stage="$(stage_name "${repo_dir%/}" "$slug")" ;;
       esac
-      mrfile=""
+      mrfile=""; no_mr=false
       if [ "$archived" = false ] && st_mr_in_report "$d"; then n=$((n+1)); mrfile="$work/mr/$n.json"; OPSX_MR_STALE_OK=1 mr_json "$d" > "$mrfile"; fi
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$slug" "$d" "$archived" "$stage" "$mrfile" >> "$work/cards.tsv"
+      # archive 站有兩種：workplan 已 merged（做完了），或沒有 MR、還在等 /archive（沒做完）
+      if [ "$archived" = false ] && [ "$stage" = archive ] && st_no_mr_done "${repo_dir%/}" "$slug"; then no_mr=true; fi
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$repo" "$slug" "$d" "$archived" "$stage" "$mrfile" "$no_mr" >> "$work/cards.tsv"
     done
   done
   [ -f "$work/repos" ] || : > "$work/repos"; [ -f "$work/worktrees" ] || : > "$work/worktrees"
@@ -293,7 +295,7 @@ now = os.environ["OPSX_C_NOW"]
 now_dt = datetime.datetime.fromisoformat(now)
 for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     if not line: continue
-    repo_, slug_, dir_, archived_, stage_, mrfile = line.split("\t")
+    repo_, slug_, dir_, archived_, stage_, mrfile, no_mr_ = line.split("\t")
     c = {"repo": repo_, "slug": slug_, "dir": dir_, "archived": archived_ == "true", "stage": stage_,
          "mr": json.loads(read(mrfile)) if mrfile else None}
     d = c["dir"]
@@ -311,7 +313,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
     waiting = None if c["archived"] else waiting_of(c, gates, agent_status)
-    if c["archived"] or c["stage"] in ("archive", "split"): section = "已完成"
+    if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
     elif waiting: section = "待處理"
     elif disp: section = "進行中"
     elif c["stage"] == "explore": section = "收件匣"
@@ -446,7 +448,7 @@ for repo in repos:
     counts = dict.fromkeys(PROGRESS_CLASSES, 0)
     for c in cards:
         if c["repo"] != repo: continue
-        live = not c["archived"] and c["stage"] not in ("archive", "split")
+        live = c["section"] != "已完成"
         c["progress_class"] = progress_class(c, repo_paths[repo], prs) if live and (owned is None or c["slug"] in owned) else None
         if c["progress_class"]: counts[c["progress_class"]] += 1
     planned = [pr["name"] for f in scoped for pr in f.get("prs") or []

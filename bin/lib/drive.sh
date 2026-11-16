@@ -74,11 +74,9 @@ opsx_drive() {
       esac
     fi
     local stage; stage="$(stage_name "$top" "$slug")"
+    # archive 站有兩種：workplan 已 merged 就收工；沒有 MR 的卡還沒歸檔，跟其他站一樣送指令
+    if [ "$stage" = archive ] && ! st_no_mr_done "$top" "$slug"; then say "drive: $slug 已 merged，結束"; return 0; fi
     case "$stage" in
-      archive)
-        if st_no_mr_done "$top" "$slug"; then say "drive: $slug 沒有 MR（workplan mr: none、branch 沒有 commit），下一步 /opsx-workflow:archive，結束"
-        else say "drive: $slug 已 merged，結束"; fi
-        return 0 ;;
       split)
         say "drive: $slug 已拆成別的卡，結束"; return 0 ;;
       babysit)
@@ -88,7 +86,7 @@ opsx_drive() {
           none)  say "drive: $slug report.md 有 MR 但 glab 讀不到，等 $poll 秒再看"; sleep "$poll"; settled=0 ;;
           *)     say "drive: $slug MR 卡在 $mr → /opsx-workflow:babysit"; herdr_step "$slug" runtime_prompt "$DRIVE_REPO/$slug" "/opsx-workflow:babysit $slug" wait || return 0; sleep "$poll"; settled=0 ;;
         esac ;;
-      explore|grill|propose|apply|review|pr)
+      explore|grill|propose|apply|review|pr|archive)
         # 上一輪送出後 pane 有背景工作：不重送。指紋動了就照常往下；還在跑就再等；不跑了指紋仍沒動才算卡住
         if [ -n "$bg_fp" ]; then
           if [ "$(stage_fingerprint "$top" "$slug")" != "$bg_fp" ]; then bg_fp=""

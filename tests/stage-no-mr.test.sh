@@ -61,4 +61,14 @@ assert_eq "$(stage "$R" c)" pr "base 不存在"
 R="$(fixture child)"; workplan "$R" docs-pr "mr: none"; git -C "$R" branch -q feat/c/mikaela HEAD
 assert_eq "$(stage "$R" c)" archive "change 名對到 PR"
 
+# 邊界：review 退回的 task 沒勾 → apply（無 MR 的判斷排在未勾 task 之後）
+R="$(fixture reopened)"; workplan "$R" c "mr: none"; git -C "$R" branch -q feat/c/mikaela HEAD
+printf '## 1\n- [x] 1.1 a\n\n## R1. review 退回\n- [ ] R1.1 b\n' > "$R/openspec/changes/c/tasks.md"
+assert_eq "$(stage "$R" c)" apply "退回的 task 沒做完"
+
+# 邊界：report.md 已有 MR 網址 → babysit（無 MR 的判斷排在 MR 網址之後）
+R="$(fixture hasmr)"; workplan "$R" c "mr: none"; git -C "$R" branch -q feat/c/mikaela HEAD
+printf '# report\n\n## MR\nhttps://gitlab.example.com/g/p/-/merge_requests/9\n' > "$R/openspec/changes/c/report.md"
+assert_eq "$(stage "$R" c)" babysit "已開 MR"
+
 echo "stage-no-mr ok"

@@ -146,6 +146,14 @@ st_no_mr_done() { # <top> <slug>
   git -C "$1" show-ref --verify --quiet "refs/remotes/$base" || return 1
   [ "$(git -C "$1" rev-list --count "$base..refs/heads/$branch" 2>/dev/null)" = 0 ]
 }
+# 這一站能不能送 /opsx-workflow:<stage> 給 agent：一般各站可以；archive 只有沒 MR、還沒歸檔的卡可以，workplan 已 merged 的卡沒東西要送
+st_sendable_stage() { # <top> <slug> <stage>
+  case "$3" in
+    explore|grill|propose|apply|review|pr|babysit) return 0 ;;
+    archive) st_no_mr_done "$1" "$2" ;;
+    *) return 1 ;;
+  esac
+}
 # 只看 frontmatter（第一行是 --- 才算有）裡第一個 split_into:；空值、[]、""、''、~、null 算沒拆
 st_split_into() {
   local line n=0 empty='^(\[ *\]|""|'"''"'|~|null)?$'
