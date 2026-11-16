@@ -27,6 +27,10 @@ has '主 checkout' "$P"
 has 'bash tests/run.sh' "$P"
 has 'cd <worktree root>' "$P"
 ! grep -qE '^[[:space:]]*(`)?OPSX_ROOT=' "$P" || fail "propose SKILL.md 不能有 OPSX_ROOT= 開頭的測試指令範例"
+# agent-20261116-1405 Scenario：skill 的測試步驟依 repo；skill 不再無條件規定 bash tests/run.sh
+has 'When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh' "$P"
+has "use the repo's own test command" "$P"
+! grep -qF 'Run tests only as `bash tests/run.sh' "$P" || fail "propose SKILL.md 不能無條件寫 bash tests/run.sh"
 
 # 驗收：openspec/changes/propose-gherkin/subs/propose-specs-rewrite/specs/propose-spec-guidance/spec.md 五個 Scenario
 hasnt() { ! grep -qE -- "$1" "$2" || fail "'$1' should not be in $(basename "$2"): $(grep -nE -- "$1" "$2")"; }
