@@ -51,6 +51,11 @@ assert_fixed 'overwrites the whole line' "$STEP"
 assert_fixed 'does not stop /pr' "$STEP"
 assert_not_fixed 'go on to step 6' "$STEP"
 
+# --- R1.3 router 在 gate 答完後送到 pr：pr 先認 logic-map-undecided，open 就停，答了沒寫回就先照 review 寫回 ---
+awk 'index($0,"## Where you are")==1{on=1;next} /^## /{on=0} on' "$SK" > "$FX/where"
+assert_fixed 'If gates.md has an open `logic-map-undecided` gate, stop and repeat its question.' "$FX/where"
+assert_fixed 'If it is answered and has no `寫回:` line, run the **Logic map gate answered** step of `../review/SKILL.md` Step 4 first' "$FX/where"
+
 # --- pr 與 babysit 用同一個段名與輸出路徑（Scenario「段名與路徑一致」）---
 BS="$OPSX_ROOT/skills/babysit/SKILL.md"
 for f in "$SK" "$BS"; do

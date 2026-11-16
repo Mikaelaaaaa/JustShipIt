@@ -22,6 +22,8 @@ Turn a reviewed change into a merge request the reviewer and the PM can both rea
 
 `openspec/changes/<slug>/report.md` exists (review ran) and has no MR URL yet. If report.md is missing, stop and say `/opsx-workflow:review <slug>` comes first; the Stop hook will say the same. If report.md still lists items under `待修（範圍內）`, stop and say `/opsx-workflow:apply <slug>` comes first; the Stop hook will say the same. If it already has an MR URL, this is an update: regenerate the description and `glab mr update` / `gh pr edit`. The update path never comments on the issue; step 5b runs only for a new MR. The logic map is different: step 5c runs on both, so the card always has a map of its current head.
 
+If gates.md has an open `logic-map-undecided` gate, stop and repeat its question. If it is answered and has no `寫回:` line, run the **Logic map gate answered** step of `../review/SKILL.md` Step 4 first: after an answer the router sends the card here, not back to review. That step may send the card to `/opsx-workflow:apply`; follow it, and come back to /pr only when it says so.
+
 ## Steps
 
 1. **Pre-flight.** Not on `main` / `master`. `git status` clean, or say what is uncommitted and stop. Which forge: `git remote -v`; in Acmecorp-AI and Acmecorp-Infrastructure the primary is the `gitlab` remote, `origin` is only a mirror, so push to `gitlab`; elsewhere `origin`. Read `references/mr-note.md`.

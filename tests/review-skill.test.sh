@@ -131,3 +131,14 @@ for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' '## R<N>
   assert_fixed "$k" "$FX/answered"
 done
 assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$STEP5"
+
+# --- R1.1 第 1 輪產表不建出 report.md：router 看到 report.md 會判成 pr（bin/lib/stage.sh） ---
+assert_fixed 'When report.md does not exist yet (round 1), do not create it here: keep the line and write it under `## 邏輯表` in Step 5.' "$MAP"
+# --- R1.2 design: 行跟 <map path> 同一個 checkout：dispatch worktree 沒有 openspec/ ---
+assert_fixed 'design: <absolute path of `openspec/changes/<slug>/design.md` in the same checkout as `<map path>`>' "$MAP"
+# --- R1.3 gate 答完的處理：review 重進不算一輪；寫回後記 寫回: 行、清掉邏輯表行、照 Step 5 規則接下一步 ---
+assert_fixed 'An answered `logic-map-undecided` gate with no `寫回:` line means the answers are not in design.md yet: run only the **Logic map gate answered** step of Step 4, which is not a round, and stop there.' "$STEP0"
+for k in '`寫回: <日期> · <新的 D>`' 'Clear the line under `## 邏輯表`' 'continue by Step 5'"'"'s rule'; do
+  assert_fixed "$k" "$FX/answered"
+done
+assert_not_fixed 'when no answer changes the code, continue to `/opsx-workflow:pr <slug>`' "$FX/answered"
