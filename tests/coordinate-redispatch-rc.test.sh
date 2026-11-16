@@ -5,20 +5,22 @@ source "$(dirname "${BASH_SOURCE[0]}")/coordinate-fixture.sh"
 
 mkcard u
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"unknown"}]'
+# 通知送到協調者（agent prompt）或退回桌面通知（協調者不在時 agent get 就知道，不會先試 prompt）都算一次
+NOTIFY='^(agent prompt|notification show) '
 
 # dispatch 失敗：不記 _redispatched，通知一次
 OPSX_TEST_FAIL_dispatch='herdr tab create 失敗' round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 1 "要試一次重派"
 assert_eq "$(memo_get _redispatched demo/u)" "" "失敗不能記 _redispatched：$(cat "$MEMO" 2>/dev/null)"
-assert_eq "$(count '^agent prompt')" 1 "失敗要通知協調者：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count "$NOTIFY")" 1 "失敗要通知：$(cat "$OPSX_FAKE_LOG")"
 grep '??' "$LOG" | grep -q 'demo/u' || fail "要記 ??：$(cat "$LOG")"
 # 下一輪還是失敗：不重複通知
 OPSX_TEST_FAIL_dispatch='herdr tab create 失敗' round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^agent prompt')" 0 "同一件事不重複通知"
+assert_eq "$(count "$NOTIFY")" 0 "同一件事不重複通知"
 
 # dispatch 成功：記 _redispatched，不通知
 rm -f "$MEMO"
 round || fail "rc: $(cat "$FX/out")"
 [ -n "$(memo_get _redispatched demo/u)" ] || fail "成功要記 _redispatched：$(cat "$MEMO")"
-assert_eq "$(count '^agent prompt')" 0 "成功不通知"
+assert_eq "$(count "$NOTIFY")" 0 "成功不通知"
 echo "coordinate-redispatch-rc ok"

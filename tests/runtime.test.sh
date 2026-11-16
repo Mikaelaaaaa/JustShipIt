@@ -135,12 +135,20 @@ bad_mode --wait --wait
 bad_mode Wait Wait
 bad_mode wait ""
 
-# --- 回報協調者：走 --agent opsx-coordinator；送不出去記 coordinator.log、回 1 ---
+# --- 回報協調者：先看輸入框，空的才送；有字排進佇列也回 0；送不出去記 coordinator.log、回 1 ---
 reset; OPSX_TEST_COORDINATOR_UP=1 coordinator_say "[c] 停住" || fail "協調者在時要回 0"
-assert_eq "$(calls)" "agent prompt opsx-coordinator [c] 停住" "coordinator_say 的 argv"
+assert_eq "$(calls)" "agent get opsx-coordinator
+agent read w3:p7 --source visible --format ansi
+agent prompt opsx-coordinator [c] 停住" "coordinator_say 先讀輸入框再送"
+sed 's/^❯$/❯ 打到一半/' "$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt" > "$FX/typed-screen"
+reset; OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" coordinator_say "[c] 停住" || fail "輸入框有字排隊要回 0"
+assert_not_grep '^agent prompt' "$OPSX_FAKE_LOG"
+assert_eq "$(cat "$OPSX_STATE_DIR/coordinator-queue")" "[c] 停住" "輸入框有字排進佇列"
+rm -f "$OPSX_STATE_DIR/coordinator-queue"
 reset; coordinator_say "[c] 停住" && fail "協調者不在時要回 1"
 assert_grep 'opsx-coordinator' "$OPSX_STATE_DIR/coordinator.log"
 assert_grep 'agent_not_found' "$OPSX_STATE_DIR/coordinator.log"
+assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 
 # --- 開 agent ---
 open_card() { # 在子 shell 開 r/card-a，印 rc 與交出的 pane / tab / workspace

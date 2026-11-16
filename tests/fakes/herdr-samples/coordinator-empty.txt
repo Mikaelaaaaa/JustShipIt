@@ -1,0 +1,60 @@
+  要你做的: Run merge-gate and build in an old worktree
+  我的建議: Set aside until after the release
+  ────────────────────────────────────────
+  卡: tool-best-practice-eval (stuck since 11/11)
+  要你做的: Confirm budget, then run 6 live evals
+  我的建議: Set aside until after the release
+
+  → If that works for you, reply "先放", and I'll mark all three as "hold
+  until after release" so they stop showing up as pending.
+
+  The two commands still waiting on you
+
+  cd /Users/mikaela_lin/code/Agentory-AI/.claude/worktrees && (cd
+  me-20261113-1402-2 && pnpm docs:api 2>&1 | tail -1) && (cd me-20261113-1451
+  && pnpm docs:api 2>&1 | tail -1 && pnpm build 2>&1 | tail -3)
+
+  Most urgent: merge !1948
+
+  Main keeps moving, so the longer it waits, the more likely it conflicts
+  again:
+  https://gitlab.tsg-navigator.com/agentory/agentory-ai/-/merge_requests/1948
+
+✻ Baked for 3m 34s · done 2:11 PM · 1 shell still running
+
+❯ opsx workflow提出的意見有都送出去修正了嗎 先趕快把opsx完成 套用最新的設定
+  不然現在開發太卡了
+
+  Searched for 1 pattern, ran 2 shell commands
+
+❯ [me-20261116-1340] 停住：babysit 一輪做完，等 MR 合併
+
+  Capturing the coordinator pane's empty-input sample
+  ⎿  $ P=$(herdr agent get opsx-coordinator 2>/dev/null | jq -r
+     '.result.agent.pane_id // .result.pane_id // empty'); echo "pane=$P";
+     D=/Users/mikaela_lin/code/sandbox/opsx-workflow/.claude/worktrees/me-2026
+     1116-1130/tests/fakes/herdr-samples; mkdir -p $D && herdr agent read $P
+     --source visible --format…
+
+! cd /Users/mikaela_lin/code/Agentory-AI/.claude/worktrees && (cd
+  me-20261113-1402-2 && pnpm docs:api 2>&1 | tail -1) && (cd me-20261113-1451
+  && pnpm docs:api 2>&1 | tail -1 && pnpm build 2>&1 | tail -3)
+
+❯ [Agentory-AI/me-20261113-1402-3] gate personal-switch-overlap-wording
+  要你動手：看板：D2 要寫「其他技能還提供的能力」，但 D1
+  不寫每個技能各自的文案。重疊那一行要怎麼寫？
+
+❯ [opsx-workflow/me-20261116-1340] 可以合併：看板按「合併」：https://github.c
+  om/Mikaelaaaaa/opsx-workflow/pull/185
+
+❯ [skill-retrieval] 停住：連續 3 次沒接 apply，已開「卡在接」gate
+
+❯ [agent-20261113-1557-2] 停住：等 reviewer（review 站）
+  ctrl+enter to send now
+
+✳ Undulating… (49s · ↓ 2.0k tokens)
+                                      ✔ Update installed · Restart to update
+──────────────────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+──────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on · 1 shell · esc to interrupt · ← 5 agents · ↓ to manage

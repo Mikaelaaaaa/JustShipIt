@@ -1028,11 +1028,21 @@ out="$(sg)"; assert_eq "$(decision "$out")" block "stop: 夾在兩次放行之�
 printf '## 1. x\n\n- [x] 1.1 a\n- [x] 1.2 b\n' > "$C/tasks.md"; printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
 out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 擋過之後同一原因放行"
 assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等人答 gate' "$CL"
-rm -f "$C/gates.md"
+# 協調者輸入框有字：回報排進佇列、不打進輸入框，hook 照常放行；排隊算交出去，同樣的 Stop 再來不再排一次
+QUEUE="$OPSX_STATE_DIR/coordinator-queue"; rm -f "$QUEUE"
+sed 's/^❯$/❯ 幫我看一下/' "$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt" > "$FX/typed-screen"
+out="$(OPSX_TEST_AGENT_READ="$FX/typed-screen" sgc)"; assert_eq "$out" "" "stop: 協調者輸入框有字照常放行"
+assert_not_grep '^agent prompt' "$CL"
+assert_eq "$(grep -c . "$QUEUE")" 1 "stop: 回報排進佇列一行"
+assert_grep '^\[eval-core\] 停住：等人答 gate' "$QUEUE"
+out="$(KEEP_SAID=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" sgc)"; assert_eq "$out" "" "stop: 有字時同一行再放行"
+assert_eq "$(grep -c . "$QUEUE")" 1 "stop: 排過的同一行不再排"
+rm -f "$QUEUE" "$C/gates.md"
 # 協調者不在：hook 照常放行，只在 coordinator.log 記一行；送失敗不記，下一次 Stop 會再試
 rm -rf "$OPSX_STATE_DIR/stop-said"; : > "$OPSX_STATE_DIR/coordinator.log"
 out="$(PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" sg)"; assert_eq "$out" "" "stop: 協調者不在照常放行"
 assert_grep 'opsx-coordinator' "$OPSX_STATE_DIR/coordinator.log"
+assert_no_file "$QUEUE"
 out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 協調者回來後放行"
 assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 一輪做完' "$CL"
 # 記去重的檔寫不進去（symlink）：回報照送，hook 仍以 0 放行
