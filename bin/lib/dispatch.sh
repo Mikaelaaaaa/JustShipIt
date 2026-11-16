@@ -148,6 +148,8 @@ PY
       fi
       git -C "$top" worktree add -q --no-track "$wt" -b "$branch" "$start"
     fi
+    # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
+    if [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt" "$d"; fi
   fi
   warn_untrusted "$top"
   # codex 沒有 router hook：把同一批規則放進 worktree。worktree 已在也寫（重派可能換模式）
@@ -234,6 +236,41 @@ PY
     ( trap '' HUP; exec "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/safefile.py" exec-append "$drivelog" bash "$OPSX_ROOT/bin/opsx" drive "$slug" --repo "$top" ) < /dev/null > /dev/null 2>&1 &
     say "dispatch: drive 跑起來了（pid $!），log 在 $drivelog"
   fi
+}
+
+install_deps() { # <worktree> <card dir>：裝不起來照樣派，在卡上開 needs: run gate 請人自己裝
+  local wt="$1" d="$2" out
+  if ! command -v pnpm >/dev/null; then
+    say "dispatch: PATH 上找不到 pnpm，$wt 沒裝依賴，卡上開了 gate"
+    write_install_gate "$d" "$wt" "PATH 上找不到 pnpm"
+    return 0
+  fi
+  say "dispatch: 在 $wt 跑 pnpm install --frozen-lockfile"
+  # --frozen-lockfile：鎖檔對不上就失敗，不讓新分支一開就有改過的 pnpm-lock.yaml
+  if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then say "dispatch: 依賴裝好了"; return 0; fi
+  out="$(printf '%s\n' "$out" | tail -3 | tr '\n' ' ')"
+  say "dispatch: pnpm install 失敗，卡上開了 gate：$out"
+  write_install_gate "$d" "$wt" "pnpm install --frozen-lockfile 失敗：$out"
+}
+
+write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 id 加流水號，不跟舊的撞
+  local d="$1" wt="$2" why="$3" id=install-deps n cmd
+  n=$(grep -cE '^## install-deps(-[0-9]+)?$' "$d/gates.md" 2>/dev/null || true)
+  [ "$n" -eq 0 ] || id="install-deps-$((n + 1))"
+  cmd="cd $wt && pnpm install --frozen-lockfile"
+  # 裝到一半留下的 node_modules 會讓 pnpm 以為裝過了
+  [ ! -d "$wt/node_modules" ] || cmd="cd $wt && rm -rf node_modules && pnpm install --frozen-lockfile"
+  {
+    printf '\n## %s\n' "$id"
+    printf 'type: decision\nstatus: open\nneeds: run\n'
+    printf '問題: dispatch 沒裝好 %s 的依賴，你自己裝嗎？\n' "$wt"
+    printf '已確認: 卡照樣派出去了；%s\n' "$why"
+    printf '選項: 我在終端機裝好了 (Recommended) | 先不裝，照樣往下做\n'
+    printf '建議: %s\n' "$cmd"
+    printf '證據: %s\n' "$why"
+    printf '風險: 不裝的話 apply 跑測試時缺依賴\n'
+    printf '預設: drive 不送下一站，等你回覆\n'
+  } >> "$d/gates.md"
 }
 
 send_to_session() { # <top> <repo> <slug> <feature> <note>：人停的成員卡交回活著的 session，不開 pane
