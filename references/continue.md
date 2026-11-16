@@ -4,9 +4,9 @@ Every node of the main flow ends by starting the next one in the same session. N
 
 | Node done | Next | Condition to continue |
 |---|---|---|
-| explore | `/opsx-workflow:grill <slug>` | 待決 non-empty and kind is not chore or bug-fix |
-| explore | `/opsx-workflow:propose <slug>` | 待決 empty, or kind is chore or bug-fix |
-| grill | `/opsx-workflow:propose <slug>` | 待決 fully answered |
+| explore | `/opsx-workflow:grill <slug>` | kind is not chore or bug-fix, whether 待決 is empty or not |
+| explore | `/opsx-workflow:propose <slug>` | kind is chore or bug-fix |
+| grill | `/opsx-workflow:propose <slug>` | every branch resolved, no gate open |
 | propose | `/opsx-workflow:apply <slug>` | tasks.md written, every applyRequires artifact done |
 | apply | `/opsx-workflow:review <slug>` | every task checked, tests green |
 | review | `/opsx-workflow:apply <slug>` | `待修（範圍內）` has items |
@@ -38,7 +38,7 @@ The text above is not enough on its own, so `hooks/openspec-stop-gate.sh` checks
 
 Small changes do not carry the full ceremony.
 
-- **Skip grill.** A card of kind chore or bug-fix goes from explore straight to propose even when 待決 is non-empty; propose writes each open item into proposal.md as an assumption. The router (`bin/lib/stage.sh`) says the same. Grill runs before tasks.md exists, so only the kind can decide this.
+- **Skip grill.** A card of kind chore or bug-fix goes from explore straight to propose even when 待決 is non-empty; propose writes each open item into proposal.md as an assumption. Every other kind goes through grill, even when 待決 is empty. The router (`bin/lib/stage.sh`) says the same. Grill runs before tasks.md exists, so only the kind can decide this.
 - **A small card** has all of: tasks.md has at most 3 tasks (not counting the `## R<N>.` groups review adds), and the changed files, test paths left out (`tests/` and any file named `*.test.*` or `*_test.*`), share the same first path component in `git diff --name-only main...HEAD`. Only kind chore or bug-fix can be small. Review measures it, because only then do tasks and the diff exist.
 - **Review of a small card** runs one merged reviewer (spec conformance and code quality together) and no adversarial one. Any other card runs three.
 - **Review runs at most two rounds.** The round number is in report.md's title. After two rounds a third full review is not started: the items still open are fixed through `/opsx-workflow:apply`, and review runs only a confirm pass over them and writes `確認: <sha>` in report.md. A gate is for an item that needs a user decision.

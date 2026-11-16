@@ -21,7 +21,9 @@ mkdir -p "$C/only-inbox"; printf -- '---\nsource: me\n---\n想做 X\n' > "$C/onl
 card ex-empty perf
 card grill-dev dev; pending grill-dev
 card grill-ops ops; pending grill-ops
-card prop-empty dev; nopending prop-empty
+card grill-empty dev; nopending grill-empty
+card grill-empty-perf perf; nopending grill-empty-perf
+card prop-chore-empty chore; nopending prop-chore-empty
 card prop-chore chore; pending prop-chore
 card prop-bugfix bug-fix; pending prop-bugfix
 card prop-grilled dev; pending prop-grilled; printf '# grill\n' > "$C/prop-grilled/grill.md"
@@ -93,7 +95,9 @@ only-inbox|explore · only-inbox · dev · skills/explore/SKILL.md
 ex-empty|explore · ex-empty · perf · skills/explore/SKILL.md
 grill-dev|grill · grill-dev · dev · skills/grill/SKILL.md
 grill-ops|grill · grill-ops · ops · skills/grill/SKILL.md
-prop-empty|propose · prop-empty · dev · skills/propose/SKILL.md
+grill-empty|grill · grill-empty · dev · skills/grill/SKILL.md
+grill-empty-perf|grill · grill-empty-perf · perf · skills/grill/SKILL.md
+prop-chore-empty|propose · prop-chore-empty · chore · skills/propose/SKILL.md
 prop-chore|propose · prop-chore · chore · skills/propose/SKILL.md
 prop-bugfix|propose · prop-bugfix · bug-fix · skills/propose/SKILL.md
 prop-grilled|propose · prop-grilled · dev · skills/propose/SKILL.md

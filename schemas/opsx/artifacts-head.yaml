@@ -19,7 +19,7 @@
     instruction: >
       /explore 跑完寫這份。三段：**已知**（查 code 查出來的事實，每條附檔案路徑或指令輸出）、
       **待決**（只有人能答的題，每題列 2–4 個具體選項，推薦的標 (Recommended)）、**不做**
-      （明確排除的方向和原因）。待決非空 → 下一步是 /grill；待決空 → 直接 /propose。
+      （明確排除的方向和原因）。下一步是 /grill，待決空也一樣；kind 是 chore 或 bug-fix 才直接 /propose。
       待決裡不准放查 code 或跑一次就能答的題，那種自己答完放進已知。
     requires:
       - inbox
@@ -28,8 +28,8 @@
     description: 待決的答案：決策 D1…Dn 與未決
     template: grill.md
     instruction: >
-      只在 explore.md 的待決非空時才有。一題一題問，每題 2–4 個具體選項，不出 Yes / No，
-      等答案再下一題。答完寫兩段：**決策**（D1、D2… 每條一句話 + 理由 + 否決了哪個替代方案
+      kind 不是 chore 或 bug-fix 的卡都有，待決空也一樣。對整個計畫逐支追問，一題一題問，
+      每題 2–4 個具體選項，不出 Yes / No，等答案再下一題。答完寫兩段：**決策**（D1、D2… 每條一句話 + 理由 + 否決了哪個替代方案
       和原因）、**未決**（只有跑了才知道的事，附預計怎麼驗證）。D-id 一旦給了不重編，
       propose 生成 design.md 時原樣引用。
     requires:
