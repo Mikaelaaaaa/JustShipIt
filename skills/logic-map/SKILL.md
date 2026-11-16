@@ -1,6 +1,6 @@
 ---
 name: logic-map
-description: Turn the code one PR changed into a logic map the user can judge the work by — a numbered feature list, a flowchart whose decision nodes are numbered D1…Dn, and a condition table that gives each node its exact condition in FEEL with the file:line it came from. When producing a map, it reads only the code in the PR's diff range, never the spec, the chat, or the commit messages, so the map shows what the code does rather than what anyone meant it to do. Use when a PR is finished and the user wants to check the development work, when the opsx pr stage asks for a logic map, or when someone says "logic map", "邏輯表", "程式邏輯", "畫這支 PR 的邏輯", "他用了哪些邏輯", or "讓我判斷他的開發工作". Also use when the user quotes a line of an existing logic map (a D node, a condition-table row, or a ⚠ item) and asks what a line means, e.g. 「這是啥意思」「邏輯表的 D3 是什麼」.
+description: Turn the code one PR changed into a logic map the user can judge the work by — a numbered feature list, a flowchart whose decision nodes are numbered D1…Dn, and a condition table that gives each node its exact condition in FEEL with the file:line it came from. When producing a map, it reads only the code in the PR's diff range, never the spec, the chat, or the commit messages, so the map shows what the code does rather than what anyone meant it to do; only after the condition tables are final does it read the change's design.md, to sort each ⚠ mark against its decisions. Use when a PR is finished and the user wants to check the development work, when the opsx pr stage asks for a logic map, or when someone says "logic map", "邏輯表", "程式邏輯", "畫這支 PR 的邏輯", "他用了哪些邏輯", or "讓我判斷他的開發工作". Also use when the user quotes a line of an existing logic map (a D node, a condition-table row, or a ⚠ item) and asks what a line means, e.g. 「這是啥意思」「邏輯表的 D3 是什麼」.
 ---
 
 # Logic map
@@ -11,9 +11,11 @@ Write in the user's language (Traditional Chinese unless the request is in anoth
 
 ## Inputs
 
-This section is for producing a map. You get a repo path and a diff range (`<base>...<head>`), and an output path. Nothing else. If any of the three is missing, stop and say which one.
+This section is for producing a map. You get a repo path and a diff range (`<base>...<head>`), and an output path. If any of the three is missing, stop and say which one. An optional fourth line, `design: <path>`, names the change's design.md. A missing `design:` line is not a reason to stop.
 
-Do not read `openspec/`, `report.md`, PR descriptions, or commit messages. They say what the author intended. The map exists to show what the code does, so the user can see where the two differ. Reading intent first makes you describe the intent.
+Do not read `openspec/`, `report.md`, PR descriptions, or commit messages. They say what the author intended. The map exists to show what the code does, so the user can see where the two differ. Reading intent first makes you describe the intent. The one exception is the file the `design:` line names: read it only in step 6, after every condition table is final.
+
+Besides the changed code, you may read the schema or type definitions a branch depends on, even outside the diff, to tell whether the branch can be reached. They are code, not intent.
 
 ## Steps
 
@@ -22,8 +24,9 @@ Do not read `openspec/`, `report.md`, PR descriptions, or commit messages. They 
 3. Group the changes into features. A feature is one behavior someone outside the code would notice ("the commit gate picks the repo from `git -C`"). One PR usually has one to three.
 4. For each feature, write the three parts below.
 5. Take the title from the branch name only. If `<head>` is a branch name, use it; otherwise run `git rev-parse --abbrev-ref HEAD`. Do not read the commit message or the PR description to name the map: a PR title is intent too.
-6. Once every feature's three parts and ⚠ marks are written, write the business sections last: each feature's section, then the summary at the top. They still go first in the file. Written earlier, they describe what you expected the code to do, not the conditions you translated.
-7. Write `logic-map.md` to the output path. Print the path and the number of features, nodes, and ⚠ marks.
+6. If the prompt has a `design:` line and that file exists, read it now and sort every ⚠ mark against its decisions (see Sorting ⚠ marks against design.md). Do not change a condition table or a flowchart while sorting: they say what the code does, and the design says what someone meant. Without a usable design.md, skip the sorting.
+7. Once every feature's three parts are written and its ⚠ marks sorted, write the business sections last: each feature's section, then the summary at the top. They still go first in the file. Written earlier, they describe what you expected the code to do, not the conditions you translated.
+8. Write `logic-map.md` to the output path. Print the path and the number of features, nodes, and ⚠ marks.
 
 ## The business summary
 
@@ -92,9 +95,25 @@ After the table, list what a careful reviewer would question. Each item is one s
 
 Do not mark style. Do not invent a problem to fill the list. An empty list is a valid result; write `無`.
 
+#### Sorting ⚠ marks against design.md
+
+design.md numbers its decisions D1, D2, and so on, the same letters as the chart's nodes. Every label therefore says `design Dn`; a bare `Dn` always means a node. Compare each ⚠ mark with the decisions and give it one of these:
+
+- `照 design Dn`: the code does what Dn says, and Dn's 理由 line names the user or cites grill.md or explore.md.
+- `照 design Dn（agent 自定）`: the code does what Dn says, and its 理由 line names neither 使用者 nor grill.md or explore.md. Judge from Dn alone; do not open grill.md.
+- `bug：違反 design Dn`: the code does the opposite of what Dn says.
+- `沒經過決定`: no D speaks to this behavior.
+- `程式整理`: the branch cannot be reached, for example the type is wider than the schema allows. It is cleanup, not a risk.
+
+Two boundary cases. A ⚠ that matches a D only in part is `沒經過決定`: the part no D covers is still for the user to look at. An unreachable branch is `程式整理` even when it contradicts a D, because it never runs.
+
+A `照 design Dn` item leaves the ⚠ list. Record it in one line after the condition table, `照 design D：D2 照 design D6；D4 照 design D7（agent 自定）`; leave the line out when nothing goes there. The other three classes stay in the list, each item starting with its label: `- bug：違反 design D8。D3：…`.
+
+With no `design:` line, or a file that does not exist, the items keep no label and the first line under `### ⚠ 要看的地方` is 沒有 design.md，未分類.
+
 ## Answering questions about a map
 
-When the prompt gives you a repo, a diff range, and an output path, you are producing a map: skip this section and follow Steps. Use this section when the user quotes a D node, a condition-table row, or a ⚠ item of an existing map and asks what it means.
+When the prompt gives you a repo, a diff range, and an output path, you are producing a map, with or without a `design:` line (review's map step adds one): skip this section and follow Steps. Use this section when the user quotes a D node, a condition-table row, or a ⚠ item of an existing map and asks what it means.
 
 In this mode, answer in the reply. Do not write or change any file. The map is the version the user judges, and `openspec/` is not in git, so an overwritten map is lost.
 
@@ -106,7 +125,7 @@ Answer in 繁體中文, in four parts, in this order:
 
 1. A table `| 程式名 | 誰設定 | 業務上是什麼 | 被擋時記成 |`. Add one row per function or constant the question touches. 誰設定 says who controls the value. 業務上是什麼 says what it means for a person. 被擋時記成 is what the system records or shows when it blocks.
 2. One concrete setting, such as what an admin configured, and a table `| 你是誰 | 結果 |`. Give every gate on the path at least one row that reaches it.
-3. Every ⚠ item of the map, numbered. Mark each one as the user's product decision and give 2 to 4 options. You never decide for the user. Do not mark any option as settled.
+3. The ⚠ items of the map, numbered. Mark every `沒經過決定` item, and every item of a map marked 沒有 design.md，未分類, as the user's product decision and give 2 to 4 options. For a `bug：違反 design Dn` item, say which design Dn it contradicts and what the code does instead. A `程式整理` item gets one sentence on why the branch cannot run. Do not list what the map records under 照 design D. You never decide for the user. Do not mark any option as settled.
 4. Sources as `path:line`. For each behavior, give one of three sources: the discussion record (`explore.md`, `grill.md`) decided it; the agent added it on its own in `design.md` (design.md mentions it, explore.md and grill.md do not); or, when only the map shows it and neither explore.md, grill.md nor design.md mentions it, write 「文件都沒寫，只有程式這樣做」 and cite the map's 位置 cell. Put each path outside the table, on its own line. A terminal does not make a path inside a table cell clickable.
 
 **Example.** The map shows 下載檢查 with D1 帳號鎖定?, D2 等級在 `PLAN_TIERS`?, D3 用量 < `MAX_JOBS`?. Its 條件表 has `PLAN_TIERS = ["pro"]`, explore.md says only pro can download, and design.md says an admin sets `MAX_JOBS`. The concrete setting: the admin set `MAX_JOBS` to 5.
@@ -162,8 +181,10 @@ src/download.py:9
 | 節點 | 決策 | 條件（FEEL） | 結果 | 位置 |
 |---|---|---|---|---|
 
+照 design D：<節點> 照 design D<n>；…
+
 ### ⚠ 要看的地方
-- …
+- <標籤>。…
 ```
 
 Read `references/examples.md` before writing your first map. It has three complete maps: a Bash hook, a Python decision chain, and a product feature.

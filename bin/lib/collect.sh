@@ -242,7 +242,7 @@ def merged_of(inbox, slug, path):
             items.append(got)
     return items
 
-# logic-map.md 是 /pr 的 subagent 在看板刷新時寫的，讀到半個檔只壞這一張卡，不拖垮整份 collect
+# logic-map.md 是 review 產表步的 subagent 在看板刷新時寫的，讀到半個檔只壞這一張卡，不拖垮整份 collect
 def logic_map_of(path, key):
     try:
         return read(path, None)

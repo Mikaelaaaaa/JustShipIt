@@ -24,6 +24,35 @@ assert_fixed 'If any of the three is missing, stop and say which one' "$INPUTS"
 for k in '`openspec/`' '`report.md`' 'PR descriptions' 'commit messages'; do assert_fixed "$k" "$INPUTS"; done
 assert_fixed 'Reading intent first makes you describe the intent' "$INPUTS"
 
+# --- 選填的 design: 行：缺了不停，只在分類步讀；走不走得到要讀的 schema／型別定義可讀 ---
+assert_fixed 'An optional fourth line, `design: <path>`' "$INPUTS"
+assert_fixed 'A missing `design:` line is not a reason to stop' "$INPUTS"
+assert_fixed 'read it only in step 6' "$INPUTS"
+assert_fixed 'schema or type definitions' "$INPUTS"
+
+# --- ⚠ 對照 design 分類：五種標籤、兩條邊界、沒有 design 的寫法、agent 自定怎麼認 ---
+WARN="$FX/warn"
+awk 'index($0,"### ⚠ marks")==1{on=1} /^## /{on=0} on' "$SK" > "$WARN"
+[ -s "$WARN" ] || fail "section missing: ⚠ marks"
+for k in '`照 design Dn`' '`照 design Dn（agent 自定）`' '`bug：違反 design Dn`' '`沒經過決定`' '`程式整理`' \
+  'A ⚠ that matches a D only in part is `沒經過決定`' \
+  'An unreachable branch is `程式整理` even when it contradicts a D' \
+  '沒有 design.md，未分類' \
+  'its 理由 line names neither 使用者 nor grill.md or explore.md'; do
+  assert_fixed "$k" "$WARN"
+done
+assert_fixed '照 design D：' "$TPL"
+# 標籤帶 design，不跟流程圖的 D 節點撞名
+! grep -qE '(照|違反) D[0-9n]' "$SK" "$EX" || fail "分類標籤要寫 design Dn：$(grep -nE '(照|違反) D[0-9n]' "$SK" "$EX")"
+
+# --- 範例：opsx 的兩份沒有 design.md，寫未分類；產品範例有 design.md，五種標籤都在 ---
+grep -A1 -F '### ⚠ 要看的地方' "$EX" | grep -cF '沒有 design.md，未分類' > "$FX/ex-unsorted"
+assert_eq "$(cat "$FX/ex-unsorted")" "2" "範例 1、2 的 ⚠ 第一行寫未分類"
+EX3="$FX/ex3"
+awk 'index($0,"## Example 3")==1{on=1} on' "$EX" > "$EX3"
+for k in '照 design D：' '（agent 自定）' '- bug：違反 design D' '- 沒經過決定' '- 程式整理'; do assert_fixed "$k" "$EX3"; done
+assert_not_fixed '沒有 design.md，未分類' "$EX3"
+
 # --- 四段範本與分支名標題 ---
 for k in '### 做了什麼' '### 流程圖' '### 條件表' '### ⚠ 要看的地方' '# 邏輯表：<分支名>'; do assert_fixed "$k" "$TPL"; done
 
@@ -77,11 +106,18 @@ done
 assert_not_fixed '搬移' "$BIZ"
 # 業務段要等三部分寫完才寫：先寫的話寫出來的是預期，不是條件表上的條件
 STEP4='4. For each feature, write the three parts below.'
-STEP6="6. Once every feature's three parts and ⚠ marks are written, write the business sections last: each feature's section, then the summary at the top."
+STEP6="7. Once every feature's three parts are written and its ⚠ marks sorted, write the business sections last: each feature's section, then the summary at the top."
 grep -nF -- "$STEP4" "$STEPS" | cut -d: -f1 > "$FX/step4"; grep -nF -- "$STEP6" "$STEPS" | cut -d: -f1 > "$FX/step6"
 [ -s "$FX/step4" ] || fail "Steps 沒有整句：$STEP4"
 [ -s "$FX/step6" ] || fail "Steps 沒有整句：$STEP6"
 [ "$(cat "$FX/step6")" -gt "$(cat "$FX/step4")" ] || fail "寫業務段的步驟要排在寫三部分之後"
+# 分類步排在條件表之後、業務說明之前：先讀 design 會把條件寫成 design 的說法
+STEP_CLS='6. If the prompt has a `design:` line and that file exists, read it now and sort every ⚠ mark'
+grep -nF -- "$STEP_CLS" "$STEPS" | cut -d: -f1 > "$FX/step-cls"
+[ -s "$FX/step-cls" ] || fail "Steps 沒有整句：$STEP_CLS"
+[ "$(cat "$FX/step-cls")" -gt "$(cat "$FX/step4")" ] || fail "分類步要排在寫三部分之後"
+[ "$(cat "$FX/step6")" -gt "$(cat "$FX/step-cls")" ] || fail "分類步要排在寫業務段之前"
+assert_fixed 'Do not change a condition table or a flowchart while sorting' "$STEPS"
 assert_fixed 'The business sections never contradict a condition-table row, a note under the table, or a ⚠ item.' "$BIZ"
 # 句數上限照派工指示；「每條 ⚠ 都寫成業務話」會撐破上限，不收
 assert_not_fixed 'say it in business words' "$BIZ"
@@ -186,7 +222,7 @@ section "Answering questions about a map" > "$ANS"
 assert_eq "$(grep '^## ' "$SK" | grep -B1 -x '## Output template' | head -1)" '## Answering questions about a map'
 # 第一個非標題的行寫分界，整句比對：只查關鍵字的話，把規則反寫也會過
 sed -n '2,$p' "$ANS" | grep -m1 . > "$FX/answer-first"
-assert_fixed 'When the prompt gives you a repo, a diff range, and an output path, you are producing a map: skip this section and follow Steps.' "$FX/answer-first"
+assert_fixed 'When the prompt gives you a repo, a diff range, and an output path, you are producing a map, with or without a `design:` line (review'"'"'s map step adds one): skip this section and follow Steps.' "$FX/answer-first"
 # 四條規則各自那一行要帶自己的表頭與整句：表頭也出現在範例裡，只查全段會讓刪掉的規則照樣過
 grep -m1 '^1\. ' "$ANS" > "$FX/rule1"; grep -m1 '^2\. ' "$ANS" > "$FX/rule2"
 grep -m1 '^3\. ' "$ANS" > "$FX/rule3"; grep -m1 '^4\. ' "$ANS" > "$FX/rule4"
@@ -196,6 +232,10 @@ assert_fixed 'every gate' "$FX/rule2"
 assert_fixed 'product decision' "$FX/rule3"
 assert_fixed '2 to 4 options' "$FX/rule3"
 assert_fixed 'You never decide for the user. Do not mark any option as settled.' "$FX/rule3"
+# 第 3 部分依分類回答：沒經過決定與未分類當產品決定，bug 說違反哪個 design Dn，照 design D 的不列
+assert_fixed '`沒經過決定` item, and every item of a map marked 沒有 design.md，未分類' "$FX/rule3"
+assert_fixed 'For a `bug：違反 design Dn` item, say which design Dn it contradicts' "$FX/rule3"
+assert_fixed 'Do not list what the map records under 照 design D' "$FX/rule3"
 assert_fixed 'path:line' "$FX/rule4"
 assert_fixed 'outside the table, on its own line' "$FX/rule4"
 assert_fixed '文件都沒寫，只有程式這樣做' "$FX/rule4"
