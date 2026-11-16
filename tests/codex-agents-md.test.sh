@@ -36,6 +36,28 @@ ctx_wt="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],t
 case "$ctx_wt" in *'opsx：'*'eval-wt'*) ;; *) fail "router 沒認出 worktree 的卡 eval-wt: $ctx_wt" ;; esac
 case "$ctx_wt" in *'bash tests/run.sh'*) ;; *) fail "worktree 有 tests/run.sh、主 checkout 沒有，router 要注入 bash tests/run.sh: $ctx_wt" ;; esac
 
+# 反方向：主 checkout 有 tests/run.sh、worktree 的分支沒有，router 不能注入 bash tests/run.sh
+mkdir -p "$R/openspec/changes/eval-nr"
+printf 'schema: opsx\ncreated: 2026-11-16\nkind: dev\n' > "$R/openspec/changes/eval-nr/.openspec.yaml"
+YW="$R/.claude/worktrees/eval-nr"
+git -C "$R" worktree add -q -b feat/eval-nr/mikaela "$YW"
+mkdir -p "$R/tests"; printf '#!/usr/bin/env bash\n' > "$R/tests/run.sh"
+git -C "$R" add tests/run.sh; git -C "$R" commit -q -m "add runner on main checkout"
+printf '{"Acmecorp-AI/eval-nr":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+ctx_nr="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$YW" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+case "$ctx_nr" in *'opsx：'*'eval-nr'*) ;; *) fail "router 沒認出 worktree 的卡 eval-nr: $ctx_nr" ;; esac
+case "$ctx_nr" in *'bash tests/run.sh'*) fail "worktree 沒有 tests/run.sh、主 checkout 有，router 不該注入 bash tests/run.sh: $ctx_nr" ;; esac
+case "$ctx_nr" in *'package.json / pyproject'*) ;; *) fail "worktree 沒有 tests/run.sh，router 要注入 repo 自己測試指令那段: $ctx_nr" ;; esac
+
+# cwd 在 git 目錄裡（沒有 work tree）：卡照樣找得到，router 不能整個死掉
+printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+rc_git=0
+out_git="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$R/.git" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null)" || rc_git=$?
+assert_eq "$rc_git" 0 "cwd 在 .git 裡 router 要 rc 0"
+case "$(printf '%s' "$out_git" | jq -r '.hookSpecificOutput.additionalContext')" in *'opsx：'*'eval-core'*' · autopilot：'*) ;; *) fail "cwd 在 .git 裡 router 仍要注入卡與 autopilot 規則: $out_git" ;; esac
+
 # --- 2.1 render_agents_md ---
 source "$OPSX_ROOT/bin/lib/agents-md.sh"
 has() { case "$1" in *"$2"*) ;; *) fail "${3:-內容}缺 [$2]" ;; esac; }

@@ -20,8 +20,10 @@ if [ -n "$slug" ] && [ -n "${OPSX_PY:-}" ]; then
   mode="$(card_mode "$(basename "$top")" "$slug" 2>/dev/null || true)"
   case "$mode" in
     autopilot|drive)
-      # 測試在 agent 所在的 worktree 跑，主 checkout 可能在別的分支，所以看 cwd 的 toplevel 不看 $top
-      rule=" · $(rule_autopilot "$(git -C "$(hook_cwd)" rev-parse --show-toplevel)")"
+      # 測試在 agent 所在的 worktree 跑，主 checkout 可能在別的分支，所以看 cwd 的 toplevel 不看 $top。
+      # cwd 在 git 目錄裡（例 .git/）時沒有 work tree，--show-toplevel 失敗，那時改看主 checkout
+      test_root="$(git -C "$(hook_cwd)" rev-parse --show-toplevel 2>/dev/null)" || test_root="$top"
+      rule=" · $(rule_autopilot "$test_root")"
       if [ "$ev" = SessionStart ]; then
         lost_rc=0; lost_why="$(args_lost_status "$(basename "$top")" "$slug" "$mode")" || lost_rc=$?
         case "$lost_rc" in
