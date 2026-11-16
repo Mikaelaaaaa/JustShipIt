@@ -42,6 +42,39 @@ for s in '同一件事' '只併小事' 'decisions.tsv' '④' 'kind_of_work' 'imp
   case "$DEDUP" in *"$s"*) ;; *) fail "去重職責缺：$s — $DEDUP" ;; esac
 done
 
+# 怎麼問 gate（specs/opsx-lead「協調者用跳卡問 gate」「跳卡不代答」「有 sketch 外掛時先畫 cards」）：
+# 只讀「## 怎麼問 gate」到下一個 ## 標題，別段的字不算；標題要夾在 ## Duties 與 ## Report format 之間
+ASK="$(awk '/^## 怎麼問 gate/{f=1;next} f&&/^## /{exit} f' "$F")"
+[ -n "$ASK" ] || fail "找不到「## 怎麼問 gate」段"
+heading_of() { grep -n "^$1\$" "$F" | head -1 | cut -d: -f1; }
+n_duties="$(heading_of '## Duties')"; n_ask="$(heading_of '## 怎麼問 gate')"; n_report="$(heading_of '## Report format')"
+[ -n "$n_ask" ] && [ "$n_ask" -gt "$n_duties" ] && [ "$n_ask" -lt "$n_report" ] \
+  || fail "「## 怎麼問 gate」要在 ## Duties（$n_duties）與 ## Report format（$n_report）之間，現在在 ${n_ask:-沒有}"
+for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 題' '卡名' '例子' \
+  'opsx answer' '原文' 'Other' '重講' '不代答' \
+  'without the `(Recommended)`' 'at most 12 characters' \
+  '--grant' 'test-path' 'mode: stopped' 'approve option' '不准' 'Before each `opsx answer`' 'stderr' \
+  'desktop' \
+  'sketch' 'cards' '沒裝' 'enabledPlugins' 'opsx init --global' 'user settings' 'card pane'; do
+  case "$ASK" in *"$s"*) ;; *) fail "怎麼問 gate 段缺：$s" ;; esac
+done
+# needs: run 的 gate 不進跳卡、給指令
+NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
+case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac
+case "$NR" in *'goes in the pop-up'*) fail "needs: run 的 gate 不能進跳卡：$NR" ;; esac
+# 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
+RR="$(printf '%s\n' "$ASK" | grep -F 'status: open')"
+for s in 'needs: run' 'waits-on' 'subs/' '--sub'; do
+  case "$RR" in *"$s"*) ;; *) fail "重讀 open gate 那行缺：$s — $RR" ;; esac
+done
+# 不替使用者選
+case "$ASK" in *自動採用*) fail "怎麼問 gate 段不能有「自動採用」" ;; esac
+# compare 在段裡只出現一次，就是「不用 compare 選」那一處
+assert_eq "$(printf '%s\n' "$ASK" | grep -o 'compare' | wc -l | tr -d ' ')" 1 "怎麼問 gate 段 compare 只能出現一次"
+case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要寫「不用 \`compare\` to choose」" ;; esac
+# 職責 2 指向這段
+printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 echo ok
