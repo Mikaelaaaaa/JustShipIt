@@ -12,7 +12,7 @@ description: |
   think about", "let's discuss", "challenge this", "I'm not sure about", "review 
   the plan", "docs changed", "需求變了", "重新看一下", or asks an open-ended design question.
   In the opsx flow it is the first node: it ends by writing openspec/changes/<slug>/explore.md
-  (已知 / 待決 / 不做); a non-empty 待決 hands off to /grill, an empty one straight to /propose.
+  (已知 / 待決 / 不做) and hands off to /grill, or straight to /propose when kind is chore or bug-fix.
 argument-hint: "[topic | change-name | question]"
 ---
 
@@ -160,6 +160,8 @@ features:
 
 Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-infra`), or individual changes.
 
+A PR whose changes touch only `openspec/` (not in git, so nothing to push) gets `mr: none` next to its `status`. Once review is done and its branch has no commits beyond `<primary remote>/main`, the next stage is `/opsx-workflow:archive` instead of `/opsx-workflow:pr`. Leave it off any PR that changes tracked files.
+
 This file is the **planning artifact** (not authoritative state) for:
 - Which changes belong to which PR, which PRs belong to which feature
 - Which branch each PR uses
@@ -279,7 +281,7 @@ When the change has a shell (`openspec/changes/<slug>/`), end by writing `explor
 - **不做**: directions ruled out, with the reason.
 - **步驟**: one line for each of the nine steps, shaped `- <n> <step name>：<where its output went>` when you did it, or `- <n> <step name>：skip：<which condition did not hold>` when you did not. Steps 2 to 7 name the 已知 block that holds their output, step 8 writes `待決`, and steps 1 and 9 have no block of their own and always run, so they write `done`. For example `- 1 讀卡：done`, `- 8 待決：待決`, `- 9 unslop：done`. A `skip：` with no reason counts as a missing line. `opsx check <slug>` reads this section, the Stop hook blocks the card in explore while a line is missing, and review compares a skipped 影響範圍 with the real diff.
 
-Call `opsx status explore <n>/<total> "<label>"` as you go. Then continue per `../../references/continue.md`: invoke `/opsx-workflow:grill <slug>` when 待決 is non-empty, `/opsx-workflow:propose <slug>` when it is empty, in this turn.
+Call `opsx status explore <n>/<total> "<label>"` as you go. Then continue per `../../references/continue.md`: invoke `/opsx-workflow:grill <slug>`, even when 待決 is empty, or `/opsx-workflow:propose <slug>` when kind is chore or bug-fix, in this turn.
 
 No shell yet (the user is thinking out loud, not working a card)? Then the conversation might:
 

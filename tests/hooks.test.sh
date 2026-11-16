@@ -26,7 +26,10 @@ printf 'schema: opsx\ncreated: 2026-11-05\nkind: dev\n' > "$C/.openspec.yaml"
 out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "下一步")")"; reason "$out" | grep -q '^opsx：grill · eval-core' || fail "router: dev 待決非空 → grill: $(reason "$out")"
 printf 'schema: opsx\ncreated: 2026-11-05\nkind: bug-fix\n' > "$C/.openspec.yaml"
 printf '## 已知\n- x\n\n## 待決\n\n## 不做\n' > "$C/explore.md"
-out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "下一步")")"; reason "$out" | grep -q '^opsx：propose · eval-core' || fail "router: 待決空 → propose: $(reason "$out")"
+out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "下一步")")"; reason "$out" | grep -q '^opsx：propose · eval-core' || fail "router: bug-fix 待決空 → propose: $(reason "$out")"
+printf 'schema: opsx\ncreated: 2026-11-05\nkind: dev\n' > "$C/.openspec.yaml"
+out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "下一步")")"; reason "$out" | grep -q '^opsx：grill · eval-core' || fail "router: dev 待決空 → grill: $(reason "$out")"
+printf 'schema: opsx\ncreated: 2026-11-05\nkind: bug-fix\n' > "$C/.openspec.yaml"
 printf '## 1. x\n\n- [ ] 1.1 a\n  - 驗收：R1\n  - 測試：tests/a.test.ts\n- [ ] 1.2 b\n' > "$C/tasks.md"
 out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "做")")"
 reason "$out" | grep -q '^opsx：apply · eval-core · bug-fix · skills/apply/SKILL.md · skills/apply/references/playbooks/bug-fix.md · skills/tdd/SKILL.md' || fail "router: apply + playbook + tdd: $(reason "$out")"
@@ -1172,8 +1175,11 @@ out="$(sgw)"; assert_eq "$out" "" "stop: worktree 卡不看主 checkout 的新 c
 
 # ---------- stop gate：下一站 ----------
 rm -f "$C/tasks.md" "$C/report.md" "$C/status.json" "$C/gates.md" "$C/grill.md"
-# explore.md 寫好、待決空、沒有 tasks.md → /propose
+# bug-fix 卡 explore.md 寫好、待決空、沒有 tasks.md → /propose
 out="$(sg)"; assert_eq "$(decision "$out")" block "stop: explore 完待決空 → 擋"; reason "$out" | grep -q '/opsx-workflow:propose' || fail "stop: 要叫 /propose"
+# dev 卡待決空也一樣 → /grill
+printf 'schema: opsx\ncreated: 2026-11-05\nkind: dev\n' > "$C/.openspec.yaml"
+out="$(sg)"; assert_eq "$(decision "$out")" block "stop: dev 待決空 → 擋"; reason "$out" | grep -q '/opsx-workflow:grill' || fail "stop: dev 待決空要叫 /grill: $(reason "$out")"
 # dev 卡待決非空 → /grill
 printf '## 已知\n- x\n\n## 待決\n- 選 A 還是 B\n\n## 不做\n' > "$C/explore.md"
 printf 'schema: opsx\ncreated: 2026-11-05\nkind: dev\n' > "$C/.openspec.yaml"

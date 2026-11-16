@@ -48,13 +48,13 @@ Do NOT proceed without understanding what the user wants to build.
 
 ### 2. Create the change directory (if it does not exist yet)
 
-A dispatch worktree has no `openspec/` (it is not in git). Run every `openspec` command here as `cd <主 checkout absolute path> && openspec …` and `cd <worktree root>` back in the next command (the `cd` stays for every later Bash call, and tests, `opsx`, git and the router all read the cwd), and read and write the card's files at the 主 checkout's `openspec/changes/<name>/`. Run tests only as `bash tests/run.sh <file-name filter>`, with no `VAR=…` or `export` in front of the command.
+A dispatch worktree has no `openspec/` (it is not in git). Run every `openspec` command here as `cd <主 checkout absolute path> && openspec …` and `cd <worktree root>` back in the next command (the `cd` stays for every later Bash call, and tests, `opsx`, git and the router all read the cwd), and read and write the card's files at the 主 checkout's `openspec/changes/<name>/`. When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh <file-name filter>`, with no `VAR=…` or `export` in front of the command; without it, use the repo's own test command (CLAUDE.md first, then package.json / pyproject).
 
 ```bash
 openspec new change "<name>" --schema opsx
 ```
 
-Usually the shell already exists (收件 made it, explore and grill wrote into it). Then skip this and read what is there: `inbox.md`, `explore.md` (已知 / 待決 / 不做), `grill.md` (D1…Dn). If `explore.md` has a non-empty 待決 and no `grill.md`, stop: `/opsx-workflow:grill <name>` first; the router says the same. The exception is a card whose kind is chore or bug-fix (`../../references/continue.md`, "Light flow"): do not stop; write each open 待決 item as one 假設 sentence at the end of proposal.md's What Changes, and carry on. Confirm the kind in 2b first: if 2b changes it to anything else while 待決 is non-empty and there is no `grill.md`, stop and route to `/opsx-workflow:grill <name>`.
+Usually the shell already exists (收件 made it, explore and grill wrote into it). Then skip this and read what is there: `inbox.md`, `explore.md` (已知 / 待決 / 不做), `grill.md` (D1…Dn). If `explore.md` exists and there is neither `grill.md` nor `proposal.md`, stop: `/opsx-workflow:grill <name>` first, even when 待決 is empty. If `grill.md` exists but an item in 待決 still carries `waits on gate:`, stop the same way. If there is no `grill.md` but `proposal.md` exists and 待決 still lists an item, stop the same way: a 待決 added after propose started still needs grill. The router says the same. The exception is a card whose kind is chore or bug-fix (`../../references/continue.md`, "Light flow"): do not stop; write each open 待決 item as one 假設 sentence at the end of proposal.md's What Changes, and carry on. Confirm the kind in 2b first: if 2b changes it to anything else while there is neither `grill.md` nor `proposal.md`, stop and route to `/opsx-workflow:grill <name>`.
 
 ### 2b. Confirm the kind
 
@@ -132,7 +132,7 @@ Run `opsx check <name>` for every change, not only a main change with `subs/`: i
 
 If `openspec/workplan.yaml` exists, check whether this change is already listed:
 - **Listed** → verify status is `pending`, no action needed
-- **Not listed** → ask which PR group it belongs to (show existing PR groups from workplan), then add it. PR name must match `[a-z][a-z0-9_-]{0,31}` (it becomes the herdr agent name); branch `{feat|fix|chore|refactor|docs|sec}/<slug>/mikaela`; `depends-on` from design.md.
+- **Not listed** → ask which PR group it belongs to (show existing PR groups from workplan), then add it. PR name must match `[a-z][a-z0-9_-]{0,31}` (it becomes the herdr agent name); branch `{feat|fix|chore|refactor|docs|sec}/<slug>/mikaela`; `depends-on` from design.md. When the change touches only `openspec/`, add `mr: none` to the PR (`../explore/SKILL.md`, after the workplan example).
 
 If no workplan exists, create it with this one feature / PR / change; the commit gate turns on once the file exists.
 

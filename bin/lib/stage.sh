@@ -2,6 +2,7 @@
 # 主流程狀態判斷，純函式，參數明示（top、slug）。hook 的 router 和 drive.sh 都用這一份，
 # 所以「下一步是什麼」只有一個答案。要求檔 §8.3 Router 表。
 source "$(dirname "${BASH_SOURCE[0]}")/check.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"   # primary_remote；hooks/_lib.sh 只 source 這支
 
 # slug 含 `--` 是子殼：<主>--<子> 對到 changes/<主>/subs/<子>。只印路徑，不檢查存在
 st_card_dir() { # <top> <slug>
@@ -62,6 +63,15 @@ st_tasks_done() { [ -f "$1/tasks.md" ] || { printf 0; return; }; grep -cE '^\s*-
 st_pending_nonempty() {
   [ -f "$1/explore.md" ] || return 1
   awk '/^## 待決/{f=1;next} /^## /{f=0} f' "$1/explore.md" | grep -vE '^\s*$|^\s*<!--|^\s*-\s*$|^\s*（' | grep -q .
+}
+st_pending_waiting() { # 待決裡有 grill 標明等哪個 gate 的題
+  [ -f "$1/explore.md" ] || return 1
+  awk '/^## 待決/{f=1;next} /^## /{f=0} f' "$1/explore.md" | grep -qE '^\s*-\s*waits on gate:'
+}
+# 有 grill.md：只有等 gate 的題要回 grill；答過留在待決的行不算。
+# 沒 grill.md：一律進 grill，只有已有 proposal.md 且待決空的卡留在 propose。
+st_needs_grill() {
+  if [ -f "$1/grill.md" ]; then st_pending_waiting "$1"; else [ ! -f "$1/proposal.md" ] || st_pending_nonempty "$1"; fi
 }
 # 第一個 MR 網址。整檔一次比對，字元類排除換行，跟 grep 逐行找第一個相同
 st_mr_url() {
@@ -133,6 +143,27 @@ wp_pr_field() { # <top> <slug> <field>
   ' "$1/openspec/workplan.yaml"
 }
 st_workplan_merged() { [ "$(wp_pr_field "$1" "$2" status)" = merged ]; } # <top> <slug>
+# 這個 PR 本來就不開 MR（workplan 的 mr: none），且 branch 相對 <primary remote>/main 沒有自己的 commit：沒東西可推，下一站是 archive。
+# branch 或 base 查不到都不成立，交回 pr 處理。workplan 沒標就不跑 git，collect 掃整個 repo 時不多 fork。
+st_no_mr_done() { # <top> <slug>
+  local branch base
+  [ "$(wp_pr_field "$1" "$2" mr)" = none ] || return 1
+  ! st_workplan_merged "$1" "$2" || return 1   # 已 merged 的 PR 是做完了，不是還在等 /archive
+  branch="$(wp_pr_field "$1" "$2" branch)"
+  [ -n "$branch" ] || return 1
+  base="$(primary_remote "$1")/main"
+  git -C "$1" show-ref --verify --quiet "refs/heads/$branch" || return 1
+  git -C "$1" show-ref --verify --quiet "refs/remotes/$base" || return 1
+  [ "$(git -C "$1" rev-list --count "$base..refs/heads/$branch" 2>/dev/null)" = 0 ]
+}
+# 這一站能不能送 /opsx-workflow:<stage> 給 agent：一般各站可以；archive 只有沒 MR、還沒歸檔的卡可以，workplan 已 merged 的卡沒東西要送
+st_sendable_stage() { # <top> <slug> <stage>
+  case "$3" in
+    explore|grill|propose|apply|review|pr|babysit) return 0 ;;
+    archive) st_no_mr_done "$1" "$2" ;;
+    *) return 1 ;;
+  esac
+}
 # 只看 frontmatter（第一行是 --- 才算有）裡第一個 split_into:；空值、[]、""、''、~、null 算沒拆
 st_split_into() {
   local line n=0 empty='^(\[ *\]|""|'"''"'|~|null)?$'
@@ -170,6 +201,7 @@ stage_of() { # <top> <slug>
   if [ -f "$d/report.md" ]; then
     if st_mr_in_report "$d"; then printf 'babysit · %s · %s · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）\n' "$slug" "$kind"
     elif [ -f "$d/tasks.md" ] && [ "$(st_tasks_open "$d")" -gt 0 ]; then printf 'apply · %s · %s · %s（review 退回了 task，先做完）\n' "$slug" "$kind" "$reads"
+    elif st_no_mr_done "$top" "$slug"; then printf 'archive · %s · %s · skills/archive/SKILL.md（沒有 MR：workplan mr: none、branch 沒有 commit）\n' "$slug" "$kind"
     else printf 'pr · %s · %s · skills/pr/SKILL.md · skills/pr/references/mr-note.md\n' "$slug" "$kind"; fi; return
   fi
   if [ -f "$d/tasks.md" ]; then
@@ -179,7 +211,7 @@ stage_of() { # <top> <slug>
   fi
   if [ -f "$d/explore.md" ]; then
     if [ -n "$(check_explore "$d")" ]; then printf 'explore · %s · %s · skills/explore/SKILL.md（explore.md 的 ## 步驟 不齊，opsx check %s）\n' "$slug" "$kind" "$slug"; return; fi
-    if st_pending_nonempty "$d" && [ ! -f "$d/grill.md" ] && [ "$kind" != chore ] && [ "$kind" != bug-fix ]; then printf 'grill · %s · %s · skills/grill/SKILL.md\n' "$slug" "$kind"; return; fi
+    if st_needs_grill "$d" && [ "$kind" != chore ] && [ "$kind" != bug-fix ]; then printf 'grill · %s · %s · skills/grill/SKILL.md\n' "$slug" "$kind"; return; fi
     printf 'propose · %s · %s · skills/propose/SKILL.md\n' "$slug" "$kind"; return
   fi
   printf 'explore · %s · %s · skills/explore/SKILL.md\n' "$slug" "$kind"

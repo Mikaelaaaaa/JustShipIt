@@ -8,6 +8,14 @@ for f in herdr glab; do printf '#!/usr/bin/env bash\nexec bash "%s/%s" "$@"\n' "
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/glab-all.log"\nexec bash "%s/glab" "$@"\n' "$FX" "$FAKES" > "$FX/fakebin/glab"
 export PATH="$FX/fakebin:$PATH"
 export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"
+# opsx coordinate 走 fake，記到 kick.log：drive kick 的真 coordinate 會在背景跑 collect，把 agent list 寫進 herdr log
+KL="$FX/kick.log"; : > "$KL"
+cat > "$FX/fakebin/opsx" <<EOF
+#!/usr/bin/env bash
+[ "\$1" = coordinate ] && OPSX_FAKE_LOG="$KL" exec bash "$FAKES/opsx" "\$@"
+exec bash "$OPSX_ROOT/bin/opsx" "\$@"
+EOF
+chmod +x "$FX/fakebin/opsx"
 export OPSX_USER=mikaela
 export OPSX_DRIVE_MAX=0   # autopilot 會在背景起 drive；0 輪讓它登記完就結束，不在 fixture 上跑迴圈
 export OPSX_DRIVE_POLL=0  # drive 起來第一次送出前會先睡間隔下限；要跑 1 輪的案例不能真的睡預設的 300 秒
@@ -37,6 +45,8 @@ out="$(OPSX_DRIVE_MAX=1 OPSX_TEST_ON_WAIT="$FX/snap-wait.sh" opsx dispatch retry
 assert_eq "$rc" 0 "dispatch rc: $out"
 case "$out" in *還沒信任*) ;; *) fail "沒信任過的 repo，dispatch 要警告：$out" ;; esac   # fixture 沒有 .claude.json
 wait_drive Acmecorp-CS retry-backoff   # autopilot 一律起 drive
+# 這一輪送了 propose 但 fixture 的階段不會動，drive 寫 gate 後 kick 一次
+assert_eq "$(grep -c '^opsx coordinate --kick$' "$KL")" 1 "drive 的 kick 要進假 coordinate: $(cat "$KL")"
 assert_eq "$(jq -r '."Acmecorp-CS/retry-backoff".drive_pid | type' "$FX/drive-snap.json")" number "drive 跑的時候 drive_pid 要登記在 dispatch 寫的 key 下"
 assert_grep '^kind: bug-fix$' "$R/openspec/changes/retry-backoff/.openspec.yaml"
 [ -d "$R/.claude/worktrees/retry-backoff" ] || fail "worktree 沒開"

@@ -113,7 +113,7 @@ PY
       die "relaunch: $key 代管的 $repo/$m 沒有卡目錄、也不在 archive/，dispatch.json 還記著它沒停"
     fi
     stage="$(stage_name "$top" "$m")"
-    case "$stage" in explore|grill|propose|apply|review|pr|babysit) ;; *) die "relaunch: $repo/$m 現在的階段是 ${stage:-（算不出來）}，沒有可送的那一站" ;; esac
+    st_sendable_stage "$top" "$m" "$stage" || die "relaunch: $repo/$m 現在的階段是 ${stage:-（算不出來）}，沒有可送的那一站"
     if [ -z "$via" ]; then prompts+=("/opsx-workflow:$stage $m"); else prompts+=("[$m] /opsx-workflow:$stage $m"); fi
   done
   [ "${#prompts[@]}" -gt 0 ] || die "relaunch: $key 代管的卡都已歸檔，沒有要送的那一站"
