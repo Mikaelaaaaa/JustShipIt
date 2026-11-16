@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argslost import args_lost, claude_argv  # noqa: E402
 import chain  # noqa: E402
+import coordq  # noqa: E402
 import gaterule  # noqa: E402
 import jsonfile  # noqa: E402
 import priority  # noqa: E402
@@ -42,8 +43,6 @@ USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+
 ARCHIVE_GRACE_MINUTES = 30
 # 協調者 session 在 herdr 裡的 agent 名；hooks 與 common.sh 的 COORDINATOR_AGENT 是同一個名字
 COORDINATOR = "opsx-coordinator"
-# herdr 收不下這則 prompt 的兩種情形：沒有這個 agent、或它卡在對話框。兩種都改發桌面通知，人才收得到
-COORDINATOR_UNAVAILABLE = ("agent_not_found", "agent_blocked")
 AGENT_NAME = chain.AGENT_NAME
 # gaterule.decide 回「留給人」時，各理由代碼寫進 log 的那行與通知標題後半
 GATE_HUMAN = {
@@ -440,22 +439,38 @@ class Round:
     def notify(self, c, kind, ident, event, body, scope=None):
         """這裡處理不了、要人去處理的事。每輪從狀態重算，送過的鍵記在 _notified，所以事件觸發那輪漏掉的由定時那輪補，也不會重送。
         scope 是去重鍵的前綴，預設是這張卡；feature session 的事屬於整個 session，傳 <repo>/@<feature>。
-        先送協調者 session（herdr agent prompt）；它不在或卡住（COORDINATOR_UNAVAILABLE）才發桌面通知。
+        先交給協調者 session：輸入框空就送，有字就排進佇列（coordq）；它不在或卡住才發桌面通知。
         herdr 的通知沒有點擊動作，內文要寫去哪裡處理。"""
         self.send_notification("%s/%s/%s" % (scope or card_key(c), kind, ident), "[%s] %s" % (card_key(c), event), body)
 
     def send_notification(self, key, title, body):
         if key in self.memo["_notified"]:
             return
-        rc, out, err = self.act(runtime.prompt("%s：%s" % (title, body), "nowait", agent=COORDINATOR))
-        if rc != 0 and any(code in out + err for code in COORDINATOR_UNAVAILABLE):
+        line = "%s：%s" % (title, body)
+        if self.dry:
+            self.act(runtime.prompt(line, "nowait", agent=COORDINATOR))
+            return
+        result, why = coordq.say(self.state, line, read=self.run, act=self.act)
+        if result == "queued":
+            self.log("ok   協調者輸入框有字，%s 排進佇列" % key)
+        if result == "unavailable":
             rc, out, err = self.act(runtime.notify(title, body, sound="request"))
-        if rc != 0:
-            self.log("?? 通知 %s 送不出去，下一輪再送：%s" % (key, (err or out).replace("\n", " ")[:200]))
+            why = "" if rc == 0 else (err or out)
+            result = "sent" if rc == 0 else "error"
+        if result == "error":
+            self.log("?? 通知 %s 送不出去，下一輪再送：%s" % (key, why.replace("\n", " ")[:200]))
             return
         self.memo["_notified"][key] = self.now.isoformat(timespec="seconds")
         # 送出就存：這輪後面的步驟出錯時，下一輪不會把同一則再送一次
         self.save()
+
+    def flush_queue(self):
+        """協調者輸入框有字時排隊的事件，輸入框空了就合成一則補送；還有字就留到下一輪。dry 不動佇列。"""
+        if self.dry or not coordq.has_queued(self.state):
+            return
+        result, why = coordq.flush(self.state, read=self.run, act=self.act)
+        if result in ("unavailable", "error"):
+            self.log("?? 協調者佇列這輪送不出去，留到下一輪：%s" % why.replace("\n", " ")[:200])
 
     def forget_waiting(self, c, live):
         """卡沒在等人了：清掉它 gate 與 blocked 的通知紀錄，同一個 pane 之後再卡、或 gate id 被重用時才會再通知。
@@ -1212,6 +1227,7 @@ def one_round(state, dry):
         r.log("!! coordinator 這輪不跑：%s" % e)
         return 1
     r.log("== coordinator 開始" + ("（dry）" if r.dry else ""))
+    r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
 

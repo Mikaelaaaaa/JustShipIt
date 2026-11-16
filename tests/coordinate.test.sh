@@ -1335,13 +1335,14 @@ HUMAN='[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idl
 cards "$HUMAN"
 round || fail "rc: $(cat "$FX/out")"
 n1="$(notes)"; grep '^notification show' "$OPSX_FAKE_LOG" > "$FX/note1"
-grep -E '^(agent prompt|notification show)' "$OPSX_FAKE_LOG" | cut -d' ' -f1-3 > "$FX/sends1"
+grep -E '^(agent get opsx-coordinator|agent prompt|notification show)' "$OPSX_FAKE_LOG" | cut -d' ' -f1-3 > "$FX/sends1"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$((n1 + $(notes)))" 1 "兩輪只通知一次：$(cat "$FX/note1")"
 assert_grep '^notification show \[demo/a1\] ' "$FX/note1"
 assert_grep ' --body 看板.*這段怎麼驗 --sound request$' "$FX/note1"
-assert_eq "$(cat "$FX/sends1")" "agent prompt opsx-coordinator
-notification show [demo/a1]" "先送協調者，送不到才發桌面通知：$(cat "$FX/sends1")"
+assert_eq "$(cat "$FX/sends1")" "agent get opsx-coordinator
+notification show [demo/a1]" "協調者不在：agent get 就知道，不打 prompt，直接發桌面通知：$(cat "$FX/sends1")"
+assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 assert_not_grep '第二行' "$FX/note1"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "_notified 要有 demo/a1/gate/g1：$(cat "$MEMO")"
 assert_eq "$(count '^opsx answer')" 0 "要人的 gate 不代答"
@@ -1414,6 +1415,25 @@ assert_eq "$(memo_get _notified demo/a1/gate/g1)" "" "失敗不記進 _notified"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/cerr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^agent prompt opsx-coordinator ')" 1 "下一輪補送"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "成功後要記：$(cat "$MEMO")"
+rm -f "$MEMO"
+
+# --- 協調者輸入框有字：通知排進佇列，不打 prompt、不發桌面通知，記 _notified ---
+CQ="$OPSX_STATE_DIR/coordinator-queue"; rm -f "$CQ"
+sed 's/^❯$/❯ 幫我看一下/' "$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt" > "$FX/typed-screen"
+cards "$HUMAN"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" round || fail "rc: $(cat "$FX/out")"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator ')" 0 "有字不打 prompt：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "排進佇列不發桌面通知"
+assert_eq "$(grep -c 'gate g1' "$CQ")" 1 "兩輪只排一次：$(cat "$CQ")"
+[ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "排進佇列要記 _notified：$(cat "$MEMO")"
+# 輸入框空了：下一輪開頭補送，佇列清空
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ')" 1 "輸入框空了這輪補送：$(cat "$OPSX_FAKE_LOG")"
+assert_no_file "$CQ"
+# 佇列空時不讀協調者畫面（卡也沒有新事件）
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent read w3:p7 ')" 0 "佇列空、沒有新事件時不讀協調者畫面：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- 終端機等待輸入：綁 pane 通知一次，內文指到 pane ---
@@ -2241,7 +2261,8 @@ rm -f "$MEMO"; printf '{}' > "$DISP"
 # 兩張卡：a 帶壞值，b 的 drive_pid 指向已不存在的行程。壞值只停 a，b 照常重派。
 sleep 0 & dead=$!; wait "$dead"
 rm -f "$MEMO"
-bad_prompts() { grep -cE -- "^agent prompt .*\[demo/a\] " "$OPSX_FAKE_LOG" || true; }
+# 通知送到協調者（agent prompt）或退回桌面通知（協調者不在時 agent get 就知道，不會先試 prompt）都算一次
+bad_prompts() { grep -cE -- "^(agent prompt .*|notification show )\[demo/a\] " "$OPSX_FAKE_LOG" || true; }
 two_cards() {   # two_cards <a 的 drive_pid JSON>
   cards '[{"slug":"a","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$1"'},"agent_status":"idle"},{"slug":"b","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p2","drive_pid":'"$dead"'},"agent_status":"idle"}]'
 }

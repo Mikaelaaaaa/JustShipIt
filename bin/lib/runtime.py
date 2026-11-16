@@ -60,6 +60,13 @@ def read(*, card=None, agent=None, dispatch=None, lines=None):
     return ["herdr", "agent", "read", pane, "--lines", str(lines), "--format", "text"]
 
 
+def screen(pane):
+    """pane 目前看得到的畫面，純文字。給已經從 get 拿到 pane id 的呼叫者（協調者不在 dispatch.json），只有 python 版。"""
+    if not pane:
+        raise ValueError("runtime: screen 要 pane id")
+    return ["herdr", "agent", "read", pane, "--source", "visible", "--format", "text"]
+
+
 def get(*, card=None, agent=None, dispatch=None):
     _, name, _, _ = _target(card, agent, dispatch)
     return ["herdr", "agent", "get", name]

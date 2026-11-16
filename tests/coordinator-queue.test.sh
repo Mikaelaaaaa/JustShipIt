@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# bin/lib/coordq.py：事件送協調者前看輸入框，有字排隊，空了合成一則送出。
+# 驗收：openspec/changes/me-20261116-1130/specs/opsx-coordinate/spec.md「協調者輸入框有字時事件排隊，空了合成一則送出」
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+use_fakes herdr
+export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"
+export OPSX_TEST_COORDINATOR_UP=1
+PY="$(cat "$OPSX_STATE_DIR/python")"
+Q="$OPSX_STATE_DIR/coordinator-queue"
+SAMPLE="$OPSX_ROOT/tests/fakes/herdr-samples/agent-read.txt"
+reset() { : > "$OPSX_FAKE_LOG"; rm -f "$Q" "$Q".sending.*; unset OPSX_TEST_AGENT_READ OPSX_TEST_AGENT_READ_FAIL OPSX_TEST_AGENT_GET_ERR OPSX_TEST_AGENT_GET_RAW OPSX_TEST_COORD_ERR; }
+say() { "$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" "$1" 2>"$FX/err"; }
+flush() { "$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" flush "$OPSX_STATE_DIR" 2>>"$FX/err"; }
+prompts() { grep -c '^agent prompt opsx-coordinator ' "$OPSX_FAKE_LOG"; }
+screen() { # <檔名> <輸入框那一行換成什麼>：從實跑樣本做出畫面，只換輸入框
+  sed "s/^❯\$/$2/" "$SAMPLE" > "$FX/$1"; printf '%s' "$FX/$1"
+}
+
+# --- 輸入框空時直接送（正例） ---
+reset
+assert_eq "$(say '[c] 停住：等人答 gate')" sent "空輸入框的結果"
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [c] 停住：等人答 gate" "原樣送一行"
+assert_no_file "$Q"
+assert_grep '^agent read w3:p7 ' "$OPSX_FAKE_LOG"
+
+# --- 輸入框有字時排隊不送（反例） ---
+reset; export OPSX_TEST_AGENT_READ="$(screen typed '❯ 幫我看一下')"
+assert_eq "$(say '[c] 停住：等人答 gate')" queued "有字的結果"
+assert_eq "$(prompts)" 0 "有字不送"
+assert_eq "$(cat "$Q")" "[c] 停住：等人答 gate" "排進佇列一行"
+
+# --- 判讀輸入框（Scenario Outline，正例＋反例） ---
+look() { # <期望結果> <說明>：其餘條件由呼叫前設好的環境變數決定
+  : > "$OPSX_FAKE_LOG"; rm -f "$Q"
+  local got rc; got="$(say '[x] 一則')"; rc=$?
+  assert_eq "$got" "$1" "$2"
+  case "$1" in
+    sent) assert_eq "$rc" 0 "$2 的 rc"; assert_eq "$(prompts)" 1 "$2 要送" ;;
+    queued) assert_eq "$rc" 0 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_eq "$(cat "$Q")" "[x] 一則" "$2 排進佇列" ;;
+    unavailable) assert_eq "$rc" 1 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_no_file "$Q" ;;
+  esac
+}
+# 一般場景
+reset; look sent "實跑樣本：只有 ❯"
+reset; OPSX_TEST_AGENT_READ="$(screen typed '❯ 幫我看一下')" look queued "❯ 後面有字"
+# 邊界場景
+reset; OPSX_TEST_AGENT_READ="$(screen spaces '❯   ')" look sent "❯ 後面只有空白"
+reset; { printf '❯ 舊的一句\n\n'; cat "$SAMPLE"; } > "$FX/old"; OPSX_TEST_AGENT_READ="$FX/old" look sent "上方對話有 ❯ 舊的一句，只看最後一個輸入框"
+reset; printf 'Do you want to proceed?\n  1. Yes\n  2. No\n' > "$FX/dialog"; OPSX_TEST_AGENT_READ="$FX/dialog" look queued "沒有 ❯ 開頭的行"
+reset; OPSX_TEST_AGENT_READ_FAIL=1 look queued "agent read 失敗"
+reset; OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"agent_status":"idle"}}}' look queued "agent get 讀不出 pane"
+reset; OPSX_TEST_AGENT_GET_ERR=agent_not_found look unavailable "agent get 回 agent_not_found"
+# herdr 本身叫不通（不是協調者不在）：不排隊，交回呼叫者照原本的方式重試，免得之後跟重試的那一則重複送
+reset; got="$(OPSX_TEST_AGENT_GET_ERR=socket_unreachable say '[x] 一則')"; rc=$?
+assert_eq "$got" error "agent get 其他錯誤的結果"; assert_eq "$rc" 1 "agent get 其他錯誤的 rc"
+assert_eq "$(prompts)" 0 "agent get 其他錯誤不送"; assert_no_file "$Q"
+reset; OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"pane_id":"w3:p7","agent_status":"blocked"}}}' look unavailable "agent_status 是 blocked"
+# 輸入框有好幾行：第一行是 ❯ 開頭，後面接著打的字
+reset; awk '{ print } /^❯$/ && !d { print "第二行"; d=1 }' "$SAMPLE" > "$FX/multi"; OPSX_TEST_AGENT_READ="$FX/multi" look queued "❯ 之後還有一行字"
+
+# --- 輸入框空了把佇列合成一則送出（正例） ---
+reset; printf '[a] 停住：等 reviewer\n[b] gate g1 要人看\n' > "$Q"
+assert_eq "$(say '[c] 停住：等人答 gate')" sent
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator 排隊 3 則：[a] 停住：等 reviewer；[b] gate g1 要人看；[c] 停住：等人答 gate" "合成一則"
+assert_no_file "$Q"
+assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)" 0 "沒有留下補送中的批次"
+
+# 事件裡的換行換成空白：合成的一則永遠只有一行
+reset; assert_eq "$(say "$(printf '[c] 第一行\n第二行')")" sent
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [c] 第一行 第二行" "換行換成空白"
+
+# --- 補送：佇列空時不讀畫面；有東西且輸入框空就送；有字就留著 ---
+reset; flush || fail "空佇列 flush rc：$(cat "$FX/err")"
+assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "佇列空時不叫 herdr"
+reset; printf '[a] 停住：等 reviewer\n' > "$Q"; flush || fail "flush rc：$(cat "$FX/err")"
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [a] 停住：等 reviewer" "單則補送原樣送"
+assert_no_file "$Q"
+reset; printf '[a] 停住：等 reviewer\n' > "$Q"; OPSX_TEST_AGENT_READ="$(screen typed '❯ 幫我看一下')" flush || fail "有字 flush rc"
+assert_eq "$(prompts)" 0 "有字不補送"; assert_eq "$(cat "$Q")" "[a] 停住：等 reviewer" "有字時佇列留著"
+
+# --- 送出失敗時佇列不變（反例） ---
+reset; printf '[a] 停住：等 reviewer\n' > "$Q"; printf 'agent_prompt_stalled\n' > "$FX/stall"
+out="$(OPSX_TEST_COORD_ERR="$FX/stall" say '[c] 停住：等人答 gate')"; rc=$?
+assert_eq "$out" error "其他錯誤的結果"; assert_eq "$rc" 1 "其他錯誤 rc"
+assert_grep agent_prompt_stalled "$FX/err"
+assert_eq "$(cat "$Q")" "[a] 停住：等 reviewer" "佇列仍只有 [a]"
+assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)" 0 "失敗後沒有留下補送中的批次"
+# 送的當下才發現協調者不在：批次放回佇列，這一則交回呼叫者
+reset; printf '[a] 停住：等 reviewer\n' > "$Q"; printf 'agent_blocked\n' > "$FX/blk"
+assert_eq "$(OPSX_TEST_COORD_ERR="$FX/blk" say '[c] 停住')" unavailable "送的當下卡住"
+assert_eq "$(cat "$Q")" "[a] 停住：等 reviewer" "卡住時佇列不變"
+
+# --- 補送中斷後下次撿回（正例） ---
+reset; dead="$(bash -c 'echo $$')"
+printf '[a] 停住：等 reviewer\n' > "$Q.sending.$dead"
+assert_eq "$(say '[c] 停住：等人答 gate')" sent
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator 排隊 2 則：[a] 停住：等 reviewer；[c] 停住：等人答 gate" "撿回殘留批次"
+assert_no_file "$Q.sending.$dead"
+# 還活著的程序拿走的批次不撿
+reset; printf '[a] 別人的\n' > "$Q.sending.$$"
+assert_eq "$(say '[c] 一則')" sent
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [c] 一則" "活著的程序的批次不碰"
+assert_file "$Q.sending.$$"; rm -f "$Q.sending.$$"
+
+# --- 同時補送每則恰好一次（反例） ---
+reset; printf '[e1] 一\n[e2] 二\n[e3] 三\n[e4] 四\n[e5] 五\n' > "$Q"
+flush & p1=$!; flush & p2=$!
+wait "$p1" || fail "第一個 flush rc：$(cat "$FX/err")"
+wait "$p2" || fail "第二個 flush rc：$(cat "$FX/err")"
+grep '^agent prompt' "$OPSX_FAKE_LOG" > "$FX/sent"
+for e in e1 e2 e3 e4 e5; do
+  assert_eq "$(grep -o "\[$e\]" "$FX/sent" | wc -l | tr -d ' ')" 1 "$e 恰好送一次：$(cat "$FX/sent")"
+done
+assert_no_file "$Q"
+
+# --- 命令列參數不對：非 0，不叫 herdr ---
+reset; "$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" >/dev/null 2>&1 && fail "say 少一則事件要非 0"
+"$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" nope "$OPSX_STATE_DIR" >/dev/null 2>&1 && fail "不認得的動詞要非 0"
+assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "參數不對不叫 herdr"
+
+echo ok

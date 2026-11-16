@@ -205,10 +205,11 @@ $(herdr pane read "$pane" 2>/dev/null | tail -20)"
   RUNTIME_PANE="$pane"; RUNTIME_TAB="$tab"; RUNTIME_WORKSPACE_ID="$ws_id"
 }
 
-# 回報一行給協調者 session。送不出去（它不在、herdr 掛了）記 coordinator.log 並回 1；成功回 0。
+# 回報一行給協調者 session。輸入框有字時排進佇列（bin/lib/coordq.py），不打斷使用者打字；送出或排進佇列回 0。
+# 送不出去（它不在、herdr 掛了）記 coordinator.log 並回 1。
 coordinator_say() { # <一行>
   local err
-  err="$(runtime_prompt --agent "$COORDINATOR_AGENT" "$1" nowait 2>&1 >/dev/null)" && return 0
+  err="$("$OPSX_PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" "$1" 2>&1 >/dev/null)" && return 0
   printf '%s ?? 回報 %s 送不出去：%s\n' "$(now_iso)" "$COORDINATOR_AGENT" "$(printf '%s' "$err" | head -c 200 | tr '\n' ' ')" | opsx_append "$OPSX_STATE_DIR/coordinator.log" || true
   return 1
 }
