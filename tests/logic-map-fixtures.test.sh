@@ -16,9 +16,10 @@ assert_eq "$(awk '{print $1, $2}' "$FX/evals")" "1 fixtures/stop-gate-subagent
 2 fixtures/gate-title-slug
 3 fixtures/coordinate-usage-limit
 4 fixtures/question-reply
-5 fixtures/coordinate-usage-limit"
+5 fixtures/coordinate-usage-limit
+6 fixtures/logic-map-classify"
 grep -v '^4 ' "$FX/evals" > "$FX/map-evals"
-assert_eq "$(grep -c 'HEAD^...HEAD' "$FX/map-evals")" 4 "產表題的範圍都是 HEAD^...HEAD"
+assert_eq "$(grep -c 'HEAD^...HEAD' "$FX/map-evals")" 5 "產表題的範圍都是 HEAD^...HEAD"
 grep '^4 ' "$FX/evals" > "$FX/question-eval"
 # 第 5 題只驗兩段業務說明：位置、句數、沒有識別字
 python3 -I -c '
@@ -104,6 +105,45 @@ assert_grep '表格' "$FX/eval4"
 assert_not_grep '讀了 explore.md' "$FX/eval4"
 git -C "$QR" ls-files > "$FX/question-reply.files"
 ! grep -Eiq 'eval|test|judge|experiment|rubric|score|compare|benchmark|candidate|arena' "$FX/question-reply.files" || fail "question-reply 留著含評測字眼的路徑"
+
+# --- 分類題的 fixture：合成的 base、head 兩個 commit，design.md 在 base，五種分類各有一處 ---
+CL="$FX/fx-logic-map-classify"
+assert_file "$FIXTURES/logic-map-classify/setup.sh"
+bash "$FIXTURES/logic-map-classify/setup.sh" "$CL" >/dev/null 2>&1 || fail "logic-map-classify setup.sh 失敗"
+assert_eq "$(git -C "$CL" remote)" "" "logic-map-classify 不該有 remote"
+assert_eq "$(git -C "$CL" log --format=%s)" "head
+base" "logic-map-classify 只有 head、base 兩個 commit"
+assert_eq "$(git -C "$CL" status --short)" "" "logic-map-classify 工作樹要乾淨"
+assert_eq "$(git -C "$CL" rev-parse --abbrev-ref HEAD)" "feat/member-export/dev" "logic-map-classify 停在卡的分支上"
+CLD="$CL/openspec/changes/member-export/design.md"
+assert_file "$CLD"
+# design.md 不在 diff 裡：產表的 subagent 只能從 design: 行讀到它
+git -C "$CL" diff --name-only HEAD^ HEAD > "$FX/classify.diff-files"
+assert_eq "$(cat "$FX/classify.diff-files")" "src/export.py" "head 只改 src/export.py"
+# 三條 D：一條有使用者出處、一條 agent 自定（理由沒有使用者／grill／explore）、一條跟程式相反
+grep -E '^- D[0-9]' "$CLD" > "$FX/classify-ds"
+assert_eq "$(grep -c . "$FX/classify-ds")" 3 "design.md 有三條 D"
+grep -A1 -E '^- D1 ' "$CLD" | grep -qF '使用者' || fail "D1 的理由要有使用者出處"
+! grep -A1 -E '^- D2 ' "$CLD" | grep -qE '使用者|grill|explore' || fail "D2 的理由不能有使用者或 grill／explore 出處"
+grep -qF 'admin 也一樣' "$CLD" || fail "D3 要寫 admin 也不能匯出別部門"
+# 程式：schema 的 NOT NULL 讓 role 為 None 的分支走不到；admin 跨部門放行（違反 D3）；email 過濾 design 沒提
+grep -qF 'role TEXT NOT NULL' "$CL/schema.sql" || fail "schema.sql 要把 role 定成 NOT NULL"
+grep -qF 'user.role is None' "$CL/src/export.py" || fail "head 要有 role 為 None 的分支"
+grep -qF 'role != "admin"' "$CL/src/export.py" || fail "head 要讓 admin 跨部門"
+grep -qF '"@" not in' "$CL/src/export.py" || fail "head 要有 design 沒提的 email 過濾"
+! grep -qF 'email' "$CLD" || fail "design.md 不能提 email"
+git -C "$CL" ls-files > "$FX/classify.files"
+! grep -Eiq 'eval|test|judge|experiment|rubric|score|compare|benchmark|candidate|arena' "$FX/classify.files" || fail "logic-map-classify 留著含評測字眼的路徑"
+assert_rc 1 bash "$FIXTURES/logic-map-classify/setup.sh"
+# eval 6：prompt 帶 design: 行；斷言五種標籤的位置、條件照程式字面、標籤寫 design Dn
+grep '^6 ' "$FX/evals" | grep -qF 'design: openspec/changes/member-export/design.md' || fail "eval 6 的 prompt 沒有 design: 行"
+python3 -I -c '
+import json, sys
+e = next(x for x in json.load(open(sys.argv[1]))["evals"] if x["id"] == 6)
+print("\n".join(e["assertions"]))' "$EV/evals.json" > "$FX/eval6"
+for k in '照 design D1' '照 design D2（agent 自定）' 'bug：違反 design D3' '沒經過決定' '程式整理' '照程式字面' '照 design D 行'; do
+  assert_grep "$k" "$FX/eval6"
+done
 
 # --- eval 1 改成 #88：答案講 Stop 閘門與 stage.sh，不再是 commit 閘門 ---
 python3 -I -c '

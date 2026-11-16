@@ -1,6 +1,6 @@
 # Logic map examples
 
-Three complete maps. The first two are real opsx code at `main` 6312881. The third is a product feature, to show the format outside opsx.
+Three complete maps. The first two are real opsx code at `main` 6312881, produced without a `design:` line, so their ⚠ marks are not sorted. The third is a product feature, to show the format outside opsx, with its ⚠ marks sorted against a design.md.
 
 ---
 
@@ -55,6 +55,7 @@ D3 有 workplan.yaml?（既有） ─否→ 放行，提示未啟用
 D2 只取「`git commit` 前面最後一個 `cd`」：`cd a && cd b && git commit` 只認 `b`，相對路徑時會接錯。D3 排在 D4 前面，所以沒有 workplan 的 repo，目錄讀不出也放行。
 
 ### ⚠ 要看的地方
+沒有 design.md，未分類
 - D2：`cd a && cd b && git commit` 的目標算成 `cwd/b`，實際是 `cwd/a/b`；b 是相對路徑時會對錯卡。
 - D2：`git -C` 只取第一個；`git -C a -C b commit` 的 `b` 被略過。
 - A1：目標目錄不存在時（`[ -d "$target" ]` 不成立，:32）悄悄退回 session 目錄，沒有提示。
@@ -116,6 +117,7 @@ D7 題型? ─驗證→ 回「等使用者驗」
 詞表（bin/lib/coordinate.py:37–42）：`MERGE_WORDS = ["合併","merge"]`；`VERIFY_WORDS` 8 個（真機、實測、瀏覽器、resume…）；`GRANT_WORDS` 7 個（授權、開 PR、push、rebase…）；`HUMAN_WORDS` 10 個（你、使用者、沙盒外、跑指令…）。
 
 ### ⚠ 要看的地方
+沒有 design.md，未分類
 - D6：用「全文含『合併』或『merge』」判斷合併決定。「把 origin/main 合併進分支解衝突」也成立，協調者就不答。2026-11-11 有三個 gate 因此停住。
 - D6 排在 D7 前：問題寫「push 前要先 merge main 嗎」的授權題，到不了 D7 的授權分支。
 - D9：`HUMAN_WORDS` 有單字「你」。建議寫「照你上一輪的做法」也算要人動手。
@@ -124,6 +126,15 @@ D7 題型? ─驗證→ 回「等使用者驗」
 ---
 
 ## Example 3: a product feature (remember user preferences)
+
+The prompt's `design:` line points to a design.md with four decisions:
+
+- D1 敏感類（health、religion、politics）要使用者明確同意才存。理由：使用者在 grill 選 A。
+- D2 信心門檻 0.7。理由：抽取模型的分數到 0.7 以上誤判少。
+- D3 只有訊息明講「只限今天」才設當天到期。理由：使用者在 explore 說「今天開始」是長期偏好。
+- D4 超過預算時先移除沒明講、最久沒更新的偏好。理由：使用者在 grill 選 B。
+
+D2 的理由沒有使用者，也沒引 grill 或 explore，所以照它做的標「agent 自定」。memory/schema.sql:9 把 `explicit_consent` 定成 `BOOLEAN NOT NULL`。
 
 # 邏輯表：feat/remember-preferences/mikaela-lin
 
@@ -161,10 +172,12 @@ D7 題型? ─驗證→ 回「等使用者驗」
 | D4 | 怎麼存? | `if existing[c.key] = null then "新增" else if existing[c.key].value = c.value then "更新時間" else if contains(msg, "以後都") then "覆蓋" else "問用戶"` | 四選一 | memory/policy.py:23 |
 | D5 | 只限今天? | `contains(msg, "今天")` | 是 → 到期今天 23:59 | memory/store.py:41 |
 
+照 design D：D1 照 design D2（agent 自定）
+
 ### ⚠ 要看的地方
-- D1：`0.7` 寫死在程式裡，沒有名字也沒有註解。
-- D4：「明講永久」靠訊息含「以後都」判斷。「以後都不要」這種否定句也會覆蓋。
-- D5：訊息裡只要有「今天」就設今天到期。「我今天開始吃素」是長期偏好，會在今晚過期。
+- 沒經過決定。D4：「明講永久」靠訊息含「以後都」判斷。「以後都不要」這種否定句也會覆蓋。
+- bug：違反 design D3。D5：訊息裡只要有「今天」就設今天到期。「我今天開始吃素」是長期偏好，會在今晚過期。
+- 程式整理。D3：`c.explicit_consent = null` 時改問用戶的分支（memory/policy.py:20）走不到，schema 不允許 null。
 
 ## 功能 2：把偏好注入上下文
 
@@ -188,6 +201,7 @@ D7 題型? ─驗證→ 回「等使用者驗」
 |---|---|---|---|---|
 | D1 | 超過預算? | `sum(ctx[item].tokens) > 500`；移除順序 `sort(ctx, function(a,b) a.explicit < b.explicit or (a.explicit = b.explicit and a.updated_at < b.updated_at))` 的第一個 | 是 → 移除後再比 | memory/context.py:27 |
 
+照 design D：D1 的移除順序照 design D4
+
 ### ⚠ 要看的地方
-- D1：只有一個偏好就超過 500 token 時，清單會移除到空，回答時完全沒有偏好，也沒有記錄。
-- A2：相關度排序的結果沒有用在移除順序上；移除只看「明講」與時間，最相關的偏好也可能先被移除。
+- 沒經過決定。D1：只有一個偏好就超過 500 token 時，清單會移除到空，回答時完全沒有偏好，也沒有記錄。

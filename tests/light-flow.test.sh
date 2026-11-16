@@ -42,6 +42,8 @@ assert_fixed 'first path component' "$FX/sec-light"
 assert_fixed 'test paths' "$FX/sec-light"
 assert_fixed 'Only kind chore or bug-fix' "$FX/sec-light"
 assert_fixed 'Consider never blocks the flow' "$FX/sec-light"
+# 邏輯表「沒經過決定」的 ⚠ 不是 Consider，它的 gate 擋在 /pr 前
+assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$FX/sec-light"
 
 # --- 2.2 小卡只一個合併 reviewer，其他卡三個 ---
 assert_fixed 'one merged reviewer' "$REV"

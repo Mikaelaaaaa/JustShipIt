@@ -80,3 +80,81 @@ STEP0="$FX/step0"; section "Step 0" > "$STEP0"; [ -s "$STEP0" ] || fail "section
 assert_fixed 'Every card: also run `opsx check <slug>`.' "$STEP0"
 assert_not_fixed 'A main change with `subs/`: also run `opsx check' "$STEP0"
 assert_fixed 'A line pointing at a `spec.md` is a spec that breaks the Gherkin rules: stop the same way, list those lines, and send it back to `/opsx-workflow:apply <slug>`.' "$STEP0"
+
+# --- 產表步：Step 1 之後、Step 2 之前；每輪都產，確認 pass 不產；prompt 四行加 design:（specs/review-logic-map、pr-logic-map）---
+MAP="$FX/map"; section "Step 1b" > "$MAP"; [ -s "$MAP" ] || fail "section missing: Step 1b"
+[ "$(line_of '## Step 1b' "$SK")" -gt "$(line_of '## Step 1: shared inputs' "$SK")" ] || fail "Step 1b 要在 Step 1 之後"
+[ "$(line_of '## Step 2' "$SK")" -gt "$(line_of '## Step 1b' "$SK")" ] || fail "Step 1b 要在 Step 2 之前"
+assert_fixed 'Wait for the map before Step 2' "$MAP"
+assert_fixed 'The confirm pass and the base-merge confirm pass in Step 4 do not run this step' "$MAP"
+assert_fixed 'git fetch <remote> main' "$MAP"
+assert_fixed '產表失敗：fetch 失敗' "$MAP"
+assert_fixed '`<map path>` is the absolute path of `openspec/changes/<slug>/logic-map.md` in the checkout that holds `openspec/`' "$MAP"
+assert_fixed 'Delete `<map path>` before spawning' "$MAP"
+python3 -I - "$MAP" <<'PY' || fail "產表步的 prompt 區塊不是那五行，或刪檔不在派之前"
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+if not text.index("Delete `<map path>`") < text.index("Spawn one fresh subagent"):
+    sys.exit("刪檔在派之後")
+blocks = [b for b in re.findall(r"```\n(.*?)```", text, re.S) if b.lstrip().startswith("repo: ")]
+if len(blocks) != 1:
+    sys.exit("找不到以 repo: 開頭的 prompt 區塊")
+lines = [l.strip() for l in blocks[0].strip().splitlines()]
+want = ["repo: ", "range: <remote>/main...HEAD", "output: <map path>", "design: <absolute path of", "Load "]
+if len(lines) != 5 or not all(l.startswith(w) for l, w in zip(lines, want)) or "../logic-map/SKILL.md" not in lines[4]:
+    sys.exit("prompt：%r" % lines)
+PY
+grep -F 'Nothing else goes into the prompt' "$MAP" > "$FX/map-deny"
+for k in 'spec' 'proposal' 'report' 'tasks' 'explore' 'grill' 'conversation' 'PR title or description'; do
+  grep -qF -- "$k" "$FX/map-deny" || fail "產表步禁止清單缺 $k"
+done
+for k in 'never build the map in this session' '產表失敗：無 Agent 工具' '`產表失敗：<reason>`' \
+  'replaces the one line under `## 邏輯表`' 'openspec/changes/<slug>/logic-map.md · <head sha 前 7 碼>' 'overwrite the whole line' \
+  "go on to the caller's next step"; do
+  assert_fixed "$k" "$MAP"
+done
+for k in 'comment' '留言' 'gh pr' 'glab api'; do assert_not_fixed "$k" "$MAP"; done
+assert_fixed '## 邏輯表' "$STEP5"
+
+# --- bug 類 ⚠ 交 Agent A 確認；沒確認的進 Dismissed ---
+assert_fixed 'Also confirm every `bug：違反 design Dn` item of the logic map' "$STEP2"
+assert_fixed 'A logic-map bug item that Agent A does not confirm goes to Dismissed' "$STEP3"
+
+# --- 沒經過決定與未分類的 ⚠ 進同一個 gate；程式整理與照 design D 不進；答案寫回 design ---
+grep -F -- '- **Logic map, undecided.**' "$STEP4" > "$FX/undecided"; [ -s "$FX/undecided" ] || fail "Step 4 找不到 Logic map, undecided 段"
+for k in '`logic-map-undecided-r<N>`' '`type: decision`' '2 to 4 options' 'Recommended' '沒有 design.md，未分類' \
+  '`程式整理` items and 照 design D items never go into the gate' 'not verified'; do
+  assert_fixed "$k" "$FX/undecided"
+done
+grep -F -- '- **Logic map gate answered.**' "$STEP4" > "$FX/answered"; [ -s "$FX/answered" ] || fail "Step 4 找不到 Logic map gate answered 段"
+for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' 'review 退回' '/opsx-workflow:apply <slug>' '/opsx-workflow:pr <slug>' 'not a round'; do
+  assert_fixed "$k" "$FX/answered"
+done
+assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$STEP5"
+
+# --- R1.1 第 1 輪產表不建出 report.md：router 看到 report.md 會判成 pr（bin/lib/stage.sh） ---
+assert_fixed 'When report.md does not exist yet (round 1), do not create it here: keep the line and write it under `## 邏輯表` in Step 5.' "$MAP"
+# --- R1.2 design: 行跟 <map path> 同一個 checkout：dispatch worktree 沒有 openspec/ ---
+assert_fixed 'design: <absolute path of `openspec/changes/<slug>/design.md` in the same checkout as `<map path>`>' "$MAP"
+# --- R1.3 gate 答完的處理：review 重進不算一輪；寫回後記 寫回: 行、清掉邏輯表行、照 Step 5 規則接下一步 ---
+for k in '`寫回: <日期> · <新的 D>`' 'continue by Step 5'"'"'s rule'; do
+  assert_fixed "$k" "$FX/answered"
+done
+assert_not_fixed 'when no answer changes the code, continue to `/opsx-workflow:pr <slug>`' "$FX/answered"
+
+# --- R2.4 Step 0 先認 gate、再算輪數；寫回後照那步的接續，不停 ---
+GATE0='Before reading the round: when the newest `logic-map-undecided-r*` gate is answered and has no `寫回:` line, the answers are not in design.md yet: run only the **Logic map gate answered** step of Step 4, which is not a round, then continue as that step says.'
+assert_fixed "$GATE0" "$STEP0"
+[ "$(line_of "$GATE0" "$SK")" -lt "$(line_of 'Read the round from report.md' "$SK")" ] || fail "Step 0 認 gate 的段落要在算輪數之前"
+assert_not_fixed 'and stop there' "$STEP0"
+# --- R2.2 每輪自己的 gate id，認最新一個 ---
+assert_fixed 'with id `logic-map-undecided-r<N>`, where N is this review round' "$FX/undecided"
+# --- R2.1 改程式的答案也進待修，pr 與 Stop hook 才擋得到；R2.3 群組編號接現有最大的 R ---
+assert_fixed 'list it under `### 待修（範圍內）` in report.md with its task id' "$FX/answered"
+assert_fixed 'numbered after the largest `## R<k>.` group already in tasks.md, not after the round' "$FX/answered"
+assert_not_fixed '## R<N>. review 退回' "$FX/answered"
+# --- R2.5 失敗行第 1 輪也不建 report.md；寫回時整段刪掉 ## 邏輯表，對上 pr 5c 的「沒有這一段」 ---
+assert_not_fixed '(add the heading when it is missing)' "$MAP"
+assert_fixed 'In round 1, when report.md does not exist yet, keep the failure line for Step 5 the same way.' "$MAP"
+assert_fixed 'Delete the whole `## 邏輯表` section from report.md' "$FX/answered"
+assert_not_fixed 'Clear the line under `## 邏輯表`' "$FX/answered"
