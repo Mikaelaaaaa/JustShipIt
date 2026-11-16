@@ -20,6 +20,37 @@ assert_eq "$(bash_fn stage_name "$R" c-bug)" propose "bug-fix 有待決 → prop
 assert_eq "$(bash_fn stage_name "$R" c-dev)" grill "dev 有待決 → grill"
 assert_eq "$(bash_fn stage_name "$R" c-ops)" grill "ops 有待決 → grill"
 
+# --- explore 之後的下一站：spec Examples 七列，待決空的非 chore／bug-fix 也進 grill ---
+mk_empty() { # mk_empty <slug> <kind>：待決段只有空白與註解
+  mk_card "$1" "$2"
+  printf '## 已知\n- x\n\n## 待決\n<!-- 無 -->\n\n## 不做\n- y\n' > "$R/openspec/changes/$1/explore.md"
+}
+mk_empty e-chore chore; mk_empty e-dev dev; mk_empty e-perf perf; mk_empty e-bug bug-fix
+while IFS='|' read -r slug want; do
+  assert_eq "$(bash_fn stage_name "$R" "$slug")" "$want" "explore 之後 [$slug]"
+done <<'TABLE'
+c-chore|propose
+c-bug|propose
+c-dev|grill
+c-ops|grill
+e-dev|grill
+e-chore|propose
+e-perf|grill
+e-bug|propose
+TABLE
+mk_empty e-grilled dev; printf '# grill\n' > "$R/openspec/changes/e-grilled/grill.md"
+assert_eq "$(bash_fn stage_name "$R" e-grilled)" propose "已有 grill.md 不再進 grill"
+# 有 grill.md：待決裡有標明等哪個 gate 的題才回 grill，答過留著的題不算
+mk_card c-left dev; printf '# grill\n' > "$R/openspec/changes/c-left/grill.md"
+assert_eq "$(bash_fn stage_name "$R" c-left)" propose "有 grill.md、待決留著答過的題 → propose"
+printf '## 已知\n- x\n\n## 待決\n- 要不要 B？\n  - waits on gate: g1\n\n## 不做\n' > "$R/openspec/changes/c-left/explore.md"
+assert_eq "$(bash_fn stage_name "$R" c-left)" grill "有 grill.md、待決有 waits on gate → grill"
+# 沒 grill.md、有 proposal.md：待決空留在 propose，待決非空進 grill
+mk_empty e-legacy dev; printf '# proposal\n' > "$R/openspec/changes/e-legacy/proposal.md"
+assert_eq "$(bash_fn stage_name "$R" e-legacy)" propose "有 proposal.md、待決空 → propose"
+mk_card c-legacy dev; printf '# proposal\n' > "$R/openspec/changes/c-legacy/proposal.md"
+assert_eq "$(bash_fn stage_name "$R" c-legacy)" grill "有 proposal.md、待決非空 → grill"
+
 CONT="$OPSX_ROOT/references/continue.md"
 GRILL="$OPSX_ROOT/skills/grill/SKILL.md"
 PROP="$OPSX_ROOT/skills/propose/SKILL.md"
@@ -28,8 +59,8 @@ for f in "$CONT" "$GRILL" "$PROP" "$REV"; do assert_file "$f"; done
 section() { awk -v h="## $1" 'index($0,h)==1{on=1;print;next} /^## /{on=0} on' "$2"; }
 
 # --- 1.2 grill 與 propose 的文字；continue.md 的 explore 兩列 ---
-assert_fixed '| explore | `/opsx-workflow:grill <slug>` | 待決 non-empty and kind is not chore or bug-fix' "$CONT"
-assert_fixed '| explore | `/opsx-workflow:propose <slug>` | 待決 empty, or kind is chore or bug-fix' "$CONT"
+assert_fixed '| explore | `/opsx-workflow:grill <slug>` | kind is not chore or bug-fix, whether 待決 is empty or not' "$CONT"
+assert_fixed '| explore | `/opsx-workflow:propose <slug>` | kind is chore or bug-fix |' "$CONT"
 assert_fixed 'kind is chore or bug-fix' "$GRILL"
 assert_fixed 'kind is chore or bug-fix' "$PROP"
 assert_fixed '假設' "$PROP"

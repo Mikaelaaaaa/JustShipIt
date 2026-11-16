@@ -62,7 +62,7 @@ opsx 的看板：herdr plugin（薄）+ 本機網頁，三個 tab（首頁 / 收
   herdr plugin manifest（action open-board）+ 本機 server + 網頁（mission-control 設計系統，照原型）
 ```
 
-然後 `/explore herdr-board` → 待決非空就 `/grill` → `/propose`（tasks 每條帶 驗收 / 測試）→ `/apply`（每 task 先寫測試）→ `/review` → `/pr`。第一張卡就用互動模式，看每個閘門是不是照要求擋。
+然後 `/explore herdr-board` → kind 不是 chore 或 bug-fix 就 `/grill` → `/propose`（tasks 每條帶 驗收 / 測試）→ `/apply`（每 task 先寫測試）→ `/review` → `/pr`。第一張卡就用互動模式，看每個閘門是不是照要求擋。
 
 ## 3. 這一輪沒做、要注意的
 

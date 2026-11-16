@@ -78,7 +78,7 @@ assert_grep "is under $(real "$FX/res-under")" "$FX/under-res.err"
 
 [ -n "$NT" ] || { echo "SKIP run-candidate end-to-end: no usable temp base:$skip_why"; echo ok; exit 0; }
 
-# 單輪題（grill 1 empty-pending-stops），沒有 API key：只跑一次，帶 --setting-sources project,local / --session-id / --settings，不帶 --bare，prompt 逐字相同
+# 單輪題（grill 1 empty-pending-still-grills），沒有 API key：只跑一次，帶 --setting-sources project,local / --session-id / --settings，不帶 --bare，prompt 逐字相同
 res="$FX/results-single"
 run single grill 1 new "$res" || fail "single-turn run without an API key failed: $(cat "$FX/single.err")"
 work="$(field work "$FX/single.out")"; id="$(field session "$FX/single.out")"; tr="$(field transcript "$FX/single.out")"
