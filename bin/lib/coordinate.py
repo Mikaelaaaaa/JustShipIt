@@ -44,6 +44,7 @@ ARCHIVE_GRACE_MINUTES = 30
 COORDINATOR = "opsx-coordinator"
 # herdr 收不下這則 prompt 的兩種情形：沒有這個 agent、或它卡在對話框。兩種都改發桌面通知，人才收得到
 COORDINATOR_UNAVAILABLE = ("agent_not_found", "agent_blocked")
+DESKTOP_ONLY = "desktop "
 AGENT_NAME = chain.AGENT_NAME
 # gaterule.decide 回「留給人」時，各理由代碼寫進 log 的那行與通知標題後半
 GATE_HUMAN = {
@@ -93,6 +94,7 @@ class Round:
         self.max_working = None
         self.woken = 0
         self.worktrees = {}
+        self.coordinator_up = None
 
     def log(self, msg):
         line = "%s %s" % (self.now.strftime("%Y-%m-%d %H:%M:%S"), msg)
@@ -441,19 +443,35 @@ class Round:
         """這裡處理不了、要人去處理的事。每輪從狀態重算，送過的鍵記在 _notified，所以事件觸發那輪漏掉的由定時那輪補，也不會重送。
         scope 是去重鍵的前綴，預設是這張卡；feature session 的事屬於整個 session，傳 <repo>/@<feature>。
         先送協調者 session（herdr agent prompt）；它不在或卡住（COORDINATOR_UNAVAILABLE）才發桌面通知。
+        只送到桌面的鍵值帶 DESKTOP_ONLY 前綴：協調者之後在、沒卡住的那輪補送，收下才換成時間；桌面通知一個鍵只發一次。
         herdr 的通知沒有點擊動作，內文要寫去哪裡處理。"""
         self.send_notification("%s/%s/%s" % (scope or card_key(c), kind, ident), "[%s] %s" % (card_key(c), event), body)
 
+    def coordinator_reachable(self):
+        """協調者這輪在不在。每輪只查一次、不寫 log：協調者不在時，只送到桌面的事件不必每輪各試一次 prompt。
+        只看 rc：herdr agent get 的真輸出沒有樣本（lead.sh 同樣只拿它判斷在不在），卡住與否由補送的 prompt 回 agent_blocked 判斷。"""
+        if self.coordinator_up is None:
+            rc, _, _ = self.run(runtime.get(agent=COORDINATOR))
+            self.coordinator_up = rc == 0
+        return self.coordinator_up
+
     def send_notification(self, key, title, body):
-        if key in self.memo["_notified"]:
+        sent = self.memo["_notified"].get(key)
+        if sent is not None and not sent.startswith(DESKTOP_ONLY):
+            return
+        if sent is not None and not self.coordinator_reachable():
             return
         rc, out, err = self.act(runtime.prompt("%s：%s" % (title, body), "nowait", agent=COORDINATOR))
+        stamp = self.now.isoformat(timespec="seconds")
         if rc != 0 and any(code in out + err for code in COORDINATOR_UNAVAILABLE):
+            if sent is not None:
+                return
             rc, out, err = self.act(runtime.notify(title, body, sound="request"))
+            stamp = DESKTOP_ONLY + stamp
         if rc != 0:
             self.log("?? 通知 %s 送不出去，下一輪再送：%s" % (key, (err or out).replace("\n", " ")[:200]))
             return
-        self.memo["_notified"][key] = self.now.isoformat(timespec="seconds")
+        self.memo["_notified"][key] = stamp
         # 送出就存：這輪後面的步驟出錯時，下一輪不會把同一則再送一次
         self.save()
 
