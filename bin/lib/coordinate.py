@@ -465,12 +465,27 @@ class Round:
         self.save()
 
     def flush_queue(self):
-        """協調者輸入框有字時排隊的事件，輸入框空了就合成一則補送；還有字就留到下一輪。dry 不動佇列。"""
+        """協調者輸入框有字時排隊的事件，輸入框空了就合成一則補送；還有字就留到下一輪。dry 不動佇列。
+        協調者不在或卡住時，排隊的事件跟新事件一樣退回桌面通知：它們排隊時已記 _notified，不退回就沒人收到。"""
         if self.dry or not coordq.has_queued(self.state):
             return
         result, why = coordq.flush(self.state, read=self.run, act=self.act)
-        if result in ("unavailable", "error"):
+        if result == "unavailable":
+            self.notify_queue()
+        elif result == "error":
             self.log("?? 協調者佇列這輪送不出去，留到下一輪：%s" % why.replace("\n", " ")[:200])
+
+    def notify_queue(self):
+        lines, files = coordq.take(self.state)
+        if not lines:
+            coordq.done(files)
+            return
+        rc, out, err = self.act(runtime.notify("[opsx] 協調者不在，排隊的 %d 則事件" % len(lines), coordq.merge(lines), sound="request"))
+        if rc == 0:
+            coordq.done(files)
+            return
+        coordq.give_back(self.state, lines, files)
+        self.log("?? 協調者不在，排隊的事件退回桌面通知也送不出去，留到下一輪：%s" % (err or out).replace("\n", " ")[:200])
 
     def forget_waiting(self, c, live):
         """卡沒在等人了：清掉它 gate 與 blocked 的通知紀錄，同一個 pane 之後再卡、或 gate id 被重用時才會再通知。

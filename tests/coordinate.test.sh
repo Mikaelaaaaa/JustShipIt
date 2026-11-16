@@ -1403,6 +1403,7 @@ cards "$HUMAN"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "協調者卡住要退回桌面通知：$(cat "$OPSX_FAKE_LOG")"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "退回通知成功要記 _notified：$(cat "$MEMO")"
+assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 rm -f "$MEMO"
 
 # --- 協調者那邊出別的錯：不退回桌面通知、不記，下一輪補送 ---
@@ -1434,6 +1435,18 @@ assert_no_file "$CQ"
 # 佇列空時不讀協調者畫面（卡也沒有新事件）
 OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^agent read w3:p7 ')" 0 "佇列空、沒有新事件時不讀協調者畫面：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$MEMO"
+
+# --- 排隊之後協調者不在：排隊的事件退回桌面通知，一則、清掉佇列 ---
+cards "$HUMAN"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(grep -c 'gate g1' "$CQ")" 1 "先排進佇列：$(cat "$CQ")"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(notes)" 1 "協調者不在時排隊的事件發一則桌面通知：$(cat "$OPSX_FAKE_LOG")"
+grep '^notification show' "$OPSX_FAKE_LOG" | grep -q 'gate g1' || fail "桌面通知要含排隊的那一行：$(cat "$OPSX_FAKE_LOG")"
+assert_no_file "$CQ"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(notes)" 0 "送過的不再通知"
 rm -f "$MEMO"
 
 # --- 終端機等待輸入：綁 pane 通知一次，內文指到 pane ---

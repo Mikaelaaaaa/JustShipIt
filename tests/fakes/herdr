@@ -78,6 +78,8 @@ case "$1 $2" in
   "agent prompt")
     if [ "$3" = opsx-coordinator ]; then
       [ -n "${OPSX_TEST_COORDINATOR_UP:-}" ] || [ -f "$OPSX_FAKE_LOG.coordinator-up" ] || herdr_err agent_not_found prompt
+      # OPSX_TEST_PROMPT_HOLD 指到一個檔：檔還在就等（最多 10 秒），讓測試在送出途中插進另一個程序
+      n=0; while [ -n "${OPSX_TEST_PROMPT_HOLD:-}" ] && [ -e "$OPSX_TEST_PROMPT_HOLD" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
       code="$(pop_err "${OPSX_TEST_COORD_ERR:-}")"; [ -n "$code" ] && herdr_err "$code" prompt
       echo '{"result":{"submitted":true}}'; exit 0
     fi

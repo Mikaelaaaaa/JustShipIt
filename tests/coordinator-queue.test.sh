@@ -126,6 +126,44 @@ for e in e1 e2 e3 e4 e5; do
 done
 assert_no_file "$Q"
 
+# --- 同時補送：第一個補送拿著批次、送到一半時，第二個補送跑完整一次，不能再送同一批（R1.3） ---
+# 換名才保證這點：讀完、送完才刪的話，第二個會讀到同一個佇列檔、重送一次
+reset; printf '[h1] 一\n[h2] 二\n' > "$Q"; : > "$FX/hold"
+OPSX_TEST_PROMPT_HOLD="$FX/hold" flush & p1=$!
+n=0; until grep -q '^agent prompt' "$OPSX_FAKE_LOG" || [ "$n" -ge 100 ]; do sleep 0.1; n=$((n + 1)); done
+grep -q '^agent prompt' "$OPSX_FAKE_LOG" || fail "第一個補送沒走到送出"
+flush || fail "第二個 flush rc：$(cat "$FX/err")"
+rm -f "$FX/hold"; wait "$p1" || fail "第一個 flush rc：$(cat "$FX/err")"
+assert_eq "$(grep -c '^agent prompt' "$OPSX_FAKE_LOG")" 1 "第二個補送不能再送同一批：$(cat "$OPSX_FAKE_LOG")"
+assert_no_file "$Q"
+
+# --- 佇列只有空行：補送一次後不留補送中的批次，下一次不叫 herdr（R1.2） ---
+reset; printf '\n\n' > "$Q"
+flush || fail "空行佇列 flush rc：$(cat "$FX/err")"
+assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)" 0 "空批次不能留下補送中的檔"
+: > "$OPSX_FAKE_LOG"; flush || fail "第二次 flush rc"
+assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "沒有東西排隊時不叫 herdr"
+
+# --- 寫入與補送互斥：有人拿著佇列的鎖時，寫入與補送都要等，鎖放掉才動（R1.1） ---
+# 寫入者先開檔、補送再換名讀走，之後寫進去的那則會跟著批次檔被刪掉；兩邊都在同一把鎖底下才不會發生
+hold_lock() { "$PY" -I -c 'import fcntl, sys, time; f = open(sys.argv[1], "w"); fcntl.flock(f, fcntl.LOCK_EX); open(sys.argv[2], "w").close(); time.sleep(float(sys.argv[3]))' "$OPSX_STATE_DIR/coordinator-queue.lock" "$FX/locked" "$1"; }
+reset; rm -f "$FX/locked"; hold_lock 2 & pl=$!
+n=0; until [ -e "$FX/locked" ] || [ "$n" -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
+OPSX_TEST_AGENT_READ="$FX/typed.ansi" say '[w] 鎖住時寫入' > /dev/null & pw=$!
+sleep 1
+assert_no_file "$Q"
+wait "$pl"; wait "$pw" || fail "鎖放掉後寫入 rc：$(cat "$FX/err")"
+assert_eq "$(cat "$Q")" "[w] 鎖住時寫入" "鎖放掉後才寫進佇列"
+rm -f "$FX/locked"; hold_lock 2 & pl=$!
+n=0; until [ -e "$FX/locked" ] || [ "$n" -ge 50 ]; do sleep 0.1; n=$((n + 1)); done
+flush & pf=$!
+sleep 1
+assert_eq "$(prompts)" 0 "鎖住時補送不能取走佇列"
+assert_file "$Q"
+wait "$pl"; wait "$pf" || fail "鎖放掉後補送 rc：$(cat "$FX/err")"
+assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator [w] 鎖住時寫入" "鎖放掉後補送送出"
+assert_no_file "$Q"
+
 # --- 命令列參數不對：非 0，不叫 herdr ---
 reset; "$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" >/dev/null 2>&1 && fail "say 少一則事件要非 0"
 "$PY" -I "$OPSX_ROOT/bin/lib/coordq.py" nope "$OPSX_STATE_DIR" >/dev/null 2>&1 && fail "不認得的動詞要非 0"

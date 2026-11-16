@@ -6,6 +6,7 @@ bash 的 coordinator_say 走命令列，coordinate 直接 import；兩邊共用�
 用法：coordq.py say <state dir> <一行> | coordq.py flush <state dir>
 規則：openspec/specs/opsx-coordinate/spec.md「協調者輸入框有字時事件排隊，空了合成一則送出」。
 """
+import fcntl
 import glob
 import json
 import os
@@ -22,6 +23,7 @@ COORDINATOR = "opsx-coordinator"
 UNAVAILABLE = ("agent_not_found", "agent_blocked")
 QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
+LOCK = QUEUE + ".lock"
 RULE = re.compile(r"^\s*─{3,}\s*$")
 PROMPT = "❯"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -111,8 +113,16 @@ def merge(lines):
     return "排隊 %d 則：%s" % (len(lines), "；".join(lines))
 
 
+def queue_lock(state):
+    """寫入與取走佇列共用的獨占鎖，關掉檔就放掉。沒有它，寫入者開了檔之後、寫入之前，佇列可能已被換名讀走，
+    寫進去的那則會跟著批次檔被刪掉。只包住檔案操作，不包 herdr 呼叫。"""
+    f = safefile.open_lock(os.path.join(state, LOCK))
+    fcntl.flock(f, fcntl.LOCK_EX)
+    return f
+
+
 def append(state, lines):
-    with safefile.open_append(os.path.join(state, QUEUE)) as f:
+    with queue_lock(state), safefile.open_append(os.path.join(state, QUEUE)) as f:
         f.write("".join(line + "\n" for line in lines))
 
 
@@ -129,6 +139,11 @@ def pid_alive(pid):
 def take(state):
     """把佇列換名成自己的補送批次（rename 是原子的，同時補送的人只有一個拿得到），再撿回已經不在的程序留下的批次。
     回 (事件, 批次檔)；殘留的批次排在前面，因為它們比佇列裡的舊。"""
+    with queue_lock(state):
+        return take_locked(state)
+
+
+def take_locked(state):
     files = []
     for path in sorted(glob.glob(os.path.join(state, SENDING + "*"))):
         pid = path.rsplit(".", 1)[1]
@@ -180,6 +195,7 @@ def send(state, new, read, act):
         return "queued", why
     lines, files = take(state)
     if not lines + new:
+        done(files)
         return "sent", ""
     rc, out, err = act(runtime.prompt(merge(lines + new), "nowait", agent=COORDINATOR))
     if rc == 0:
