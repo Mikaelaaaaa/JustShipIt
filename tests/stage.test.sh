@@ -26,7 +26,10 @@ card grill-empty-perf perf; nopending grill-empty-perf
 card prop-chore-empty chore; nopending prop-chore-empty
 card prop-chore chore; pending prop-chore
 card prop-bugfix bug-fix; pending prop-bugfix
-card prop-grilled dev; pending prop-grilled; printf '# grill\n' > "$C/prop-grilled/grill.md"
+card grill-left dev; pending grill-left; printf '# grill\n' > "$C/grill-left/grill.md"
+card prop-grilled dev; nopending prop-grilled; printf '# grill\n' > "$C/prop-grilled/grill.md"
+card prop-legacy dev; nopending prop-legacy; printf '# proposal\n' > "$C/prop-legacy/proposal.md"
+card prop-chore-grilled chore; pending prop-chore-grilled; printf '# grill\n' > "$C/prop-chore-grilled/grill.md"
 card apply-open dev; tasks_open apply-open
 card apply-red refactoring; tasks_done apply-red; tests_is apply-red red
 card apply-nostatus dev; tasks_done apply-nostatus
@@ -100,7 +103,10 @@ grill-empty-perf|grill · grill-empty-perf · perf · skills/grill/SKILL.md
 prop-chore-empty|propose · prop-chore-empty · chore · skills/propose/SKILL.md
 prop-chore|propose · prop-chore · chore · skills/propose/SKILL.md
 prop-bugfix|propose · prop-bugfix · bug-fix · skills/propose/SKILL.md
+grill-left|grill · grill-left · dev · skills/grill/SKILL.md
 prop-grilled|propose · prop-grilled · dev · skills/propose/SKILL.md
+prop-legacy|propose · prop-legacy · dev · skills/propose/SKILL.md
+prop-chore-grilled|propose · prop-chore-grilled · chore · skills/propose/SKILL.md
 apply-open|apply · apply-open · dev · skills/apply/SKILL.md · skills/apply/references/playbooks/dev.md · skills/tdd/SKILL.md
 apply-red|apply · apply-red · refactoring · skills/apply/SKILL.md · skills/apply/references/playbooks/refactoring.md · skills/tdd/SKILL.md（tasks 全勾但 tests 不是 green：先把測試補到綠）
 apply-nostatus|apply · apply-nostatus · dev · skills/apply/SKILL.md · skills/apply/references/playbooks/dev.md · skills/tdd/SKILL.md（tasks 全勾但 tests 不是 green：先把測試補到綠）

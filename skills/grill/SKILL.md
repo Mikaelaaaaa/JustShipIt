@@ -28,7 +28,7 @@ The plan is the whole card, not only explore.md's 待決. An empty 待決 means 
 
 ## Steps
 
-1. Read every source in `## What to read`, even when 待決 is empty, and list the branches of the plan: each 待決 item, each 已知 entry that hides a choice and each 不做 item (`## Reopen 已知 and 不做`), and whatever the inbox line or 派工指示 leaves open. Kind chore or bug-fix: reply「<slug> 是 chore / bug-fix，不經 grill，直接 /opsx-workflow:propose」and stop.
+1. Kind chore or bug-fix: reply「<slug> 是 chore / bug-fix，不經 grill，直接 /opsx-workflow:propose」and stop. Otherwise read every source in `## What to read`, even when 待決 is empty, and list the branches of the plan: each 待決 item, each 已知 entry that hides a choice and each 不做 item (`## Reopen 已知 and 不做`), and whatever the inbox line or 派工指示 leaves open.
 2. Walk the branches one at a time with AskUserQuestion, 2 to 4 options, the recommended one first, in the words `CONTEXT.md` uses (`references/CONTEXT-FORMAT.md`). In autopilot do not call AskUserQuestion; follow `## In autopilot`.
 3. A branch the code or one run can answer is yours: look it up or run it, write the answer into explore.md's `## 已知`, and when the item was in 待決, remove it from 待決. Only a branch nobody but the user can answer is asked.
 4. When every branch is resolved, write D1 to Dn into `grill.md` (decision, reason, rejected alternative) and continue to `/opsx-workflow:propose <slug>`. In autopilot with a gate still open, write the Ds you have and stop.
@@ -42,12 +42,12 @@ If the card's `.openspec.yaml` says the kind is chore or bug-fix, grill does not
 
 ## What to read
 
-Read all of these before the first question. The user will use words from their own head; you need to know when those words collide with what the project already calls things, and which choices were already made somewhere else.
+Read all of these before the first question. A dispatch worktree has no `openspec/` (it is not in git), so read every path under `openspec/` from the main checkout, by its absolute path, the same way propose does. The user will use words from their own head; you need to know when those words collide with what the project already calls things, and which choices were already made somewhere else.
 
 - The card's `inbox.md`: the one line the user wrote, its `## 證據`, and its `## 派工指示` section when there is one. An instruction there that leaves a scope open is a branch.
 - explore.md's `## 已知`, `## 待決` and `## 不做`, all three.
 - `CONTEXT.md` (or `CONTEXT-MAP.md` and the context it points at), `docs/adr/`, `openspec/workplan.yaml`.
-- The parent card, when there is one. A card split out of a bigger one is listed in the parent's `inbox.md` frontmatter as `split_into:`; find it with `grep -l '<slug>' openspec/changes/*/inbox.md` and keep the hit whose `split_into:` line holds the slug. A sub-change (`openspec/changes/<main>/subs/<sub>/`) names its main change as `parent:` in its own `inbox.md` frontmatter. Read the parent's `explore.md` and `grill.md`. A D the parent card already decided is not asked again; cite it by the parent's slug and D-id where it matters.
+- The parent card, when there is one. A card split out of a bigger one is listed in the parent's `inbox.md` frontmatter as `split_into:`; find it with `grep -l '<slug>' <main checkout>/openspec/changes/*/inbox.md` and keep only the hit where the slug is a whole item of the `split_into:` list (`kb-export` does not match `kb-export-csv`). A sub-change (`openspec/changes/<main>/subs/<sub>/`) names its main change as `parent:` in its own `inbox.md` frontmatter. Read the parent's `explore.md` and `grill.md`. A D the parent card already decided is not asked again; cite it by the parent's slug and D-id where it matters.
 - No parent card: do not look further and do not ask about it.
 
 ## Reopen 已知 and 不做
@@ -63,7 +63,7 @@ Explore writes facts into 已知 and exclusions into 不做, but some of them we
 | 不做 | LINE 與自動草稿的工具組不動 | yes |
 | 已知 | role_gate 沒有任何執行期讀取端 | yes |
 | 已知 | getUserAppRoles 回三個模組的角色 slug | yes |
-| 已知 | stage.sh 第 182 行判斷待決是否非空 | no: pure fact |
+| 已知 | stage.sh 的 stage_of 依 kind 與 grill.md 決定下一站 | no: pure fact |
 | 已知 | 母卡 grill.md 已定 D3：不改 role_gate | no: the user answered it on the parent card |
 | 不做 | 不改 eval fixture 的 schema 複本 | yes: every 不做 is confirmed |
 
@@ -90,7 +90,7 @@ If you are unsure which bucket a branch belongs to, try bucket 1 for a few minut
 
 ## In autopilot
 
-When the router line carries `autopilot：`, nobody is watching the pane. AskUserQuestion there makes herdr mark the agent blocked, and the drive loop cannot send the next command. So in autopilot you never call it. Buckets 1 and 2 work the same as always. Each bucket-3 branch goes one of two ways:
+When the router line carries `autopilot：`, nobody is watching the pane. AskUserQuestion there makes herdr mark the agent blocked, and the drive loop cannot send the next command. So in autopilot you never call it. Buckets 1 and 2 work the same as always. Every 不做 item and every 已知 entry that hides a choice is a product choice, so it is a gate below; the user's answer becomes a D whether it keeps the item as it is or changes it. Each bucket-3 branch goes one of two ways:
 
 - **It is a product choice, or the decision is hard to undo** (a data shape that gets migrated, a public interface, anything the user would have to unpick after merge). Write it as a gate in `gates.md` and leave the item in explore.md's 待決 (add it there when it came from 已知 or 不做):
   ```
@@ -120,7 +120,7 @@ If a term gets resolved, update `CONTEXT.md` inline using `references/CONTEXT-FO
 
 ## Output
 
-When every branch is either resolved into 已知 or answered, write `openspec/changes/<slug>/grill.md`:
+When every branch is either resolved into 已知 or answered, write `openspec/changes/<slug>/grill.md`. Always write grill.md, even when no branch reached the user: then `## 決策` holds the one line `- 無：所有分支由 已知 解決`. The router treats a missing grill.md as grill not done, so skipping the file sends the card back to grill.
 
 ```markdown
 ## 決策

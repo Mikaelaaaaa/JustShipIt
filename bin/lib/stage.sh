@@ -59,6 +59,15 @@ st_background_running() { # <transcript> [now epoch]
 }
 st_tasks_open() { [ -f "$1/tasks.md" ] || { printf 0; return; }; grep -cE '^\s*- \[ \]' "$1/tasks.md" || true; }
 st_tasks_done() { [ -f "$1/tasks.md" ] || { printf 0; return; }; grep -cE '^\s*- \[x\]' "$1/tasks.md" || true; }
+st_pending_nonempty() {
+  [ -f "$1/explore.md" ] || return 1
+  awk '/^## 待決/{f=1;next} /^## /{f=0} f' "$1/explore.md" | grep -vE '^\s*$|^\s*<!--|^\s*-\s*$|^\s*（' | grep -q .
+}
+# 沒 grill.md 的卡要進 grill，但舊規則下已經寫了 proposal.md 的卡留在 propose。
+# 有 grill.md 時，待決裡還留著題（等前一題答案的題）就回 grill。
+st_needs_grill() {
+  if [ -f "$1/grill.md" ]; then st_pending_nonempty "$1"; else [ ! -f "$1/proposal.md" ]; fi
+}
 # 第一個 MR 網址。整檔一次比對，字元類排除換行，跟 grep 逐行找第一個相同
 st_mr_url() {
   local c re='https?://[^ )'$'\n'']+/(merge_requests|pull)/[0-9]+'
@@ -175,7 +184,7 @@ stage_of() { # <top> <slug>
   fi
   if [ -f "$d/explore.md" ]; then
     if [ -n "$(check_explore "$d")" ]; then printf 'explore · %s · %s · skills/explore/SKILL.md（explore.md 的 ## 步驟 不齊，opsx check %s）\n' "$slug" "$kind" "$slug"; return; fi
-    if [ ! -f "$d/grill.md" ] && [ "$kind" != chore ] && [ "$kind" != bug-fix ]; then printf 'grill · %s · %s · skills/grill/SKILL.md\n' "$slug" "$kind"; return; fi
+    if st_needs_grill "$d" && [ "$kind" != chore ] && [ "$kind" != bug-fix ]; then printf 'grill · %s · %s · skills/grill/SKILL.md\n' "$slug" "$kind"; return; fi
     printf 'propose · %s · %s · skills/propose/SKILL.md\n' "$slug" "$kind"; return
   fi
   printf 'explore · %s · %s · skills/explore/SKILL.md\n' "$slug" "$kind"

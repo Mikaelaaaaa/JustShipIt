@@ -21,7 +21,7 @@ opsx-workflow 保留「生命週期 + 持久化狀態」的骨架，把 pstack �
 | D1 | opsx 當外層骨架，pstack 當內層 | CLAUDE.md §6 已強制每個 change 走 propose → apply；pstack 沒有跨 session 的狀態模型，只有 session-pickup 和 show-me-your-work 的 tsv |
 | D2 | grill 是獨立 skill，不併進 explore | explore 另有使用者；explore 已 214 行 |
 | D3 | grill-me 與 grill-with-docs 合併成一個 | 兩者加上 explore 的 grilling 段落，目前是三個互相重疊的入口 |
-| D4 | ~~門檻「一兩個檔案就跳過」~~ 改為：grill 是閘門，只在 explore.md 待決非空時有事（2026-11-04 改） | 小事 explore 各步 skip、待決為空，自然沒有 grill |
+| D4 | ~~門檻「一兩個檔案就跳過」~~ 改為：grill 是閘門，kind 不是 chore 或 bug-fix 的卡 explore 之後一律經 grill，待決空也一樣（2026-11-16 改） | chore 與 bug-fix 不經 grill；其他卡的已知與不做也可能藏著使用者沒看過的選擇 |
 | D5 | grill 保留 AskUserQuestion 彈窗 | 題數靠分類規則（§4.1）降低，形式不變 |
 | D6 | grill 的產出是編號決策 D1…Dn，每條帶理由與被否決的替代方案 | propose 直接抄進 design.md；review 的 spec-conformance agent 已要求 MUST_FIX 引用 D-id，形成閉環 |
 
@@ -32,8 +32,8 @@ opsx-workflow 保留「生命週期 + 持久化狀態」的骨架，把 pstack �
    │        開 change 殼 = 一張卡。殼不是空的：inbox.md 帶 type / source / found / 證據 / 內文
 explore    發散（必經；固定步驟表，小事各步 skip）：查資料、debug、影響範圍、跑實驗 → explore.md
    │        結尾一段「待決」：只有人能答的題，每題附推薦答案；查得到、跑得出的不進這段
-   ├─ 待決為空 → 直接 propose
-   └─ 待決非空 → grill 閘門：一題一題答（chat 打 /grill 用彈窗，或看板上像回 gate 一樣答）→ grill.md（D1…Dn）
+   ├─ kind 是 chore 或 bug-fix → 直接 propose
+   └─ 其他 kind，待決空也一樣 → grill 閘門：對整個計畫逐支追問，一題一題答（chat 打 /grill 用彈窗，或看板上像回 gate 一樣答）→ grill.md（D1…Dn）
                   grill 不是節點，是閘門；跟 apply 裡 worker 問人的 gate 同一個機制
 propose    不討論，只整理：proposal / specs / design（D1…Dn 原樣進入）/ tasks；explore 待決沒答完就擋
    │
@@ -273,7 +273,7 @@ rag-demo       rag-demo
 | 在哪 | 動作 | 背後 |
 |---|---|---|
 | Inbox 卡 | **派** | 選誰去（claude / codex）、多自主（互動 / 自動＝開到可合併）、**kind**（七種，預設從來源提示猜）、**模型**（已定 2026-11-05：預設照 kind 給，dev / refactoring / perf / experiment → opus 5.5，bug-fix / chore / ops → sonnet 5.5，可以改；codex 只有 gpt-5）→ `dispatch.sh`：worktree + pane + `agent start … -- --model <id>` + prompt，kind 寫進 `.openspec.yaml`，model 記在 dispatch.json |
-| Inbox 卡 | **先 explore** | herdr 開 pane 跑 `/explore <卡>`（explore 做完待決非空，同一個 pane 接 `/grill`） |
+| Inbox 卡 | **先 explore** | herdr 開 pane 跑 `/explore <卡>`（explore 做完，kind 不是 chore 或 bug-fix 就在同一個 pane 接 `/grill`） |
 | Inbox 卡 | **丟掉** | status: dropped |
 | 進行中卡 | **回它** | 按建議或打字 → `herdr agent prompt`；gate 關；記 decisions 一行 |
 | 進行中卡 | **merge** | 只有人；`glab mr merge`；卡 → 完成 |
@@ -481,7 +481,7 @@ herdr plugin（薄）：manifest 一個 action `open-board` + `collect.sh`（`he
 |---|---|
 | AskQuestion 前先分類（事實不問人） | grill §4.1 |
 | 推薦答案 | grill §4.1 |
-| ~~門檻「一兩個檔案就跳過」~~ 改為待決段為空即跳過 | grill §4.3 |
+| ~~門檻「一兩個檔案就跳過」~~ 改為只有 chore 與 bug-fix 跳過 | grill §4.3 |
 | model-the-domain、architect（單模型版） | apply §5.1 |
 | bug-fix playbook、fix-root-causes | apply §5.1 |
 | Writing the reply 格式 | apply §5.3、grill 總結 |
@@ -1006,7 +1006,7 @@ pstack 的 encode-lessons-in-structure 與 `/correct`：同一個錯誤修在最
 | opsx 裝哪 | 所有開發中的 repo，含 evals、rag-demo；以後只用這個 plugin 開發 | §4.5 |
 | kind 七種 | dev（預設，一般開發）/ bug-fix / refactoring / perf / experiment / ops / chore，各有完成條件與 playbook | §8.1 |
 | inbox 來源八種 | me / agent / gitlab / github / obsidian / customer / paste / shortcut；單向同步 | §3.6 |
-| grill 的位置 | 不是主流程節點，是 explore → propose 的閘門；只在 explore.md 待決非空時有事；schema 鏈不含 grill | §3、§4 |
+| grill 的位置 | 不是主流程節點，是 explore → propose 的閘門；kind 不是 chore 或 bug-fix 就一律經過；schema 鏈不含 grill | §3、§4 |
 
 ### 未決，要定了才能開工
 

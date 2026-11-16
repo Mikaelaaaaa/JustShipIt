@@ -20,6 +20,8 @@ assert_not_fixed 'an empty one straight to /propose' "$EXP"
 assert_not_fixed '`/opsx-workflow:propose <slug>` when it is empty' "$EXP"
 assert_fixed 'kind is chore or bug-fix' "$EXP"
 assert_not_fixed 'If `explore.md` has a non-empty 待決 and no `grill.md`' "$PROP"
+assert_fixed 'there is neither `grill.md` nor `proposal.md`' "$PROP"
+assert_fixed 'If `grill.md` exists but 待決 still lists an item' "$PROP"
 assert_not_fixed '待決空 → 直接 /propose' "$HEAD"
 assert_not_fixed '只在 explore.md 的待決非空時才有' "$HEAD"
 assert_not_fixed '回一句「沒有待決」就停' "$REQ"
@@ -44,7 +46,7 @@ assert_not_fixed 'If 待決 is empty there is nothing to do' "$FX/desc"
 assert_fixed 'even when 待決 is empty' "$FX/desc"
 assert_fixed 'chore or bug-fix' "$FX/desc"
 assert_not_fixed '沒有待決' "$GRILL"
-assert_fixed 'Read every source in `## What to read`' "$FX/steps"
+assert_fixed 'read every source in `## What to read`' "$FX/steps"
 assert_fixed 'even when 待決 is empty' "$FX/steps"
 assert_fixed '不經 grill，直接 /opsx-workflow:propose' "$GRILL"
 
@@ -62,7 +64,31 @@ assert_not_fixed 'It does not reopen things explore already put in 已知 or 不
 assert_fixed 'Every 不做 item is a branch' "$FX/reopen"
 assert_fixed 'hides a choice' "$FX/reopen"
 assert_fixed 'pure fact' "$FX/reopen"
-for k in 'LINE' 'role_gate' 'getUserAppRoles' 'stage.sh' '母卡 grill.md 已定' 'eval fixture'; do assert_fixed "$k" "$FX/reopen"; done
+while IFS= read -r row; do assert_fixed "$row" "$FX/reopen"; done <<'ROWS'
+| 不做 | LINE 與自動草稿的工具組不動 | yes |
+| 已知 | role_gate 沒有任何執行期讀取端 | yes |
+| 已知 | getUserAppRoles 回三個模組的角色 slug | yes |
+| 已知 | stage.sh 的 stage_of 依 kind 與 grill.md 決定下一站 | no: pure fact |
+| 已知 | 母卡 grill.md 已定 D3：不改 role_gate | no: the user answered it on the parent card |
+| 不做 | 不改 eval fixture 的 schema 複本 | yes: every 不做 is confirmed |
+ROWS
+assert_not_fixed 'stage.sh 第 182 行' "$GRILL"
+
+# --- R1.2 沒有要問的分支也一定寫 grill.md ---
+assert_fixed 'Always write grill.md' "$GRILL"
+assert_fixed '- 無：所有分支由 已知 解決' "$GRILL"
+
+# --- R1.3 openspec/ 底下的檔從主 checkout 讀；母卡比對整項 ---
+assert_fixed 'from the main checkout' "$FX/read"
+assert_fixed 'a whole item of the `split_into:` list' "$FX/read"
+
+# --- R1.4 Step 1 先看 kind；autopilot 下不做與藏著選擇的已知一律是使用者題 ---
+grep -m1 -E '^1\. ' "$FX/steps" | grep -q '^1\. Kind chore or bug-fix: reply' || fail "Step 1 要先看 kind"
+assert_fixed 'Every 不做 item and every 已知 entry that hides a choice is a product choice' "$FX/auto"
+
+# --- R1.5 舊規則殘句 ---
+for s in '待決為空 → 直接 propose' 'explore 做完待決非空' '改為待決段為空即跳過' '只在 explore.md 待決非空時有事'; do assert_not_fixed "$s" "$REQ"; done
+assert_not_fixed '待決非空就 `/grill`' "$OPSX_ROOT/docs/HANDOFF.md"
 
 # --- 3.4 autopilot：不相依的一次全開，相依的等；有 open gate 不接 propose ---
 assert_fixed 'Open every bucket-3 gate that does not depend on another at once, each as its own gate' "$FX/auto"

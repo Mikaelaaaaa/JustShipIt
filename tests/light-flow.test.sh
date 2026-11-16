@@ -40,6 +40,12 @@ e-bug|propose
 TABLE
 mk_empty e-grilled dev; printf '# grill\n' > "$R/openspec/changes/e-grilled/grill.md"
 assert_eq "$(bash_fn stage_name "$R" e-grilled)" propose "已有 grill.md 不再進 grill"
+# grill 寫了部分 grill.md、待決還留著等前題的題：回 grill，不接 propose
+mk_card c-left dev; printf '# grill\n' > "$R/openspec/changes/c-left/grill.md"
+assert_eq "$(bash_fn stage_name "$R" c-left)" grill "有 grill.md 但待決還有題 → grill"
+# 舊規則下已進 propose（有 proposal.md、沒 grill.md）的卡不送回 grill
+mk_empty e-legacy dev; printf '# proposal\n' > "$R/openspec/changes/e-legacy/proposal.md"
+assert_eq "$(bash_fn stage_name "$R" e-legacy)" propose "已有 proposal.md 的舊卡留在 propose"
 
 CONT="$OPSX_ROOT/references/continue.md"
 GRILL="$OPSX_ROOT/skills/grill/SKILL.md"
