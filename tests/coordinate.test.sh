@@ -1396,12 +1396,33 @@ assert_eq "$(notes)" 0 "協調者在第二輪也不發桌面通知"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "協調者收到要記 _notified：$(cat "$MEMO")"
 rm -f "$MEMO"
 
-# --- 協調者 pane 卡住（agent_blocked）：退回桌面通知，人才收得到 ---
-printf 'agent_blocked\n' > "$FX/berr"
+# --- 協調者 pane 卡住（agent_blocked）：退回桌面通知，解除後補送協調者，桌面不重發 ---
+printf 'agent_blocked\nagent_blocked\nok\n' > "$FX/berr"
 cards "$HUMAN"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "協調者卡住要退回桌面通知：$(cat "$OPSX_FAKE_LOG")"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "退回通知成功要記 _notified：$(cat "$MEMO")"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ')" 1 "還卡著要再試協調者：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "還卡著不重發桌面通知：$(cat "$OPSX_FAKE_LOG")"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ')" 1 "解除後要補送協調者：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "補送協調者時不發桌面通知：$(cat "$OPSX_FAKE_LOG")"
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator ')" 0 "協調者收過不再送：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "協調者收過不發桌面通知：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$MEMO"
+
+# --- 協調者不在（agent_not_found）：退回桌面通知，之後開起來補送 ---
+cards "$HUMAN"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(notes)" 1 "協調者不在要退回桌面通知：$(cat "$OPSX_FAKE_LOG")"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator ')" 0 "協調者還不在不試 prompt：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "協調者還不在不重發桌面通知：$(cat "$OPSX_FAKE_LOG")"
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ')" 1 "協調者開起來要補送：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(notes)" 0 "補送協調者時不發桌面通知：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- 協調者那邊出別的錯：不退回桌面通知、不記，下一輪補送 ---
