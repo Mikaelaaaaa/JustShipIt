@@ -122,12 +122,12 @@ assert_fixed 'A logic-map bug item that Agent A does not confirm goes to Dismiss
 
 # --- 沒經過決定與未分類的 ⚠ 進同一個 gate；程式整理與照 design D 不進；答案寫回 design ---
 grep -F -- '- **Logic map, undecided.**' "$STEP4" > "$FX/undecided"; [ -s "$FX/undecided" ] || fail "Step 4 找不到 Logic map, undecided 段"
-for k in '`logic-map-undecided`' '`type: decision`' '2 to 4 options' 'Recommended' '沒有 design.md，未分類' \
+for k in '`logic-map-undecided-r<N>`' '`type: decision`' '2 to 4 options' 'Recommended' '沒有 design.md，未分類' \
   '`程式整理` items and 照 design D items never go into the gate' 'not verified'; do
   assert_fixed "$k" "$FX/undecided"
 done
 grep -F -- '- **Logic map gate answered.**' "$STEP4" > "$FX/answered"; [ -s "$FX/answered" ] || fail "Step 4 找不到 Logic map gate answered 段"
-for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' '## R<N>. review 退回' '/opsx-workflow:apply <slug>' '/opsx-workflow:pr <slug>' 'not a round'; do
+for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' 'review 退回' '/opsx-workflow:apply <slug>' '/opsx-workflow:pr <slug>' 'not a round'; do
   assert_fixed "$k" "$FX/answered"
 done
 assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$STEP5"
@@ -137,8 +137,24 @@ assert_fixed 'When report.md does not exist yet (round 1), do not create it here
 # --- R1.2 design: 行跟 <map path> 同一個 checkout：dispatch worktree 沒有 openspec/ ---
 assert_fixed 'design: <absolute path of `openspec/changes/<slug>/design.md` in the same checkout as `<map path>`>' "$MAP"
 # --- R1.3 gate 答完的處理：review 重進不算一輪；寫回後記 寫回: 行、清掉邏輯表行、照 Step 5 規則接下一步 ---
-assert_fixed 'An answered `logic-map-undecided` gate with no `寫回:` line means the answers are not in design.md yet: run only the **Logic map gate answered** step of Step 4, which is not a round, and stop there.' "$STEP0"
-for k in '`寫回: <日期> · <新的 D>`' 'Clear the line under `## 邏輯表`' 'continue by Step 5'"'"'s rule'; do
+for k in '`寫回: <日期> · <新的 D>`' 'continue by Step 5'"'"'s rule'; do
   assert_fixed "$k" "$FX/answered"
 done
 assert_not_fixed 'when no answer changes the code, continue to `/opsx-workflow:pr <slug>`' "$FX/answered"
+
+# --- R2.4 Step 0 先認 gate、再算輪數；寫回後照那步的接續，不停 ---
+GATE0='Before reading the round: when the newest `logic-map-undecided-r*` gate is answered and has no `寫回:` line, the answers are not in design.md yet: run only the **Logic map gate answered** step of Step 4, which is not a round, then continue as that step says.'
+assert_fixed "$GATE0" "$STEP0"
+[ "$(line_of "$GATE0" "$SK")" -lt "$(line_of 'Read the round from report.md' "$SK")" ] || fail "Step 0 認 gate 的段落要在算輪數之前"
+assert_not_fixed 'and stop there' "$STEP0"
+# --- R2.2 每輪自己的 gate id，認最新一個 ---
+assert_fixed 'with id `logic-map-undecided-r<N>`, where N is this review round' "$FX/undecided"
+# --- R2.1 改程式的答案也進待修，pr 與 Stop hook 才擋得到；R2.3 群組編號接現有最大的 R ---
+assert_fixed 'list it under `### 待修（範圍內）` in report.md with its task id' "$FX/answered"
+assert_fixed 'numbered after the largest `## R<k>.` group already in tasks.md, not after the round' "$FX/answered"
+assert_not_fixed '## R<N>. review 退回' "$FX/answered"
+# --- R2.5 失敗行第 1 輪也不建 report.md；寫回時整段刪掉 ## 邏輯表，對上 pr 5c 的「沒有這一段」 ---
+assert_not_fixed '(add the heading when it is missing)' "$MAP"
+assert_fixed 'In round 1, when report.md does not exist yet, keep the failure line for Step 5 the same way.' "$MAP"
+assert_fixed 'Delete the whole `## 邏輯表` section from report.md' "$FX/answered"
+assert_not_fixed 'Clear the line under `## 邏輯表`' "$FX/answered"
