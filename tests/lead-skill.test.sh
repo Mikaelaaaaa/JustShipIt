@@ -52,9 +52,9 @@ n_duties="$(heading_of '## Duties')"; n_ask="$(heading_of '## 怎麼問 gate')";
   || fail "「## 怎麼問 gate」要在 ## Duties（$n_duties）與 ## Report format（$n_report）之間，現在在 ${n_ask:-沒有}"
 for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 題' '卡名' '例子' \
   'opsx answer' '原文' 'Other' '重講' '不代答' \
-  'without the `(Recommended)`' '12' \
-  'action: merge' '不准' 'status:' 'stderr' \
-  'status: open' \
+  'without the `(Recommended)`' 'at most 12 characters' \
+  '--grant' 'test-path' 'mode: stopped' 'approve option' '不准' 'Before each `opsx answer`' 'stderr' \
+  'desktop' \
   'sketch' 'cards' '沒裝' 'enabledPlugins' 'opsx init --global' 'user settings' 'card pane'; do
   case "$ASK" in *"$s"*) ;; *) fail "怎麼問 gate 段缺：$s" ;; esac
 done
@@ -62,6 +62,11 @@ done
 NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
 case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac
 case "$NR" in *'goes in the pop-up'*) fail "needs: run 的 gate 不能進跳卡：$NR" ;; esac
+# 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
+RR="$(printf '%s\n' "$ASK" | grep -F 'status: open')"
+for s in 'needs: run' 'waits-on' 'subs/' '--sub'; do
+  case "$RR" in *"$s"*) ;; *) fail "重讀 open gate 那行缺：$s — $RR" ;; esac
+done
 # 不替使用者選
 case "$ASK" in *自動採用*) fail "怎麼問 gate 段不能有「自動採用」" ;; esac
 # compare 在段裡只出現一次，就是「不用 compare 選」那一處

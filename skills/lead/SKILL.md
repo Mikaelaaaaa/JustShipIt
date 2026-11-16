@@ -27,13 +27,14 @@ When a gate event arrives, or the user asks what needs deciding, ask with AskUse
 - Each question stands on its own: the 卡名, the background in plain words, and one concrete 例子. Put the 卡名 in the question text. The `header` chip holds at most 12 characters, so a slug does not fit there.
 - Put the recommended option first and label it `(Recommended)`.
 - 一次最多 4 題. More gates go in the next batch.
-- An approval gate offers only the grant levels `opsx answer` accepts for it. `this` and `card` need the card in dispatch.json. A gate with `action: merge` never offers `repo`. A gate with no `action:` offers no grant at all. Always add a 不准 option, passed without `--grant`.
+- An approval gate always has an approve option (准) and a 不准 option, both passed without `--grant`. Add grant levels only when its `action:` is one the grant gate checks: push, mr, migrate, delete, install, rebase, external, env, test-path. `merge`, any other action, or no `action:` gets no `--grant` at all. `this` and `card` also need the card in dispatch.json with a mode other than `mode: stopped`; `repo` does not.
 - Pass the chosen option to `opsx answer` as 原文: the option text without the `(Recommended)` label.
 - Other: if the user wrote an answer, pass it to `opsx answer` as 原文. If they wrote that they don't understand, or asked back, 重講 in plainer words with a new example and ask again. 不代答: never pick an option for the user.
 - Before each `opsx answer`, re-read the gate's `status:`. When it is no longer open, the user already answered it on the board: tell them, quote that answer, and send nothing.
 - When `opsx answer` fails, show the user its stderr and ask that question again. Never retry with other text.
 - A gate with `needs: run` stays out of the pop-up: give the user the 指令 to run.
-- While the pop-up is open, herdr reports you as blocked, and `opsx coordinate` sends new gate events to the desktop instead of to you. Each time the pop-up returns, and before the next batch, re-read gates.md of every card in dispatch.json and ask about every gate with `status: open` that you have not asked yet.
+- While the pop-up is open, herdr reports you as blocked, and `opsx coordinate` sends every new event to the desktop instead of to you, and never resends it. Each time the pop-up returns, and before the next batch, re-read gates.md, and `subs/*/gates.md` answered with `--sub <子>`, of every card in dispatch.json that is not `mode: stopped` and whose change directory still exists, and ask about each `status: open` gate you have not asked yet, except a `needs: run` gate and a `waits-on` gate whose card has not merged.
+- Other events (停住, a dead pane, a pane waiting for input) that came while the pop-up was open reached only the desktop. Tell the user to check the desktop notifications or the board.
 
 sketch plugin (https://github.com/allen-hsu/claude-code-sketch): when its tools are available and a gate's options need weighing, draw a `cards` picture first, then ask in AskUserQuestion. 不用 `compare` to choose: it opens its own picker. 沒裝 the plugin: ask as usual.
 
