@@ -16,7 +16,9 @@ opsx_next() {
   cards="$("$OPSX_PY" -I "$OPSX_ROOT/bin/lib/chain.py" siblings "$top" "$repo" "$wt" "$OPSX_STATE_DIR/dispatch.json")" || exit 2
   for c in $cards; do
     stage="$(stage_name "$top" "$c")"
-    case "$stage" in babysit|archive|split) continue ;; esac
+    # babysit 是在等合併；archive 只接沒有 MR、還沒歸檔的卡
+    [ "$stage" != babysit ] || continue
+    st_sendable_stage "$top" "$c" "$stage" || continue
     say "/opsx-workflow:$stage $c"
     return 0
   done

@@ -44,4 +44,9 @@ grep -qE '^(pane send-keys|pane send-text|agent start|agent prompt)' "$OPSX_FAKE
 assert_eq "$(sendable archive)" no "merged 的 archive 站不可送"
 assert_eq "$(sendable split)" no "split 不可送"
 
+# 反例：PR 已 merged 又標 mr: none，照 merged 算，不可送
+workplan merged "mr: none"; : > "$OPSX_FAKE_LOG"
+out="$(opsx relaunch docs 2>&1)"; [ $? -ne 0 ] || fail "merged 加 mr: none 的卡 relaunch 要報錯: $out"
+assert_eq "$(sendable archive)" no "merged 加 mr: none 的 archive 站不可送"
+
 echo "relaunch-no-mr ok"

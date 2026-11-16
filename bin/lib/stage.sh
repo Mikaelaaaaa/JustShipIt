@@ -139,6 +139,7 @@ st_workplan_merged() { [ "$(wp_pr_field "$1" "$2" status)" = merged ]; } # <top>
 st_no_mr_done() { # <top> <slug>
   local branch base
   [ "$(wp_pr_field "$1" "$2" mr)" = none ] || return 1
+  ! st_workplan_merged "$1" "$2" || return 1   # 已 merged 的 PR 是做完了，不是還在等 /archive
   branch="$(wp_pr_field "$1" "$2" branch)"
   [ -n "$branch" ] || return 1
   base="$(primary_remote "$1")/main"
