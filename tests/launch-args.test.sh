@@ -52,6 +52,11 @@ python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["al
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"].get("allow",[]);assert not [r for r in a if "orca" in r],a' "$SI" || fail "interactive 不放行 orca"
 assert_eq "$(grep -c '://' "$S")" 0 "settings 不含連線字串（任何 scheme://）"
 
+# --- docs-api-autopilot-allow：autopilot 只放行 pnpm docs:api，不放行整個 pnpm、tsx 與其他 tsx script；interactive 不放行 ---
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm docs:api:*)" in a,a' "$S" || fail "autopilot allow 缺 Bash(pnpm docs:api:*)"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm:*)" not in a and "Bash(tsx:*)" not in a,a;assert not [r for r in a if r.startswith(("Bash(pnpm i18n:split","Bash(pnpm seed:e2e"))],a' "$S" || fail "autopilot allow 不能放行整個 pnpm、tsx 或其他 tsx script"
+assert_eq "$(grep -c 'pnpm docs:api' "$SI")" 0 "interactive 不放行 pnpm docs:api"
+
 # --- migrate 授權：filter 寫法只在 grants.toml 開 migrate 時出現 ---
 launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI no-grant "$TOP"
 assert_eq "$(grep -c 'db:migrate' "$SD/settings/Acmecorp-AI-no-grant-autopilot.json")" 0 "沒有 migrate 授權就沒有 migrate 規則"

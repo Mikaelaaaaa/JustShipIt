@@ -38,6 +38,24 @@ has "$n" 'pnpm test'
 has "$n" 'pytest'
 has "$n" '主 checkout'
 case "$n" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+# Scenario Outline 邊界：沒有 package.json 的 repo 不提醒 pnpm docs:api
+gone "$n" 'pnpm docs:api'
+gone "$r" 'pnpm docs:api'
+
+# Scenario：package.json 有 docs:api script 時提醒單獨下（me-20261116-1650-2）
+D="$(mk_repo DocsApi)"
+printf '{"scripts":{"build":"tsc","docs:api":"tsx scripts/api-docs/gen.ts"}}\n' > "$D/package.json"
+d="$(rule_autopilot "$D")"
+has "$d" ' · `pnpm docs:api` 要單獨下'
+has "$d" '不接 `cd … &&`'
+has "$d" '不接 pipe'
+gone "$d" ' ·  · '
+case "$d" in *' · ') fail "rule_autopilot 不該以分隔符結尾" ;; esac
+case "$d" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+# Scenario Outline 一般：package.json 只有 build 與 test 不提醒
+B="$(mk_repo BuildTestOnly)"
+printf '{"scripts":{"build":"tsc","test":"vitest"}}\n' > "$B/package.json"
+gone "$(rule_autopilot "$B")" 'pnpm docs:api'
 
 # Scenario：沒給 repo 根目錄就失敗
 assert_rc 1 rule_autopilot
