@@ -25,8 +25,10 @@ import runtime  # noqa: E402
 import safefile  # noqa: E402
 
 MAX_DISPATCH = 6
-# 同時 working 的卡數上限預設值；<state>/max-working 可改
-DEFAULT_MAX_WORKING = 6
+# 同時活著的 pane 數上限預設值；<state>/max-working 可改
+DEFAULT_MAX_WORKING = 8
+# herdr 回這三種 agent_status 的 pane 佔派工名額；找不到（unknown）就是死了
+LIVE_AGENT = ("working", "idle", "blocked")
 REDISPATCH_MINUTES = 10
 # relaunch 失敗後同一個 pane 不再試的時間；跟重派同一個節流，不會每輪對壞掉的 pane 送 Esc、/exit
 RELAUNCH_MINUTES = REDISPATCH_MINUTES
@@ -92,7 +94,9 @@ class Round:
         self.stages = {}
         self.woken_cards = set()
         self.max_working = None
-        self.woken = 0
+        # 這輪開始時活著的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
+        self.busy_panes = set()
+        self.opened = 0
         self.worktrees = {}
         self.coordinator_up = None
 
@@ -352,7 +356,6 @@ class Round:
             if rc != 0:
                 self.log("?? %s 送不到 session %s，條目已寫，下一輪由 session 重派接手：%s" % (child, feature, (err or out)[:200]))
             else:
-                self.woken += 1   # 叫醒的 session 開始做這張，同時上限要算它
                 self.args_checked.add("%s/@%s" % (c["repo"], feature))
 
     def close_session(self, top, repo, feature):
@@ -660,6 +663,7 @@ class Round:
         self.memo["_redispatched"][key] = self.now.isoformat(timespec="seconds")
         self.redispatched_now.add(key)
         self.args_checked.add(key)
+        self.count_reopened(c)
 
     def pane_chain(self, c):
         """從卡自己的條目沿 via 往上到代管 pane 的根條目，加上 session 條目；最後一筆是根。
@@ -723,6 +727,12 @@ class Round:
         self.memo["_redispatched"][key] = self.now.isoformat(timespec="seconds")
         self.redispatched_now.add(key)
         self.args_checked.add(self.pane_chain(c)[-1])
+        self.count_reopened(c)
+
+    def count_reopened(self, c):
+        """重派成功開了新 pane。舊 pane 還活著（drive 死了）時它已在 busy_panes 裡，stop 關掉它再開一個，不多佔名額。"""
+        if c["agent_status"] not in LIVE_AGENT:
+            self.opened += 1
 
     def check_args(self, c, top):
         """pane 裡的 claude 丟了 dispatch 給的 --settings（herdr 還原 pane、手動 resume）就 opsx relaunch。
@@ -798,9 +808,9 @@ class Round:
                 self.log("-- %s 等的 gate %s 被人答掉，記成已答，照派卡規則重派" % (key, parked["gate"]))
                 parked["answered"] = True
 
-    def working(self, cards):
-        """這輪開始前在跑的卡，加上這輪叫醒的。"""
-        return self.woken + sum(1 for c in cards if c["dispatch"] and c["agent_status"] == "working")
+    def slots_used(self):
+        """佔掉的派工名額：這輪開始時活著的 pane，加上這輪新開的。"""
+        return len(self.busy_panes) + self.opened
 
     def woken_by(self, key, parked, top):
         """喚醒 parked 的卡的 PR。gate 寫了 waits-on 就只認那張（卡名或 PR 名）是不是 merged，停下之前或之後合的都算；
@@ -820,7 +830,6 @@ class Round:
 
     def dispatch_new(self, cards, repo_paths):
         n = 0
-        working = self.working(cards)
         ranked = sorted((self.rank(c, repo_paths[c["repo"]]), i, c) for i, c in enumerate(cards))
         for _, _, c in ranked:
             key, top = card_key(c), repo_paths[c["repo"]]
@@ -881,8 +890,8 @@ class Round:
             if not p0 and n >= MAX_DISPATCH:
                 self.log("-- 這輪派滿 %d 張，%s 下輪" % (MAX_DISPATCH, key))
                 continue
-            if not p0 and working + n >= self.max_working:
-                self.log("-- 同時在跑 %d 張，達上限 %d，%s 下輪" % (working + n, self.max_working, key))
+            if not p0 and self.slots_used() >= self.max_working:
+                self.log("-- 同時在跑 %d 個 pane，達上限 %d，%s 下輪" % (self.slots_used(), self.max_working, key))
                 continue
             agent = entry["agent"] if entry and "agent" in entry else "claude"
             rc, _, err = self.act(["opsx", "dispatch", c["slug"], "--agent", agent, "--mode", "autopilot", "--kind", c["kind"], "--repo", top])
@@ -891,6 +900,8 @@ class Round:
             if rc != 0:
                 self.log("?? %s 派不出去：%s" % (key, err[:200]))
                 continue
+            if not p0:
+                self.opened += 1
             self.memo["_parked"].pop(key, None)
         return n
 
@@ -926,10 +937,10 @@ class Round:
                 return f.get("name")
         return None
 
-    def dispatch_features(self, repo_paths, n, working):
+    def dispatch_features(self, repo_paths, n):
         """feature 的 depends-on 都合了、還有沒合的 PR、session 條目不存在或不活：開一個 session（opsx dispatch --feature）。
         條目是 stopped 的不開：coordinate 自己關 session 時會拿掉條目，留下的 stopped 只會是人停的。
-        n 是這輪單卡派掉的張數，working 是這輪開始前在跑的卡；兩個上限跟單卡派一樣算。"""
+        n 是這輪單卡派掉的張數；每輪上限與同時上限跟單卡派一樣算，開成的 session 佔一個 pane。"""
         for repo, top in sorted(repo_paths.items()):
             prs = self.workplan(top)
             status = {p.get("name"): p.get("status") for p in prs}
@@ -985,8 +996,8 @@ class Round:
                 if not p0 and n >= MAX_DISPATCH:
                     self.log("-- 這輪派滿 %d 個，feature %s 下輪" % (MAX_DISPATCH, name))
                     continue
-                if not p0 and working + n >= self.max_working:
-                    self.log("-- 同時在跑 %d 張，達上限 %d，feature %s 下輪" % (working + n, self.max_working, name))
+                if not p0 and self.slots_used() >= self.max_working:
+                    self.log("-- 同時在跑 %d 個 pane，達上限 %d，feature %s 下輪" % (self.slots_used(), self.max_working, name))
                     continue
                 rc, _, err = self.act(["opsx", "dispatch", "--feature", name, "--only", ",".join(only), "--agent", "claude", "--mode", "autopilot", "--repo", top])
                 if rc != 0:
@@ -994,6 +1005,7 @@ class Round:
                     continue
                 if not p0:
                     n += 1
+                    self.opened += 1
 
     def feature_members(self, repo, name, plan):
         """feature_plan 的卡分成 (單卡派過的卡, 交給 session 的卡)。人停的成員 dispatch --feature 會跳過，也不在後者。"""
@@ -1009,8 +1021,13 @@ class Round:
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
 
 
+def live_panes(pairs):
+    """(pane, agent_status) 裡佔派工名額的 pane 集合：agent 還在的才算，同一個 pane 代管幾張卡都只算一次。"""
+    return {pane for pane, status in pairs if pane and status in LIVE_AGENT}
+
+
 def read_max_working(path):
-    """同時 working 的卡數上限。launchd 與 --kick 都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
+    """同時活著的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
     if not os.path.exists(path):
         return DEFAULT_MAX_WORKING
     with open(path, encoding="utf-8") as f:
@@ -1264,6 +1281,8 @@ def one_round(state, dry):
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
+    # 已合併還沒收尾的卡 pane 還開著，照佔名額
+    r.busy_panes = live_panes((c["dispatch"].get("pane"), c["agent_status"]) for c in cards if c["dispatch"])
 
     merged = [c for c in cards if is_merged(c)]
     orphans = []
@@ -1309,7 +1328,7 @@ def one_round(state, dry):
         except DispatchFieldError as e:
             r.bad_dispatch(c, e)
     if not paused:
-        r.dispatch_features(repo_paths, r.dispatch_new(live, repo_paths), r.working(live))
+        r.dispatch_features(repo_paths, r.dispatch_new(live, repo_paths))
     r.act(["opsx", "reap"])   # 失敗 act 已經記 log；孤兒的判斷與關閉條件都在 opsx reap
     r.save()
     r.log("== 結束：%d 張卡，收尾 %d 張" % (len(live), len(done)))

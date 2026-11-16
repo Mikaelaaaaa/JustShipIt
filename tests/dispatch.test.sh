@@ -521,6 +521,47 @@ python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));del d["Acmecor
 out="$(opsx dispatch held --agent claude --mode autopilot 2>&1)"; [ $? -ne 0 ] || fail "分支被佔、沒條目也要失敗: $out"
 echo "$out" | grep -qF '.claude/worktrees/c' || fail "要說佔著的 worktree: $out"
 [ ! -d "$R/.claude/worktrees/held" ] || fail "被佔時不能開 worktree"
+# --- 人手動派，名額已滿只警告（specs/dispatch-concurrency：人手動派名額已滿只警告）---
+# cap_state <活著的 pane 數>：dispatch.json 加 8 個沒停的條目 cap1…cap8，herdr 只回前 n 個的 agent（idle）
+cap_state() {
+  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" <<'PY'
+import json, sys
+path, agents_path, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+d = json.load(open(path))
+for i in range(1, 9):
+    d["Acmecorp-CS/cap%d" % i] = {"mode": "autopilot", "agent": "claude", "pane": "w9:cap%d" % i, "drive_pid": None}
+json.dump(d, open(path, "w"))
+agents = [{"agent": "claude", "agent_status": "idle", "pane_id": "w9:cap%d" % i} for i in range(1, n + 1)]
+json.dump({"id": "cli:agent:list", "result": {"agents": agents, "type": "agent_list"}}, open(agents_path, "w"))
+PY
+}
+cd "$R"
+mkdir -p "$R/openspec/changes/cap-x" "$R/openspec/changes/cap-y" "$R/openspec/changes/cap-z"
+printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-x/.openspec.yaml"
+printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-y/.openspec.yaml"
+printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-z/.openspec.yaml"
+cap_state 8
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-x --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "名額滿了手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "名額滿了要警告: $out"
+assert_eq "$(jq -r 'has("Acmecorp-CS/cap-x") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額滿了照寫條目"
+cap_state 7
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-y --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "名額沒滿照派: $out"
+echo "$out" | grep -qF '已有' && fail "名額沒滿不警告: $out"
+assert_eq "$(jq -r 'has("Acmecorp-CS/cap-y") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額沒滿照寫條目"
+# herdr agent list 失敗：數不出來，不警告、照派
+cap_state 8
+out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "數不出名額照派: $out"
+echo "$out" | grep -qF '已有' && fail "數不出名額不警告: $out"
+# agent list 讀不懂：stderr 說原因，照派
+mkdir -p "$R/openspec/changes/cap-w"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-w/.openspec.yaml"
+printf 'not json\n' > "$FX/cap-bad.json"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-bad.json" opsx dispatch cap-w --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "agent list 讀不懂照派: $out"
+echo "$out" | grep -qF 'herdr agent list 讀不懂' || fail "讀不懂要說原因: $out"
+
 assert_not_grep 'gitlab\.example\.com' "$OPSX_FAKE_LOG"
 assert_not_grep 'gitlab\.example\.com' "$FX/glab-all.log"
 echo ok

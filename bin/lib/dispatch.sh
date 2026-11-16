@@ -150,6 +150,7 @@ PY
     fi
   fi
   warn_untrusted "$top"
+  warn_slots_full
   # codex 沒有 router hook：把同一批規則放進 worktree。worktree 已在也寫（重派可能換模式）
   if [ "$agent" = codex ]; then place_agents_md "$wt" "$mode" || die "dispatch: AGENTS.md 放不進 $wt"; fi
 
@@ -257,6 +258,32 @@ jsonfile.update(sys.argv[1], put)
 PY
   log_row "$d" 你 已指派 "交回 session ${feature}，送 [${slug}] /opsx-workflow:${first} ${slug}" "session ${feature}"
   say "dispatch: $repo/$slug 交回 session ${feature}，送 [${slug}] /opsx-workflow:${first} ${slug}；不開 pane"
+}
+
+# 活著的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
+# 數法與上限跟協調者共用 coordinate.py。herdr agent list 叫不通就數不出來，不警告
+warn_slots_full() {
+  # 數不成時 python 已在 stderr 說原因；這只是警告，不擋派工
+  OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR" <<'PY' || true
+import json, os, subprocess, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime
+state = sys.argv[1]
+p = subprocess.run(runtime.list_agents(), capture_output=True, text=True)
+if p.returncode != 0:
+    sys.exit(0)
+try:
+    status = {a.get("pane_id"): a.get("agent_status") for a in json.loads(p.stdout)["result"]["agents"]}
+except (json.JSONDecodeError, KeyError, TypeError) as e:
+    sys.exit("dispatch: herdr agent list 讀不懂，不數名額：%s" % e)
+try:
+    limit = coordinate.read_max_working(os.path.join(state, "max-working"))
+except coordinate.CoordinateError as e:
+    sys.exit("dispatch: 不數名額：%s" % e)
+entries = jsonfile.load(os.path.join(state, "dispatch.json")).values()
+n = len(coordinate.live_panes((e.get("pane"), status.get(e.get("pane"))) for e in entries if e.get("mode") != "stopped"))
+if n >= limit:
+    print("dispatch: 已有 %d/%d 個 pane" % (n, limit))
+PY
 }
 
 workplan_branch() { wp_pr_field "$1" "$2" branch; } # <top> <slug>：印 workplan 裡這張卡所屬 PR 的 branch，沒有就空
