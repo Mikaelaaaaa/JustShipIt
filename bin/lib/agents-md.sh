@@ -6,10 +6,10 @@
 # shellcheck source=/dev/null
 source "$OPSX_ROOT/bin/lib/rules.sh"
 
-render_agents_md() { # <interactive|autopilot>
+render_agents_md() { # <interactive|autopilot> <repo 根目錄>
   local mode_rule grant_note=""
   case "$1" in
-    autopilot) mode_rule="$(rule_autopilot)" ;;
+    autopilot) mode_rule="$(rule_autopilot "$2")" || return 1 ;;
     interactive)
       mode_rule="$(rule_interactive)"
       grant_note='本卡是 interactive：下表凡寫「寫 gate」「一律 gate」處，一律改成在 pane 直接問人，不寫 gate。' ;;
@@ -32,7 +32,7 @@ render_agents_md() { # <interactive|autopilot>
 # info/exclude 在共用 git dir，主 checkout 也會排除這兩個名字。
 place_agents_md() { # <worktree> <mode>
   local wt="$1" body excl name
-  body="$(render_agents_md "$2")" || return 1
+  body="$(render_agents_md "$2" "$wt")" || return 1
   if git -C "$wt" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1; then
     { cat "$wt/AGENTS.md"; printf '\n%s\n' "$body"; } > "$wt/AGENTS.override.md"
   else

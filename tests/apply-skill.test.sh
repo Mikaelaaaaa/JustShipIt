@@ -78,4 +78,7 @@ has '主 checkout' "$SK"
 has 'bash tests/run.sh' "$SK"
 has 'cd <worktree root>' "$SK"
 ! grep -qE '^[[:space:]]*(`)?OPSX_ROOT=' "$SK" || fail "apply SKILL.md 不能有 OPSX_ROOT= 開頭的測試指令範例"
+# agent-20261116-1405 Scenario：skill 的測試步驟依 repo
+has 'When the repo has `tests/run.sh`, the command is `bash tests/run.sh' "$SK"
+! grep -qF 'In this repo the command is `bash tests/run.sh' "$SK" || fail "apply SKILL.md 不能無條件寫 bash tests/run.sh"
 echo ok

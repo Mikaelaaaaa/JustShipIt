@@ -20,7 +20,7 @@ if [ -n "$slug" ] && [ -n "${OPSX_PY:-}" ]; then
   mode="$(card_mode "$(basename "$top")" "$slug" 2>/dev/null || true)"
   case "$mode" in
     autopilot|drive)
-      rule=" · $(rule_autopilot)"
+      rule=" · $(rule_autopilot "$top")"
       if [ "$ev" = SessionStart ]; then
         lost_rc=0; lost_why="$(args_lost_status "$(basename "$top")" "$slug" "$mode")" || lost_rc=$?
         case "$lost_rc" in

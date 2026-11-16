@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# rules-autopilot：rule_autopilot 寫明 worktree 的 openspec 路徑與測試指令寫法。
-# 驗收：openspec/changes/me-20261111-1326/specs/opsx-autonomy/spec.md「agent 規則寫明 worktree 的 openspec 路徑」「agent 規則規定測試指令的寫法」
+# rules-autopilot：rule_autopilot 寫明 worktree 的 openspec 路徑與測試指令寫法，測試指令依 repo 有沒有 tests/run.sh 決定。
+# 驗收：openspec/changes/me-20261111-1326/specs/opsx-autonomy/spec.md「agent 規則寫明 worktree 的 openspec 路徑」
+#       openspec/changes/agent-20261116-1405/specs/opsx-autonomy/spec.md「agent 規則規定測試指令的寫法」
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$OPSX_ROOT/bin/lib/rules.sh"
 has() { case "$1" in *"$2"*) ;; *) fail "rule_autopilot 缺 [$2]" ;; esac; }
 gone() { case "$1" in *"$2"*) fail "rule_autopilot 不該有 [$2]" ;; esac; }
 
-r="$(rule_autopilot)"
+r="$(rule_autopilot "$OPSX_ROOT")"
 # Scenario：autopilot 規則提到主 checkout
 has "$r" '主 checkout'
 has "$r" 'openspec/changes/<slug>/'
@@ -14,7 +15,7 @@ has "$r" 'worktree 裡沒有 `openspec/`'
 # cd 會留到後面每個 Bash 呼叫：跑完 openspec 要回 worktree 根，否則測試、opsx、router 都在主 checkout 上看 cwd
 has "$r" 'cd <主 checkout 絕對路徑> && openspec'
 has "$r" 'cd <worktree 根>'
-# Scenario：autopilot 規則含測試寫法
+# Scenario：有 tests/run.sh 的 repo 注入 bash tests/run.sh
 has "$r" 'bash tests/run.sh'
 has "$r" '不加 `VAR=…` 或 `export`'
 gone "$r" 'OPSX_ROOT='
@@ -26,4 +27,19 @@ has "$r" ' · Bash 會被 dontAsk 拒的寫法'
 gone "$r" ' ·Bash'
 # 新增的是 ' · ' 段，不是另一行
 case "$r" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+
+# Scenario：沒有 tests/run.sh 的 repo 不注入 bash tests/run.sh
+N="$(mk_repo NoRunner)"
+n="$(rule_autopilot "$N")"
+gone "$n" 'bash tests/run.sh'
+has "$n" 'CLAUDE.md'
+has "$n" 'package.json / pyproject'
+has "$n" 'pnpm test'
+has "$n" 'pytest'
+has "$n" '主 checkout'
+case "$n" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+
+# Scenario：沒給 repo 根目錄就失敗
+assert_rc 1 rule_autopilot
+rule_autopilot 2>&1 | grep -q 'repo 根目錄' || fail "沒給參數的錯誤訊息要說缺 repo 根目錄"
 echo ok

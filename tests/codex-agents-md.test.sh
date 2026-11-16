@@ -16,8 +16,10 @@ router() { # <mode> → additionalContext
     | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext'
 }
 ctx_auto="$(router autopilot)"
-case "$ctx_auto" in *" · $(rule_autopilot)") ;; *) fail "router autopilot 要以 ' · ' 接 rule_autopilot: $ctx_auto" ;; esac
-case "$(rule_autopilot)" in *'不用 AskUserQuestion'*'一個 Bash 呼叫做一件事'*) ;; *) fail "rule_autopilot 內容不對: $(rule_autopilot)" ;; esac
+case "$ctx_auto" in *" · $(rule_autopilot "$R")") ;; *) fail "router autopilot 要以 ' · ' 接 rule_autopilot: $ctx_auto" ;; esac
+# R 沒有 tests/run.sh：router 不注入 bash tests/run.sh（agent-20261116-1405）
+case "$ctx_auto" in *'bash tests/run.sh'*) fail "沒有 tests/run.sh 的 repo 不該注入 bash tests/run.sh: $ctx_auto" ;; esac
+case "$(rule_autopilot "$R")" in *'不用 AskUserQuestion'*'一個 Bash 呼叫做一件事'*) ;; *) fail "rule_autopilot 內容不對: $(rule_autopilot "$R")" ;; esac
 ctx_int="$(router interactive)"
 case "$ctx_int" in *" · $(rule_interactive)") ;; *) fail "router interactive 要以 ' · ' 接 rule_interactive: $ctx_int" ;; esac
 
@@ -25,17 +27,17 @@ case "$ctx_int" in *" · $(rule_interactive)") ;; *) fail "router interactive �
 source "$OPSX_ROOT/bin/lib/agents-md.sh"
 has() { case "$1" in *"$2"*) ;; *) fail "${3:-內容}缺 [$2]" ;; esac; }
 gone() { case "$1" in *"$2"*) fail "${3:-內容}不該有 [$2]" ;; esac; }
-a="$(render_agents_md autopilot)"
+a="$(render_agents_md autopilot "$OPSX_ROOT")"
 # 規則的每一段（以 ' · ' 切開）都在檔裡：同源
-while IFS= read -r seg; do has "$a" "$seg" "autopilot 規則段"; done < <(rule_autopilot | awk -F' · ' '{ for (i = 1; i <= NF; i++) print $i }')
+while IFS= read -r seg; do has "$a" "$seg" "autopilot 規則段"; done < <(rule_autopilot "$OPSX_ROOT" | awk -F' · ' '{ for (i = 1; i <= NF; i++) print $i }')
 for s in '主 checkout' 'bash tests/run.sh' 'gates.md' '一個 Bash 呼叫做一件事' 'waiting for merge' '直接做' '要授權' '永遠要人' 'merge' "$OPSX_ROOT/skills" '`/opsx-workflow:<stage> <slug>`'; do has "$a" "$s" autopilot; done
-i="$(render_agents_md interactive)"
+i="$(render_agents_md interactive "$OPSX_ROOT")"
 has "$i" "$(rule_interactive)" interactive
 gone "$i" '要問人的事寫 gates.md' interactive
 gone "$i" '不用 AskUserQuestion' interactive
 gone "$a" 'interactive：要授權就直接問' autopilot
-rc=0; render_agents_md yolo >/dev/null 2>&1 || rc=$?; assert_eq "$rc" 1 "不認得的模式要失敗"
-render_agents_md yolo 2>&1 | grep -q 'yolo' || fail "錯誤訊息要點名模式 yolo"
+rc=0; render_agents_md yolo "$OPSX_ROOT" >/dev/null 2>&1 || rc=$?; assert_eq "$rc" 1 "不認得的模式要失敗"
+render_agents_md yolo "$OPSX_ROOT" 2>&1 | grep -q 'yolo' || fail "錯誤訊息要點名模式 yolo"
 for s in '直接做' '要授權' '永遠要人'; do has "$(cat "$OPSX_ROOT/references/grants.md")" "$s" grants.md; done
 # 把 main 合進自己的分支是直接做；合 MR 才是永遠要人
 has "$a" '不自己合 MR' autopilot
@@ -68,7 +70,10 @@ out="$(opsx dispatch cx --agent codex --mode autopilot --kind chore 2>&1)" || fa
 wait_drive Acmecorp-CS cx
 WT="$D/.claude/worktrees/cx"
 assert_file "$WT/AGENTS.md"
-has "$(cat "$WT/AGENTS.md")" "$(rule_autopilot | awk -F' · ' '{ print $1 }')" "worktree 的 AGENTS.md"
+has "$(cat "$WT/AGENTS.md")" "$(rule_autopilot "$WT" | awk -F' · ' '{ print $1 }')" "worktree 的 AGENTS.md"
+# D 沒有 tests/run.sh：AGENTS.md 拿到 repo 自己測試指令那段，與 router 同源（agent-20261116-1405）
+gone "$(cat "$WT/AGENTS.md")" 'bash tests/run.sh' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
+has "$(cat "$WT/AGENTS.md")" 'package.json / pyproject' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
 assert_eq "$(git -C "$WT" status --porcelain)" "" "AGENTS.md 不進 git"
 assert_grep "^agent start cx --kind codex --pane w1:pE -- -a never -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR\$" "$OPSX_FAKE_LOG"
 
