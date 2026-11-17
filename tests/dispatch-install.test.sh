@@ -70,8 +70,73 @@ assert_grep '^needs: run$' "$G"
 assert_grep "pnpm install --frozen-lockfile" "$G"
 assert_grep "$R/.claude/worktrees/bad-card" "$G"
 assert_grep 'ERR_PNPM_OUTDATED_LOCKFILE' "$G"
+assert_grep '^## install-deps$' "$G"
+assert_grep '^opened_at: ' "$G"
+echo "$out" | grep -q 'integer expression' && fail "卡上沒有 gates.md 時不能有 test 的錯誤：$out"
 echo "$out" | grep -q 'pnpm install' || fail "dispatch 輸出要說 install 失敗：$out"
 python3 -I -c 'import json,sys;assert "Inst-D/bad-card" in json.load(open(sys.argv[1]))' "$OPSX_STATE_DIR/dispatch.json" || fail "install 失敗也要寫 dispatch.json"
+
+# 同一張卡已經有一題 install-deps：新的一題叫 install-deps-2
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-G again-card pnpm-lock.yaml)"
+G="$R/openspec/changes/again-card/gates.md"
+printf '## install-deps\ntype: decision\nstatus: answered\n' > "$G"
+out="$(cd "$R" && opsx dispatch again-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+assert_grep '^## install-deps-2$' "$G"
+
+# 建議指令裡的 worktree 路徑加 shell 引號：repo 路徑有空白
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo 'Inst H' space-card pnpm-lock.yaml)"
+out="$(cd "$R" && opsx dispatch space-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+G="$R/openspec/changes/space-card/gates.md"; assert_file "$G"
+q="$(printf '%q' "$R/.claude/worktrees/space-card")"
+grep -qF "建議: cd $q && pnpm install --frozen-lockfile" "$G" || fail "建議指令的路徑要加引號（$q）：$(cat "$G")"
+
+# install 失敗而且開 pane 也失敗：卡沒派出去，不留 gate，錯誤訊息說依賴沒裝好
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-I nopane-card pnpm-lock.yaml)"
+out="$(cd "$R" && OPSX_TEST_START_FAIL=agent_name_taken opsx dispatch nopane-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "開 pane 失敗 dispatch 要失敗：$out"
+assert_no_file "$R/openspec/changes/nopane-card/gates.md"
+echo "$out" | grep -q '依賴沒裝好' || fail "錯誤訊息要說依賴沒裝好：$out"
+
+# --feature 派工途中人停了 plan 第一張：gate 寫在第一句實際送到的那張
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-J m1 pnpm-lock.yaml)"
+mkdir -p "$R/openspec/changes/m2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/m2/.openspec.yaml"
+printf 'kind: dev\n' >> "$R/openspec/changes/m1/.openspec.yaml"
+printf -- '- [ ] 1.1 x\n' > "$R/openspec/changes/m1/tasks.md"; printf -- '- [ ] 1.1 x\n' > "$R/openspec/changes/m2/tasks.md"
+cat > "$R/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: fs
+    depends-on: []
+    prs:
+      - name: m1
+        branch: feat/m1/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: m1
+            status: pending
+      - name: m2
+        branch: feat/m2/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: m2
+            status: pending
+EOF
+J="$OPSX_STATE_DIR/dispatch.json"
+python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["Inst-J/m1"]={"mode":"autopilot","via":"@fs","feature":"fs"};json.dump(d,open(p,"w"))' "$J"
+printf '%s\n' "python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d[\"Inst-J/m1\"][\"mode\"]=\"stopped\";json.dump(d,open(p,\"w\"))' \"$J\"" > "$FX/stop-m1-on-wait.sh"
+: > "$FX/not-ready-once"
+out="$(cd "$R" && OPSX_TEST_NOT_READY_ONCE="$FX/not-ready-once" OPSX_TEST_PANE_TEXT='Yes, I trust this folder' OPSX_TEST_ON_WAIT="$FX/stop-m1-on-wait.sh" opsx dispatch --feature fs --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "feature dispatch: $out"
+assert_grep '^agent prompt fs /opsx-workflow:apply m2$' "$OPSX_FAKE_LOG"
+assert_no_file "$R/openspec/changes/m1/gates.md"
+assert_grep '^## install-deps$' "$R/openspec/changes/m2/gates.md"
 
 # install 失敗照樣派、開 needs: run gate：PATH 上找不到 pnpm
 : > "$OPSX_FAKE_LOG"; rm "$FX/fakebin/pnpm"

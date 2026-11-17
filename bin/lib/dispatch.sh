@@ -133,6 +133,8 @@ PY
 
   # worktree：一卡一棵
   local wt="$top/.claude/worktrees/$slug"
+  # install_deps 寫進來的失敗原因；卡真的派出去了才寫成 gate
+  local deps_fail=""
   if [ ! -d "$wt" ]; then
     local used; used="$(git -C "$top" worktree list --porcelain | awk -v b="branch refs/heads/$branch" '/^worktree /{w=substr($0, 10)} $0 == b {print w}')"
     [ -z "$used" ] || die "dispatch: 分支 $branch 已經 checkout 在 ${used}$(held_by "$used")，不另開 worktree。那張卡在做就不用派；沒人在做就先收掉那棵 worktree"
@@ -149,7 +151,7 @@ PY
       git -C "$top" worktree add -q --no-track "$wt" -b "$branch" "$start"
     fi
     # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
-    if [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt" "$d"; fi
+    if [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt"; fi
   fi
   warn_untrusted "$top"
   # codex 沒有 router hook：把同一批規則放進 worktree。worktree 已在也寫（重派可能換模式）
@@ -167,7 +169,7 @@ PY
   launch_args "$agent" "$model" "$mode" "$repo" "$slug" "$top"
   # 名字被占用：dispatch.json 沒記著（手動開的、或 stop 時 pane 沒關成）但 herdr 還有同名 agent，指出它在哪
   runtime_open "$me_key" --kind "$agent" "${ws_arg[@]}" --cwd "$wt" --label "$slug" -- "${LAUNCH_ARGS[@]}" \
-    || die "dispatch: herdr agent start 失敗：herdr 已經有叫 ${slug} 的 agent，dispatch.json 沒記：${HERDR_TAKEN_AT}。關掉那個 pane 再派"
+    || die "dispatch: herdr agent start 失敗：herdr 已經有叫 ${slug} 的 agent，dispatch.json 沒記：${HERDR_TAKEN_AT}。關掉那個 pane 再派${deps_fail:+。$wt 的依賴沒裝好：$deps_fail}"
   local pane="$RUNTIME_PANE" tab="$RUNTIME_TAB" ws_id="$RUNTIME_WORKSPACE_ID"
 
   # dispatch.json
@@ -212,6 +214,7 @@ PY
     die "dispatch: feature「${feature}」能開工的主 change 在派工途中都被人停了，tab 已關"
   fi
   card="$(printf '%s\n' "$written" | head -1)"; d="$top/openspec/changes/$card"
+  if [ -n "$deps_fail" ]; then write_install_gate "$d" "$wt" "$deps_fail"; fi
 
   # 第一句：照狀態
   local first; first="$(stage_name "$top" "$card")"
@@ -238,31 +241,33 @@ PY
   fi
 }
 
-install_deps() { # <worktree> <card dir>：裝不起來照樣派，在卡上開 needs: run gate 請人自己裝
-  local wt="$1" d="$2" out
+install_deps() { # <worktree>：裝不起來不擋派工，原因寫進呼叫端的 deps_fail，卡派出去後才開 gate
+  local wt="$1" out
   if ! command -v pnpm >/dev/null; then
-    say "dispatch: PATH 上找不到 pnpm，$wt 沒裝依賴，卡上開了 gate"
-    write_install_gate "$d" "$wt" "PATH 上找不到 pnpm"
+    say "dispatch: PATH 上找不到 pnpm，$wt 沒裝依賴，派出去後在卡上開 gate"
+    deps_fail="PATH 上找不到 pnpm"
     return 0
   fi
   say "dispatch: 在 $wt 跑 pnpm install --frozen-lockfile"
   # --frozen-lockfile：鎖檔對不上就失敗，不讓新分支一開就有改過的 pnpm-lock.yaml
   if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then say "dispatch: 依賴裝好了"; return 0; fi
   out="$(printf '%s\n' "$out" | tail -3 | tr '\n' ' ')"
-  say "dispatch: pnpm install 失敗，卡上開了 gate：$out"
-  write_install_gate "$d" "$wt" "pnpm install --frozen-lockfile 失敗：$out"
+  say "dispatch: pnpm install 失敗，派出去後在卡上開 gate：$out"
+  deps_fail="pnpm install --frozen-lockfile 失敗：$out"
 }
 
 write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 id 加流水號，不跟舊的撞
-  local d="$1" wt="$2" why="$3" id=install-deps n cmd
-  n=$(grep -cE '^## install-deps(-[0-9]+)?$' "$d/gates.md" 2>/dev/null || true)
+  local d="$1" wt="$2" why="$3" id=install-deps n q cmd
+  # 卡上還沒有 gates.md 時 grep 讀空的 stdin，照樣印 0；沒比到時結束碼 1，用 || true 接住
+  n=$(cat "$d/gates.md" 2>/dev/null | grep -cE '^## install-deps(-[0-9]+)?$' || true)
   [ "$n" -eq 0 ] || id="install-deps-$((n + 1))"
-  cmd="cd $wt && pnpm install --frozen-lockfile"
+  printf -v q '%q' "$wt"
+  cmd="cd $q && pnpm install --frozen-lockfile"
   # 裝到一半留下的 node_modules 會讓 pnpm 以為裝過了
-  [ ! -d "$wt/node_modules" ] || cmd="cd $wt && rm -rf node_modules && pnpm install --frozen-lockfile"
+  [ ! -d "$wt/node_modules" ] || cmd="cd $q && rm -rf node_modules && pnpm install --frozen-lockfile"
   {
     printf '\n## %s\n' "$id"
-    printf 'type: decision\nstatus: open\nneeds: run\n'
+    printf 'type: decision\nstatus: open\nneeds: run\nopened_at: %s\n' "$(now_iso)"
     printf '問題: dispatch 沒裝好 %s 的依賴，你自己裝嗎？\n' "$wt"
     printf '已確認: 卡照樣派出去了；%s\n' "$why"
     printf '選項: 我在終端機裝好了 (Recommended) | 先不裝，照樣往下做\n'
