@@ -177,6 +177,48 @@ assert_grep '^agent prompt fs /opsx-workflow:apply m2$' "$OPSX_FAKE_LOG"
 assert_no_file "$R/openspec/changes/m1/gates.md"
 assert_grep '^## install-deps$' "$R/openspec/changes/m2/gates.md"
 
+# install 失敗、--feature 成員在派工途中全被停（dispatch 在開 pane 之後 die）：標記留著，人放回成員後重派開 gate
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-M n1 pnpm-lock.yaml)"
+mkdir -p "$R/openspec/changes/n2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/n2/.openspec.yaml"
+printf 'kind: dev\n' >> "$R/openspec/changes/n1/.openspec.yaml"
+printf -- '- [ ] 1.1 x\n' > "$R/openspec/changes/n1/tasks.md"; printf -- '- [ ] 1.1 x\n' > "$R/openspec/changes/n2/tasks.md"
+cat > "$R/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: gs
+    depends-on: []
+    prs:
+      - name: n1
+        branch: feat/n1/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: n1
+            status: pending
+      - name: n2
+        branch: feat/n2/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: n2
+            status: pending
+EOF
+python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));[d.__setitem__("Inst-M/"+c,{"mode":"autopilot","via":"@gs","feature":"gs"}) for c in ("n1","n2")];json.dump(d,open(p,"w"))' "$J"
+printf '%s\n' "python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));[d[\"Inst-M/\"+c].__setitem__(\"mode\",\"stopped\") for c in (\"n1\",\"n2\")];json.dump(d,open(p,\"w\"))' \"$J\"" > "$FX/stop-all-on-wait.sh"
+: > "$FX/not-ready-once"
+out="$(cd "$R" && OPSX_TEST_NOT_READY_ONCE="$FX/not-ready-once" OPSX_TEST_PANE_TEXT='Yes, I trust this folder' OPSX_TEST_ON_WAIT="$FX/stop-all-on-wait.sh" opsx dispatch --feature gs --agent claude --mode interactive 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "成員全停 dispatch 要失敗：$out"
+assert_no_file "$R/openspec/changes/n1/gates.md"
+assert_no_file "$R/openspec/changes/n2/gates.md"
+assert_file "$(git -C "$R/.claude/worktrees/gs" rev-parse --absolute-git-dir)/opsx-deps-pending"
+python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));[d.pop(k) for k in [k for k in d if k.startswith("Inst-M/")]];json.dump(d,open(p,"w"))' "$J"
+: > "$OPSX_FAKE_LOG"
+out="$(cd "$R" && opsx dispatch --feature gs --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "放回成員後重派：$out"
+assert_not_grep '^pnpm ' "$OPSX_FAKE_LOG"
+assert_grep '^## install-deps$' "$R/openspec/changes/n1/gates.md"
+assert_no_file "$(git -C "$R/.claude/worktrees/gs" rev-parse --absolute-git-dir)/opsx-deps-pending"
+
 # install 失敗照樣派、開 needs: run gate：PATH 上找不到 pnpm
 : > "$OPSX_FAKE_LOG"; rm "$FX/fakebin/pnpm"
 mkdir -p "$FX/tools"; ln -s "$(command -v jq)" "$FX/tools/jq"; ln -s "$(command -v git)" "$FX/tools/git"
