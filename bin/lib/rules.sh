@@ -12,7 +12,7 @@ rule_autopilot() { # <repo 根目錄>：測試那段看它有沒有 tests/run.sh
     printf '%s' '跑測試用這個 repo 的指令（先看 CLAUDE.md，再看 package.json / pyproject），寫成 dontAsk 允許清單有的形狀：pnpm test、pnpm vitest、pytest、uv run、go test'
   fi
   if [ -f "$1/package.json" ] && grep -q '"docs:api"' "$1/package.json"; then
-    printf '%s' ' · `pnpm docs:api` 要單獨下：先單獨 cd 到 worktree 根（剛跑過 openspec 的話 cwd 還在主 checkout，產生器會在沙箱外寫進主 checkout 的檔案），再單獨下 `pnpm docs:api`，前面不接 `cd … &&`、後面不接 pipe（沙箱排除只比對單獨下的指令，接了就在沙箱裡跑、tsx 開 IPC socket 回 listen EPERM），跑完在 worktree 看 git status'
+    printf '%s' ' · `pnpm docs:api` 要單獨下：先單獨 cd 到 worktree 根（剛跑過 openspec 的話 cwd 還在主 checkout，產生器會在沙箱外寫進主 checkout 的檔案），再單獨下 `pnpm docs:api`，前面不接 `cd … &&`、後面不接 pipe（沙箱排除只比對單獨下的指令，接了就在沙箱裡跑、tsx 開 IPC socket 回 listen EPERM），跑完在 worktree 看 git status；被 dontAsk 拒就開 needs: run gate，不換寫法重試'
   fi
 }
 

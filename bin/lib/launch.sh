@@ -43,10 +43,17 @@ allow=["Read","Edit","Write","Glob","Grep","Bash(git status:*)","Bash(git diff:*
 # 放進 allow 是為了閘門放行那一次不再跳 Claude Code 自己的權限框。
 allow += ["Bash(glab mr merge:*)", "Bash(gh pr merge:*)"]
 # pnpm docs:api 在沙箱外跑（使用者層 excludedCommands）：只放行主 checkout 本來就有這條 script 的 repo，
-# 免得 agent 在別的 repo 自己補一條 docs:api 就能在沙箱外跑任意指令。worktree 裡改的 package.json 不算數
+# 免得 agent 在別的 repo 自己補一條 docs:api 就能在沙箱外跑任意指令。
+# 放不放行只看主 checkout；執行時 pnpm 讀的是 worktree 的 package.json，有這條 script 的 repo 擋不了 agent 改它的內容
+pkg=os.path.join(os.path.dirname(sys.argv[2]),"package.json")
 try:
-    if "docs:api" in json.load(open(os.path.join(os.path.dirname(sys.argv[2]),"package.json"))).get("scripts",{}): allow.append("Bash(pnpm docs:api:*)")
-except FileNotFoundError: pass
+    data=json.load(open(pkg))
+except FileNotFoundError: data={}
+except json.JSONDecodeError as e: raise SystemExit(f"{pkg}: 不是合法 JSON：{e}") from e
+if not isinstance(data,dict): raise SystemExit(f"{pkg}: 頂層要是物件，拿到 {data!r}")
+scripts=data.get("scripts",{})
+if not isinstance(scripts,dict): raise SystemExit(f"{pkg}: scripts 要是物件，拿到 {scripts!r}")
+if "docs:api" in scripts: allow.append("Bash(pnpm docs:api:*)")
 deny=["Bash(git push --force:*)","Bash(git push -f:*)","Bash(deploy.sh:*)","Bash(sops:*)","Bash(rm -rf /:*)"]
 try:
     g=tomllib.load(open(os.path.join(sd,"grants.toml"),"rb")).get("repos",{}).get(repo,{})

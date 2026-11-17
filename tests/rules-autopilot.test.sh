@@ -49,6 +49,8 @@ d="$(rule_autopilot "$D")"
 has "$d" ' · `pnpm docs:api` 要單獨下'
 # openspec 規則會 cd 到主 checkout；沒先回 worktree 根，沙箱外的產生器就寫進主 checkout 的 docs/api/
 has "$d" '先單獨 cd 到 worktree 根'
+# 提醒看 worktree 的 package.json、allow 看主 checkout 的，兩邊對不上時 dontAsk 會拒
+has "$d" '被 dontAsk 拒就開 needs: run gate，不換寫法重試'
 has "$d" '不接 `cd … &&`'
 has "$d" '不接 pipe'
 gone "$d" ' ·  · '
