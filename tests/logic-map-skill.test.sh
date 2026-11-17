@@ -269,9 +269,11 @@ assert_not_fixed '「D3 是什麼」' "$FX/description"
 # --- 引用業務說明的句子：觸發、對回節點、頂端標功能、不一致要明說 ---
 assert_fixed 'a ⚠ item, or a sentence of its business summary' "$FX/description"
 assert_fixed 'Use this section when the user quotes a D node, a condition-table row, a ⚠ item, or a sentence of a business section of an existing map and asks what it means.' "$FX/answer-first"
-for k in 'When the quoted line is a sentence of `## 這支 PR 在做什麼（業務說明）` or of a feature'"'"'s `### 業務上在做什麼`, find the D nodes it summarizes from that feature'"'"'s 做了什麼, 流程圖, and 條件表, and open the reply with one line 「這句對到 D2、D4」 before the four parts. Parts 1 and 2 cover only those nodes.' \
+for k in 'When the quoted line is a sentence of `## 這支 PR 在做什麼（業務說明）` or of a feature'"'"'s `### 業務上在做什麼`, find the D nodes it summarizes from that feature'"'"'s 做了什麼, 流程圖, and 條件表, and open the reply with one line 「這句對到 D2、D4」 before the four parts.' \
+  'Parts 1 to 4 cover only those nodes, and part 2 gives no row to a gate before them; this overrides the every-gate rule of part 2.' \
   'For a sentence of the top summary, write each node as 「功能 n Dm」 and answer only the situations the sentence names, across features when it spans them.' \
-  'When the sentence does not match the condition of a node it maps to, write 「這句跟 Dn 的條件不一致」 right after that line, quote the condition-table row, and list it in part 3 as a decision for the user.'; do
+  'When the sentence does not match the condition of a node it maps to, write 「這句跟 Dn 的條件不一致」 right after that line, quote the condition-table row, and list it in part 3 as a decision for the user with 2 to 4 options.' \
+  'When the sentence maps to no D node, open the reply with 「這句對不到任何 D 節點」, quote the sentence, and list it in part 3 as a decision for the user with 2 to 4 options; do not read the code to find one.'; do
   assert_fixed "$k" "$ANS"
 done
 # 業務句規則寫在讀檔規則之後、四部分之前
