@@ -35,6 +35,15 @@ features:
         changes:
           - name: card-h
             status: pending
+  - name: archive
+    prs:
+      - name: card-j
+        branch: feat/card-j/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: card-j
+            status: pending
 EOF
 
 card() { # card <repo-dir> <slug>
@@ -163,6 +172,11 @@ out="$(cd "$A" && opsx dispatch --feature featx --agent claude --mode interactiv
 case "$out" in *"卡在 /"*|*沒有這張卡*) fail "--feature 不該找卡：$out" ;; esac
 assert_eq "$(key Acmecorp-AI/card-h)" true
 assert_eq "$(jq '[keys[] | select(startswith("Acmecorp-CS/") and contains("featx"))] | length' "$OPSX_STATE_DIR/dispatch.json")" 0 "--feature 不該寫到 Acmecorp-CS"
+
+# --- archive 只擋卡名：叫 archive 的 feature 照舊派（D4）---
+card "$A" card-j; printf -- '- [ ] 1.1 x\n' > "$A/openspec/changes/card-j/tasks.md"
+out="$(cd "$A" && opsx dispatch --feature archive --agent claude --mode interactive 2>&1)" || fail "feature archive 應該照常派：$out"
+assert_eq "$(key Acmecorp-AI/card-j)" true
 
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"
