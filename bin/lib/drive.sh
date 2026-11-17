@@ -153,6 +153,8 @@ herdr_step() { # <slug> <runtime 函式> <參數…>
       say "drive: $slug 的 pane 沒了（herdr agent_not_found），結束"; coordinate_kick "$slug"; return 1 ;;
     agent_blocked)
       say "drive: $slug 在終端機等待輸入，等人在 pane 處理完"
+      local tail_text kind; tail_text="$(pane_tail "$DRIVE_REPO" "$slug")"; kind="$(dialog_kind "$tail_text")"
+      [ -z "$kind" ] || write_dialog_gate "$d" "$kind" "$tail_text" "$DRIVE_REPO" "$slug"
       coordinate_kick "$slug"
       runtime_wait "$DRIVE_REPO/$slug" --until working >/dev/null 2>&1 && runtime_wait "$DRIVE_REPO/$slug" >/dev/null 2>&1 || { sleep "$poll"; settled=0; }
       return 0 ;;
@@ -209,9 +211,11 @@ gate_field() { # <card dir> <gate id> <欄位>：該 gate 的欄位值，沒有�
 }
 
 write_stuck_gate() { # <card dir> <stage> <repo> <slug>：gates.md 加一個 open 的 decision gate，id 不跟舊的 drive gate 撞
-  local d="$1" stage="$2" repo="$3" slug="$4" n tail_text
-  n=$(( $(grep -cE "^## drive-$stage-[0-9]+$" "$d/gates.md" 2>/dev/null || true) + 1 ))
+  local d="$1" stage="$2" repo="$3" slug="$4" n tail_text kind
   tail_text="$(pane_tail "$repo" "$slug")"
+  kind="$(dialog_kind "$tail_text")"
+  if [ -n "$kind" ]; then write_dialog_gate "$d" "$kind" "$tail_text" "$repo" "$slug"; return; fi
+  n=$(( $(grep -cE "^## drive-$stage-[0-9]+$" "$d/gates.md" 2>/dev/null || true) + 1 ))
   {
     printf '\n## drive-%s-%s\n' "$stage" "$n"
     printf 'type: decision\nstatus: open\n'
@@ -222,6 +226,37 @@ write_stuck_gate() { # <card dir> <stage> <repo> <slug>：gates.md 加一個 ope
     printf '證據: pane 最後 20 行：%s\n' "$tail_text"
     printf '預設: drive 停在這裡等，不再送 /opsx-workflow:%s\n' "$stage"
   } >> "$d/gates.md"
+}
+
+# Claude Code 的對話框把 agent 卡住時，該做的是人到 pane 按 Yes，不是重做這一站。信任優先：兩種同時在畫面上時印信任
+# shortcut: [已評估] 只認這四句，信任那句來自 skill-retrieval 的真畫面、權限兩句沒在真 pane 上校正過；漏掉的畫面照舊寫 drive-<站>-<n>，遇到再補
+dialog_kind() { # <pane 尾巴>：信任、權限，或空
+  case "$1" in
+    *"one you trust"*|*"trust this folder"*) echo 信任 ;;
+    *"Do you want to proceed?"*|*"Do you want to make this edit"*) echo 權限 ;;
+  esac
+}
+
+# id 不能是 drive-<站>-<n>：gaterule 會判成卡住題，needs: run 不生效，drive 也會把人的答覆當成「不是重做」而結束。
+# 已有 open 的 dialog gate 就不再寫，agent_blocked 每輪都會走到這裡
+write_dialog_gate() { # <card dir> <信任|權限> <pane 尾巴> <repo> <slug>
+  local d="$1" kind="$2" tail_text="$3" pane n
+  if [ -f "$d/gates.md" ] && awk '/^## /{on = ($0 ~ /^## dialog-[0-9]+$/)} on && /^status:[ \t]*open[ \t]*$/{f = 1} END{exit !f}' "$d/gates.md"; then
+    say "drive: $5 已有 open 的 dialog gate，不再寫"; return 0
+  fi
+  runtime_target "$4/$5" || return
+  pane="${RT_PANE:-（dispatch.json 沒有 pane）}"
+  n=$(( $(grep -cE '^## dialog-[0-9]+$' "$d/gates.md" 2>/dev/null || true) + 1 ))
+  {
+    printf '\n## dialog-%s\n' "$n"
+    printf 'type: decision\nneeds: run\nstatus: open\n'
+    printf '問題: pane %s 停在 Claude Code 的%s對話框，agent 在等人按，drive 送的指令進不去\n' "$pane" "$kind"
+    printf '選項: 已在 pane 按 Yes，繼續做原本那一步 (Recommended) | 停在這裡，把卡在哪寫進 gates.md 等人\n'
+    printf '建議: 到 pane %s 按 Yes 後回這題；opsx 不替你按信任或權限\n' "$pane"
+    printf '證據: pane 最後 20 行：%s\n' "$tail_text"
+    printf '預設: drive 停在這裡等\n'
+  } >> "$d/gates.md"
+  say "drive: $5 的 pane $pane 停在${kind}對話框，寫了 dialog-$n 等人到 pane 按 Yes"
 }
 
 # 手動 `opsx drive` 也要讓板上的「停止」殺得到，所以 pid 由 drive 自己寫，不靠 dispatch。
