@@ -81,6 +81,17 @@ assert_fixed 'Every card: also run `opsx check <slug>`.' "$STEP0"
 assert_not_fixed 'A main change with `subs/`: also run `opsx check' "$STEP0"
 assert_fixed 'A line pointing at a `spec.md` is a spec that breaks the Gherkin rules: stop the same way, list those lines, and send it back to `/opsx-workflow:apply <slug>`.' "$STEP0"
 
+# --- 沒 CI 的 repo：review 自己背景跑全套，紅就退回 apply；有 CI 不必 ---
+grep -F 'No CI:' "$STEP0" > "$FX/noci"; [ -s "$FX/noci" ] || fail "Step 0 找不到 No CI 段"
+for k in '`.gitlab-ci.yml`' '`.github/workflows/`' 'an empty workflows directory is no CI' \
+  '背景跑 the whole suite `bash tests/run.sh`' 'Any red file means do not review' \
+  'each red test name with its first error line' 'send it back to `/opsx-workflow:apply <slug>`' \
+  'With CI present, the full run is not required'; do
+  assert_fixed "$k" "$FX/noci"
+done
+[ "$(line_of 'No CI:' "$SK")" -gt "$(line_of 'A review of untested code is a review of a guess.' "$SK")" ] || fail "No CI 段要接在 status.json 段之後"
+[ "$(line_of 'No CI:' "$SK")" -lt "$(line_of 'Every card: also run `opsx check <slug>`.' "$SK")" ] || fail "No CI 段要在 opsx check 段之前"
+
 # --- 產表步：Step 1 之後、Step 2 之前；每輪都產，確認 pass 不產；prompt 四行加 design:（specs/review-logic-map、pr-logic-map）---
 MAP="$FX/map"; section "Step 1b" > "$MAP"; [ -s "$MAP" ] || fail "section missing: Step 1b"
 [ "$(line_of '## Step 1b' "$SK")" -gt "$(line_of '## Step 1: shared inputs' "$SK")" ] || fail "Step 1b 要在 Step 1 之後"
