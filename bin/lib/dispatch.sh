@@ -35,11 +35,14 @@ opsx_dispatch() {
   [ -z "$only" ] || [ -n "$feature" ] || die "dispatch: --only 只能跟 --feature 一起用"
   [ -n "$slug" ] || die "dispatch: 要給 slug"
   [ -z "$has_note" ] || [ -n "$note" ] || die "dispatch: --note 壓成一行後是空的"
+  # 在找卡之前：`..` 這種 slug 在每個 repo 都是目錄
+  printf '%s' "$slug" | grep -qE '^[a-z][a-z0-9_-]{0,31}$' || die "dispatch: slug 要符合 [a-z][a-z0-9_-]{0,31}（herdr agent 名）：$slug"
   if [ -z "$top" ]; then
     top="$(git_toplevel)"
     # 卡不在 cwd 的 repo（或 cwd 不在 repo 裡）時，到已登記 repo 找；--feature 的名字在 workplan，不是卡目錄
-    if [ -z "$feature" ] && [ ! -d "$top/openspec/changes/$slug" ]; then
-      top="$(find_card_repo "$slug")" || exit 2
+    if [ -z "$feature" ]; then
+      [ -d "$top/openspec/changes/$slug" ] || top="$(find_card_repo "$slug")" || exit 2
+      # cwd 的 repo 有卡也印：同名卡在別的 repo 時，看得到這次派的是哪一張
       say "dispatch: 卡在 $top"
     fi
   fi
@@ -47,7 +50,6 @@ opsx_dispatch() {
   top="$(cd "$top" && pwd -P)"
   case "$agent" in claude|codex) ;; *) die "dispatch: --agent 只收 claude|codex" ;; esac
   case "$mode" in interactive|autopilot) ;; drive) mode=autopilot ;; *) die "dispatch: --mode 只收 interactive|autopilot（drive 是 autopilot 的舊名）" ;; esac
-  printf '%s' "$slug" | grep -qE '^[a-z][a-z0-9_-]{0,31}$' || die "dispatch: slug 要符合 [a-z][a-z0-9_-]{0,31}（herdr agent 名）：$slug"
   local card="$slug" repo; repo="$(basename "$top")"
   command -v herdr >/dev/null || die "dispatch: 找不到 herdr"
   ensure_dir "$OPSX_STATE_DIR"

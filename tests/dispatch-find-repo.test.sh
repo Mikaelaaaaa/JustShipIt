@@ -11,8 +11,30 @@ C="$(mk_repo code/Acmecorp-CS)"
 S="$(mk_repo extra/Acmecorp-Ext)"
 P="$FX/plain"; mkdir -p "$P"
 printf '[[source]]\nkind = "gitlab"\nrepo = "Acmecorp-Ext"\nproject = "g/ext"\npath = "%s"\n' "$S" > "$OPSX_STATE_DIR/sources.toml"
-printf '[repos]\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-CS" = "acmecorp-ai"\n"Acmecorp-Ext" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
+# Acmecorp-Ext 沒掛 workspace：派它的卡時 dispatch 以它的 repo 名開新 workspace，看得出 workspace 跟著卡所在的 repo
+printf '[repos]\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-CS" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
 mkdir -p "$A/openspec/changes" "$C/openspec/changes" "$S/openspec/changes"
+# 只有 Acmecorp-AI 的 workplan 給 card-a 指定分支；feature featx 的主 change 是 card-h
+cat > "$A/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: fa
+    prs:
+      - name: card-a
+        branch: fix/card-a-from-ai/mikaela
+        status: pending
+        changes:
+          - name: card-a
+            status: pending
+  - name: featx
+    prs:
+      - name: card-h
+        branch: feat/card-h/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: card-h
+            status: pending
+EOF
 
 card() { # card <repo-dir> <slug>
   mkdir -p "$1/openspec/changes/$2"
@@ -40,6 +62,7 @@ assert_dir "$A/.claude/worktrees/card-a"
 assert_no_file "$C/.claude/worktrees/card-a"
 assert_eq "$(key Acmecorp-AI/card-a)" true "dispatch.json 要用卡所在 repo 的 key"
 assert_eq "$(key Acmecorp-CS/card-a)" false "不該寫 cwd repo 的 key"
+assert_eq "$(git -C "$A/.claude/worktrees/card-a" rev-parse --abbrev-ref HEAD)" "fix/card-a-from-ai/mikaela" "分支要取自卡所在 repo 的 workplan"
 
 # --- 邊界：cwd 不是 git repo ---
 card "$A" card-a2
@@ -50,14 +73,17 @@ assert_eq "$(key Acmecorp-AI/card-a2)" true
 
 # --- 邊界：卡在 sources.toml 登記、不在 OPSX_CODE_ROOT 底下的 repo ---
 card "$S" card-g
+: > "$OPSX_FAKE_LOG"
 out="$(dispatch_ok "$C" card-g)"
 case "$out" in *"卡在 $S"*) ;; *) fail "stdout 要說卡在 ${S}：$out" ;; esac
 assert_dir "$S/.claude/worktrees/card-g"
 assert_eq "$(key Acmecorp-Ext/card-g)" true
+assert_grep '^workspace create.*Acmecorp-Ext' "$OPSX_FAKE_LOG"
 
-# --- cwd 的 repo 有卡就用 cwd 的 repo ---
+# --- cwd 的 repo 有卡就用 cwd 的 repo，stdout 也說卡在哪 ---
 card "$A" card-b; card "$C" card-b
-dispatch_ok "$C" card-b >/dev/null
+out="$(dispatch_ok "$C" card-b)"
+case "$out" in *"卡在 $C"*) ;; *) fail "cwd 的 repo 有卡也要說卡在 ${C}：$out" ;; esac
 assert_eq "$(key Acmecorp-CS/card-b)" true
 assert_eq "$(key Acmecorp-AI/card-b)" false
 assert_no_file "$A/.claude/worktrees/card-b"
@@ -93,5 +119,28 @@ card "$A" card-f; card "$C" card-f
 dispatch_ok "$P" card-f --repo "$A" >/dev/null
 assert_eq "$(key Acmecorp-AI/card-f)" true
 assert_eq "$(key Acmecorp-CS/card-f)" false
+
+# --- 格式不合法的 slug 先擋下，不去找卡 ---
+dispatch_refused "$P" ..
+assert_grep 'slug 要符合' "$FX/err"
+assert_not_grep '沒有這張卡' "$FX/err"
+assert_not_grep '--repo' "$FX/err"
+dispatch_refused "$P" Foo_Bar
+assert_grep 'slug 要符合' "$FX/err"
+assert_not_grep '沒有這張卡' "$FX/err"
+
+# --- --feature 不走找卡：feature 名沒有卡目錄，別的 repo 有同名卡目錄也不去 ---
+card "$A" card-h; printf -- '- [ ] 1.1 x\n' > "$A/openspec/changes/card-h/tasks.md"
+card "$C" featx
+out="$(cd "$A" && opsx dispatch --feature featx --agent claude --mode interactive 2>&1)" || fail "dispatch --feature 應該成功：$out"
+case "$out" in *"卡在 /"*|*沒有這張卡*) fail "--feature 不該找卡：$out" ;; esac
+assert_eq "$(key Acmecorp-AI/card-h)" true
+assert_eq "$(key Acmecorp-CS/featx)" false
+
+# --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
+printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"
+card "$A" card-i
+dispatch_refused "$P" card-i
+assert_grep 'sources.toml 壞了' "$FX/err"
 
 echo ok
