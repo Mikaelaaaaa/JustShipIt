@@ -19,7 +19,11 @@
 
 標準設定加了 `pnpm docs:api` 與 `pnpm docs:api *` 的沙盒排除之後，之前裝過的機器要再跑一次 `opsx init --global`；沒跑的話 `opsx init --check` 會報缺 `sandbox.excludedCommands: pnpm docs:api`，agent 跑 `pnpm docs:api` 仍在沙盒裡、tsx 回 `listen EPERM`。
 
-herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx`，第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。主控 session 的設定另外讓 `opsx dispatch *` 在沙盒外跑（建 worktree 要寫 `.git/worktrees`，沙盒內唯讀），使用者層不放；升級後要在沙盒外重跑 `opsx init --global` 才拿得到，重寫會蓋掉手加的 `enabledPlugins`；裝好後在協調者裡跑一次 `gh pr view <任一 PR>` 確認 `--settings` 沒蓋掉使用者層的排除清單。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
+herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx`，第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。主控 session 的設定另外讓 `opsx dispatch *` 在沙盒外跑（建 worktree 要寫 `.git/worktrees`，沙盒內唯讀），使用者層不放；升級後要在沙盒外重跑 `opsx init --global` 才拿得到，重寫會蓋掉手加的 `enabledPlugins`；裝好後在協調者裡手動驗下面三件事。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
+
+- `gh pr view <任一 PR>` 能跑：`--settings` 沒蓋掉使用者層的排除清單。
+- `opsx dispatch <測試卡> …` 真的建出 `.claude/worktrees/<測試卡>`：主控 session 自己的排除規則有生效。
+- `opsx dispatch x; echo hi`：看 `echo` 是不是在沙盒外跑。如果是，排除規則不會拆開串接的指令，串接的整串都在沙盒外。結果：未實測。
 
 裝了 Orca（PATH 上有 `orca`）時，`opsx init` 會用 `orca repo add --path <repo 根目錄>` 把 repo 登記進 Orca，已登記就說已有。卡的 worktree 放在 `.claude/worktrees/<slug>`，Orca 把它算成內建來源 `.claude/worktrees/*`，這個來源預設隱藏、CLI 改不到：要在 Orca 側欄把它設成顯示一次（也可以設成全域預設），之後卡的 worktree 才會出現在側欄、點了就開。opsx 不設 `--external-worktree-visibility`，免得別的 session 的暫存 worktree 也出現。沒有 `orca` 就略過；Orca 沒開、或在 Claude 沙盒內跑 init（orca 會 EPERM）時只警告一行，init 照樣成功，Orca 開著時在一般 terminal 重跑 `opsx init` 就好。
 
