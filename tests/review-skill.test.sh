@@ -158,3 +158,7 @@ assert_not_fixed '(add the heading when it is missing)' "$MAP"
 assert_fixed 'In round 1, when report.md does not exist yet, keep the failure line for Step 5 the same way.' "$MAP"
 assert_fixed 'Delete the whole `## 邏輯表` section from report.md' "$FX/answered"
 assert_not_fixed 'Clear the line under `## 邏輯表`' "$FX/answered"
+# --- Consider 的行尾標記（me-20261117-1421 D10）：使用者自己加「· 接受」，重寫時保留，不為 Consider 開 gate ---
+assert_fixed 'keeps the `· 接受` or `· 開卡 <slug>` mark at the end of every Consider item that is still listed' "$STEP5"
+assert_fixed 'The user accepts a Consider item by adding `· 接受` at the end of its line' "$STEP5"
+assert_fixed 'Consider never opens a gate' "$STEP5"

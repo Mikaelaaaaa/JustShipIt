@@ -167,7 +167,7 @@ If a hook or safety check blocks any action here, follow `../../references/harne
 <commit sha> · <what was verified and how> · verdict: <green|red>
 ```
 
-A later round rewrites the file from this template but keeps an existing `## MR` section verbatim: `/opsx-workflow:pr` appends it, and the router and merge read the URL from it.
+A later round rewrites the file from this template but keeps an existing `## MR` section verbatim: `/opsx-workflow:pr` appends it, and the router and merge read the URL from it. It also keeps the `· 接受` or `· 開卡 <slug>` mark at the end of every Consider item that is still listed. The user accepts a Consider item by adding `· 接受` at the end of its line; while a Consider item has neither mark, the board does not list the card as mergeable.
 
 `opsx status review 7/7 "report.md 寫好"`. Reply with the bucket counts, what was sent back to apply, which inbox cards were opened, what the user should look at in Consider, and the two closing lines. Then continue per `../../references/continue.md`: `/opsx-workflow:apply <slug>` while `待修（範圍內）` has items, otherwise `/opsx-workflow:pr <slug>`, in this turn, unless a gate is open. Consider never opens a gate and never sends the card back to apply. Only an item that needs a user decision and cannot be fixed opens a gate. A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`. While the newest `logic-map-undecided-r*` gate is open, reply with its question and stop.
 
