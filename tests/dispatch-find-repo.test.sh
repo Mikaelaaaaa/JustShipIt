@@ -12,7 +12,8 @@ S="$(mk_repo extra/Acmecorp-Ext)"
 P="$FX/plain"; mkdir -p "$P"
 printf '[[source]]\nkind = "gitlab"\nrepo = "Acmecorp-Ext"\nproject = "g/ext"\npath = "%s"\n' "$S" > "$OPSX_STATE_DIR/sources.toml"
 # Acmecorp-Ext 沒掛 workspace：派它的卡時 dispatch 以它的 repo 名開新 workspace，看得出 workspace 跟著卡所在的 repo
-printf '[repos]\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-CS" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
+# AI 與 CS 掛不同 workspace（假 herdr 的 workspace list：acmecorp-ai 是 w1，rag-demo 是 w2）
+printf '[repos]\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-CS" = "rag-demo"\n' > "$OPSX_STATE_DIR/workspaces.toml"
 mkdir -p "$A/openspec/changes" "$C/openspec/changes" "$S/openspec/changes"
 # 只有 Acmecorp-AI 的 workplan 給 card-a 指定分支；feature featx 的主 change 是 card-h
 cat > "$A/openspec/workplan.yaml" <<'EOF'
@@ -56,13 +57,30 @@ dispatch_refused() { # dispatch_refused <cwd> <slug> [args…]：rc 非 0，herd
 
 # --- 卡在已登記 repo 裡，cwd 的位置不同：一般場景，cwd 是另一個 repo ---
 card "$A" card-a
+: > "$OPSX_FAKE_LOG"
 out="$(dispatch_ok "$C" card-a)"
+assert_grep '^tab create --workspace w1 ' "$OPSX_FAKE_LOG"
+assert_not_grep '^tab create --workspace w2 ' "$OPSX_FAKE_LOG"
 case "$out" in *"卡在 $A"*) ;; *) fail "stdout 要說卡在 ${A}：$out" ;; esac
 assert_dir "$A/.claude/worktrees/card-a"
 assert_no_file "$C/.claude/worktrees/card-a"
 assert_eq "$(key Acmecorp-AI/card-a)" true "dispatch.json 要用卡所在 repo 的 key"
 assert_eq "$(key Acmecorp-CS/card-a)" false "不該寫 cwd repo 的 key"
 assert_eq "$(git -C "$A/.claude/worktrees/card-a" rev-parse --abbrev-ref HEAD)" "fix/card-a-from-ai/mikaela" "分支要取自卡所在 repo 的 workplan"
+
+# --- cwd 是 cwd repo 的 linked worktree：算 cwd 的 repo 有卡，不去別的 repo ---
+card "$A" card-w; card "$C" card-w
+out="$(dispatch_ok "$A/.claude/worktrees/card-a" card-w)"
+case "$out" in *"卡在 $A"*) ;; *) fail "linked worktree 裡派要用主 repo ${A}：$out" ;; esac
+assert_eq "$(key Acmecorp-AI/card-w)" true
+assert_eq "$(key Acmecorp-CS/card-w)" false
+
+# --- 邊界：cwd 是 sources.toml 登記、不在 OPSX_CODE_ROOT 底下的 repo ---
+card "$A" card-a3
+out="$(dispatch_ok "$S" card-a3)"
+case "$out" in *"卡在 $A"*) ;; *) fail "stdout 要說卡在 ${A}：$out" ;; esac
+assert_dir "$A/.claude/worktrees/card-a3"
+assert_eq "$(key Acmecorp-AI/card-a3)" true
 
 # --- 邊界：cwd 不是 git repo ---
 card "$A" card-a2
@@ -129,13 +147,22 @@ dispatch_refused "$P" Foo_Bar
 assert_grep 'slug 要符合' "$FX/err"
 assert_not_grep '沒有這張卡' "$FX/err"
 
+# --- archive 不是卡：cwd repo 與已登記 repo 兩條路都擋（A 有 changes/archive/）---
+dispatch_refused "$A" archive
+assert_grep 'archive' "$FX/err"
+assert_not_grep '--repo' "$FX/err"
+dispatch_refused "$P" archive
+assert_grep 'archive' "$FX/err"
+assert_not_grep '--repo' "$FX/err"
+assert_no_file "$A/openspec/changes/archive/.openspec.yaml"
+
 # --- --feature 不走找卡：feature 名沒有卡目錄，別的 repo 有同名卡目錄也不去 ---
 card "$A" card-h; printf -- '- [ ] 1.1 x\n' > "$A/openspec/changes/card-h/tasks.md"
 card "$C" featx
 out="$(cd "$A" && opsx dispatch --feature featx --agent claude --mode interactive 2>&1)" || fail "dispatch --feature 應該成功：$out"
 case "$out" in *"卡在 /"*|*沒有這張卡*) fail "--feature 不該找卡：$out" ;; esac
 assert_eq "$(key Acmecorp-AI/card-h)" true
-assert_eq "$(key Acmecorp-CS/featx)" false
+assert_eq "$(jq '[keys[] | select(startswith("Acmecorp-CS/") and contains("featx"))] | length' "$OPSX_STATE_DIR/dispatch.json")" 0 "--feature 不該寫到 Acmecorp-CS"
 
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"

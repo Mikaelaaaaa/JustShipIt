@@ -35,8 +35,9 @@ opsx_dispatch() {
   [ -z "$only" ] || [ -n "$feature" ] || die "dispatch: --only 只能跟 --feature 一起用"
   [ -n "$slug" ] || die "dispatch: 要給 slug"
   [ -z "$has_note" ] || [ -n "$note" ] || die "dispatch: --note 壓成一行後是空的"
-  # 在找卡之前：`..` 這種 slug 在每個 repo 都是目錄
+  # 在找卡之前：`..` 與 archive 在每個有歸檔卡的 repo 都是 openspec/changes/ 底下的目錄
   printf '%s' "$slug" | grep -qE '^[a-z][a-z0-9_-]{0,31}$' || die "dispatch: slug 要符合 [a-z][a-z0-9_-]{0,31}（herdr agent 名）：$slug"
+  [ "$slug" != archive ] || die "dispatch: archive 是 openspec/changes/ 底下放歸檔卡的資料夾，不是卡"
   if [ -z "$top" ]; then
     top="$(git_toplevel)"
     # 卡不在 cwd 的 repo（或 cwd 不在 repo 裡）時，到已登記 repo 找；--feature 的名字在 workplan，不是卡目錄
