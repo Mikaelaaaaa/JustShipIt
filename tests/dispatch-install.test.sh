@@ -93,6 +93,16 @@ out="$(cd "$R" && opsx dispatch again-card --agent claude --mode interactive --k
 assert_eq "$rc" 0 "dispatch rc: $out"
 assert_grep '^## install-deps-2$' "$G"
 
+# 前面的題被手動刪掉、只剩 install-deps-2：新的一題取最大編號加一，叫 install-deps-3
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-Q gap-card pnpm-lock.yaml)"
+G="$R/openspec/changes/gap-card/gates.md"
+printf '## install-deps-2\ntype: decision\nstatus: answered\n' > "$G"
+out="$(cd "$R" && opsx dispatch gap-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+assert_grep '^## install-deps-3$' "$G"
+assert_eq "$(grep -c '^## install-deps-2$' "$G")" 1 "install-deps-2 只能有一題：$(cat "$G")"
+
 # 建議指令裡的 worktree 路徑加 shell 引號：repo 路徑有空白
 : > "$OPSX_FAKE_LOG"
 R="$(new_repo 'Inst H' space-card pnpm-lock.yaml)"

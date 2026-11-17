@@ -273,8 +273,8 @@ install_deps() { # <worktree> <標記檔>：裝不起來不擋派工，原因寫
 
 write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 id 加流水號，不跟舊的撞
   local d="$1" wt="$2" why="$3" id=install-deps n q cmd
-  # 卡上還沒有 gates.md 時 grep 讀空的 stdin，照樣印 0；沒比到時結束碼 1，用 || true 接住
-  n=$(cat "$d/gates.md" 2>/dev/null | grep -cE '^## install-deps(-[0-9]+)?$' || true)
+  # 取已有的最大編號（install-deps 算 1），不數題數：前面的題被手動刪掉時不會撞 id。卡上還沒有 gates.md 時 awk 讀空的 stdin，照樣印 0；cat 的失敗在 pipefail 下用 || true 接住
+  n=$(cat "$d/gates.md" 2>/dev/null | awk '/^## install-deps$/ { if (m < 1) m = 1 } /^## install-deps-[0-9]+$/ { k = substr($0, 17) + 0; if (k > m) m = k } END { print m + 0 }' || true)
   [ "$n" -eq 0 ] || id="install-deps-$((n + 1))"
   printf -v q '%q' "$wt"
   # 不建議刪 node_modules：使用者可能已經自己裝好（CLAUDE.md §7 不刪除重裝）
