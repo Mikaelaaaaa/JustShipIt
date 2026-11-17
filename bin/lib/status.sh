@@ -16,7 +16,8 @@ status_card() { # <top>
   from="$(pwd -P)"
   if [ -n "${OPSX_CARD:-}" ] && [ "$(git rev-parse --path-format=absolute --git-dir)" = "$(git_common_dir)" ]; then
     from="$top/.claude/worktrees/$OPSX_CARD"
-    [ -d "$from" ] || die "status: 在主 checkout 跑，這個 pane 的 worktree 不在：${from}；給 --change <slug>"
+    # 只剩一般資料夾時 git -C 會往上找到主 checkout，所以要求它本身就是 worktree 的根
+    [ "$(git -C "$from" rev-parse --show-toplevel 2>/dev/null)" = "$from" ] || die "status: 在主 checkout 跑，這個 pane 的 worktree 不在：${from}；給 --change <slug>"
   fi
   s="$(slug_from_branch "$(git -C "$from" rev-parse --abbrev-ref HEAD 2>/dev/null)")"
   [ -n "$s" ] && [ -d "$(st_card_dir "$top" "$s")" ] && { printf '%s' "$s"; return 0; }

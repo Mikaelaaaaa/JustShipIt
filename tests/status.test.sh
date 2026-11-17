@@ -119,6 +119,11 @@ out="$(cd "$Q" && OPSX_CARD=gone opsx status apply 1/2 x 2>&1)"; assert_eq "$?" 
 echo "$out" | grep -qF "$W/gone" || fail "pane worktree 不在的訊息沒有路徑: $out"
 echo "$out" | grep -qF -- "--change" || fail "pane worktree 不在的訊息沒有 --change: $out"
 nostatus
+# pane 路徑只剩一般資料夾（不是 worktree 根）也要拒寫，不能往上找到主 checkout 的分支
+mkdir -p "$W/ghost"
+out="$(cd "$Q" && OPSX_CARD=ghost opsx status apply 1/2 x 2>&1)"; assert_eq "$?" 2 "pane 路徑不是 worktree rc"
+echo "$out" | grep -qF "$W/ghost" || fail "pane 路徑不是 worktree 的訊息沒有路徑: $out"
+nostatus
 
 # subagent 在自己的 worktree 不看 OPSX_CARD（反例）
 ( cd "$FX/sub-wt" && OPSX_CARD=m opsx status apply 1/2 x ) || fail "subagent rc"
