@@ -900,8 +900,8 @@ class Round:
             if rc != 0:
                 self.log("?? %s 派不出去：%s" % (key, err[:200]))
                 continue
-            if not p0:
-                self.opened += 1
+            # P0 不受上限擋，但它開的 pane 照佔名額
+            self.opened += 1
             self.memo["_parked"].pop(key, None)
         return n
 
@@ -1005,7 +1005,7 @@ class Round:
                     continue
                 if not p0:
                     n += 1
-                    self.opened += 1
+                self.opened += 1
 
     def feature_members(self, repo, name, plan):
         """feature_plan 的卡分成 (單卡派過的卡, 交給 session 的卡)。人停的成員 dispatch --feature 會跳過，也不在後者。"""

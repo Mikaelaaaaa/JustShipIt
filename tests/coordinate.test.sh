@@ -1241,12 +1241,37 @@ full 8
 rm -f "$MEMO"
 OPSX_TEST_FAIL_dispatch=boom round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 1 "重派失敗不佔名額，q1 照試：$(cat "$OPSX_FAKE_LOG")"
+# drive 死、pane 還活著的卡重派：舊 pane 已在名額裡，不多算，q1 照派
+rm -f "$MEMO"; sleep 0 & dead=$!; wait "$dead"
+cards "[$(held_n 6 idle){\"slug\":\"u\",\"section\":\"進行中\",\"dispatch\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w1:u\",\"drive_pid\":$dead},\"agent_status\":\"idle\"},{\"slug\":\"q1\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 1 "drive 死了重派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 1 "pane 活著的重派不多佔名額：$(cat "$OPSX_FAKE_LOG")"
+# 名額是同時在跑的數量：這輪滿了 q1 不派，下一輪一張停下讓出名額，q1 自動派出
+rm -f "$MEMO"
+cards "[$(held_n 8 idle){\"slug\":\"q1\"},{\"slug\":\"q2\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch')" 0 "滿了先不派：$(cat "$OPSX_FAKE_LOG")"
+full 8
+cards "[$(held_n 7 idle){\"slug\":\"h8\",\"section\":\"待處理\",\"dispatch\":null,\"agent_status\":null},{\"slug\":\"q1\"},{\"slug\":\"q2\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched)" "q1" "讓出一個名額下一輪派下一張：$(cat "$OPSX_FAKE_LOG")"
+full 8
+cards "[$(held_n 6 idle)$(held q1 working),{\"slug\":\"q2\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched)" "q2" "再讓出一個再派一張，派到佇列空：$(cat "$OPSX_FAKE_LOG")"
 # P0 不受上限擋；名額滿了也不停在跑的卡
 rm -f "$MEMO"; mkcard q-p0; incident q-p0 security "tests/auth.test.sh 第 3 案：未登入可讀 /admin"
 cards "[$(held_n 8 idle){\"slug\":\"q-p0\"},{\"slug\":\"q1\"}]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q-p0 ')" 1 "P0 不受上限擋：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(count '^opsx dispatch q1 ')" 0 "P1 照擋：$(cat "$OPSX_FAKE_LOG")"
+# P0 開的 pane 也佔名額：7 個 pane 加 P0 與 P1，派 P0、不派 P1
+cards "[$(held_n 7 idle){\"slug\":\"q-p0\"},{\"slug\":\"q1\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q-p0 ')" 1 "P0 照派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "P0 開的 pane 佔名額，P1 不補進去：$(cat "$OPSX_FAKE_LOG")"
+full 8
 rm -rf "$R/openspec/changes/q-p0"
 cards "[$(held_n 9 working){\"slug\":\"q1\"}]"
 round || fail "rc: $(cat "$FX/out")"
@@ -1279,7 +1304,39 @@ rm -f "$MEMO"
 cards "[$(held_n 8 idle){\"slug\":\"m3\"}]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch --feature g ')" 1 "P0 不受同時上限擋：$(cat "$OPSX_FAKE_LOG")"
-rm -rf "$R/openspec/changes/m3"; cp "$WP0" "$R/openspec/workplan.yaml"; rm -f "$MEMO"; printf '{}' > "$DISP"
+# P0 開的 session 也佔名額：7 個 pane，feature g 是 P0、g2 是 P1，開 g、g2 記達上限 8
+cat >> "$R/openspec/workplan.yaml" <<'EOF'
+  - name: g2
+    depends-on: [m1]
+    prs:
+      - name: m6
+        branch: feat/m6/u
+        status: pending
+        depends-on: []
+        changes:
+          - name: t6
+            status: pending
+EOF
+mkcard m6; rm -f "$MEMO"
+cards "[$(held_n 7 idle){\"slug\":\"m3\"},{\"slug\":\"m6\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch --feature g ')" 1 "P0 的 session 照開：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch --feature g2 ')" 0 "P0 的 session 佔名額，g2 不補進去：$(cat "$OPSX_FAKE_LOG")"
+grep '同時' "$LOG" | grep 'feature g2' | grep -q '達上限 8' || fail "feature g2 要記達上限 8：$(cat "$LOG")"
+# 開成的 session 佔名額：兩個 P1 feature，只開一個
+rm -f "$MEMO" "$R/openspec/changes/m3/inbox.md"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch --feature')" 1 "開成的 session 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 8
+# 死掉的 session 重開算一個名額：7 個 pane 加死掉的 session pane，重開 session、不派 q1
+auto_wp merged; rm -f "$MEMO"
+printf '{"demo/@g":{"mode":"autopilot","agent":"claude","pane":"w1:p9","drive_pid":null},"demo/m3":{"mode":"autopilot","agent":"claude","pane":"w1:p9","herdr_name":"g","via":"@g","feature":"g","drive_pid":null,"branch":"feat/m3/u"}}' > "$DISP"
+cards "[$(held_n 7 idle){\"slug\":\"m3\",\"section\":\"進行中\",\"dispatch\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w1:p9\",\"feature\":\"g\",\"drive_pid\":null},\"agent_status\":\"unknown\"},{\"slug\":\"q1\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch --feature g ')" 1 "死掉的 session 重開：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "重開的 session 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 8
+rm -rf "$R/openspec/changes/m3" "$R/openspec/changes/m6"; cp "$WP0" "$R/openspec/workplan.yaml"; rm -f "$MEMO"; printf '{}' > "$DISP"
 printf 'abc\n' > "$MW"
 round && fail "上限設錯要拒跑"
 grep 'max-working' "$LOG" | grep -q abc || fail "log 要含檔名 max-working 與 abc：$(cat "$LOG")"

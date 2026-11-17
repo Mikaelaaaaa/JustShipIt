@@ -550,11 +550,13 @@ out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-y --agent 
 assert_eq "$rc" 0 "名額沒滿照派: $out"
 echo "$out" | grep -qF '已有' && fail "名額沒滿不警告: $out"
 assert_eq "$(jq -r 'has("Acmecorp-CS/cap-y") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額沒滿照寫條目"
-# herdr agent list 失敗：數不出來，不警告、照派
+# herdr agent list 失敗：印一行數不出名額，照派
 cap_state 8
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>&1)"; rc=$?
 assert_eq "$rc" 0 "數不出名額照派: $out"
-echo "$out" | grep -qF '已有' && fail "數不出名額不警告: $out"
+echo "$out" | grep -qF '已有' && fail "數不出名額不印已有: $out"
+echo "$out" | grep -qF 'dispatch: 數不出名額：herdr agent list 失敗' || fail "數不出名額要說: $out"
+assert_eq "$(jq -r 'has("Acmecorp-CS/cap-z") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "數不出名額照寫條目"
 # agent list 讀不懂：stderr 說原因，照派
 mkdir -p "$R/openspec/changes/cap-w"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-w/.openspec.yaml"
 printf 'not json\n' > "$FX/cap-bad.json"

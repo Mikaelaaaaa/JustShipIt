@@ -261,7 +261,7 @@ PY
 }
 
 # 活著的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
-# 數法與上限跟協調者共用 coordinate.py。herdr agent list 叫不通就數不出來，不警告
+# 數法與上限跟協調者共用 coordinate.py
 warn_slots_full() {
   # 數不成時 python 已在 stderr 說原因；這只是警告，不擋派工
   OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR" <<'PY' || true
@@ -270,7 +270,7 @@ sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime
 state = sys.argv[1]
 p = subprocess.run(runtime.list_agents(), capture_output=True, text=True)
 if p.returncode != 0:
-    sys.exit(0)
+    sys.exit("dispatch: 數不出名額：herdr agent list 失敗（rc %d）" % p.returncode)
 try:
     status = {a.get("pane_id"): a.get("agent_status") for a in json.loads(p.stdout)["result"]["agents"]}
 except (json.JSONDecodeError, KeyError, TypeError) as e:
