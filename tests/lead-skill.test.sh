@@ -75,6 +75,23 @@ case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
 
+# 回報資料從哪來（specs/opsx-lead「協調者回報的資料來自 opsx collect」）：只讀「## 回報資料從哪來」到下一個 ## 標題，
+# 段要夾在 ## 怎麼問 gate 與 ## Report format 之間
+SRC="$(awk '/^## 回報資料從哪來/{f=1;next} f&&/^## /{exit} f' "$F")"
+[ -n "$SRC" ] || fail "找不到「## 回報資料從哪來」段"
+n_src="$(heading_of '## 回報資料從哪來')"
+[ "$n_src" -gt "$n_ask" ] && [ "$n_src" -lt "$n_report" ] \
+  || fail "「## 回報資料從哪來」要在 ## 怎麼問 gate（$n_ask）與 ## Report format（$n_report）之間，現在在 $n_src"
+for s in 'opsx collect' 'jq' 'logic_map' '.progress' 'dispatched' '每收到一則事件' '類型 6' '類型 2' \
+  '沒派出去' '類型 3' 'design.md' 'explore.md' 'grill.md' '「沒寫」'; do
+  case "$SRC" in *"$s"*) ;; *) fail "回報資料從哪來段缺：$s" ;; esac
+done
+# 狀態不從 status.json 拼；不自己排計時器
+printf '%s\n' "$SRC" | grep -F 'status.json' | grep -qF '不' || fail "回報資料從哪來段要寫明狀態不從 status.json 拼"
+printf '%s\n' "$SRC" | grep -F '/loop' | grep -F 'CronCreate' | grep -qF '不' || fail "回報資料從哪來段要寫明不用 /loop 或 CronCreate 自己排"
+# 職責 1 指向這段
+printf '%s\n' "$DUTIES" | grep '^1\. ' | grep -qF '回報資料從哪來' || fail "職責 1 要指向「回報資料從哪來」段"
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 echo ok

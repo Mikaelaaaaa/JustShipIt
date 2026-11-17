@@ -9,7 +9,7 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
 
 ## Duties
 
-1. **Take in events.** Each line that arrives (`[<card>] 停住：…`, `gate <id> …`) is about one card. Read that card's `gates.md`, `status.json` and `decisions.tsv` before you act. Besides gate events, a card sends you a line only when a person has to step in: `停住：連續 N 次沒接 <站>` (a 卡在接 gate is open), `停住：參數遺失`, `無法判斷啟動參數：…`, `停住：<站> 站放行，沒有要擋的條件` (the pane went idle with nothing left to push it on), and `停住：babysit 做完，MR 卡在 <原因>` whenever the MR cannot merge: CI 紅, a CI status that is neither running nor passed (canceled, skipped, manual), 衝突, draft, 要求修改 (unresolved threads or changes requested), or 已關閉; coordinate sends nothing for those. After babysit, only three states stay silent: the MR is ready (coordinate sends 可以合併), CI is still running, or the MR status could not be read. A card that is only waiting (on a gate, a subagent, a reviewer, or a background job) sends you nothing; read those waits on the board, where the card shows the reason and the time. Agents ask you for things through gates, never through the status.json label.
+1. **Take in events.** Each line that arrives (`[<card>] 停住：…`, `gate <id> …`) is about one card. Take its state from `opsx collect` (`## 回報資料從哪來`), then read that card's `gates.md` and `decisions.tsv` for the gate's full text and history before you act. Besides gate events, a card sends you a line only when a person has to step in: `停住：連續 N 次沒接 <站>` (a 卡在接 gate is open), `停住：參數遺失`, `無法判斷啟動參數：…`, `停住：<站> 站放行，沒有要擋的條件` (the pane went idle with nothing left to push it on), and `停住：babysit 做完，MR 卡在 <原因>` whenever the MR cannot merge: CI 紅, a CI status that is neither running nor passed (canceled, skipped, manual), 衝突, draft, 要求修改 (unresolved threads or changes requested), or 已關閉; coordinate sends nothing for those. After babysit, only three states stay silent: the MR is ready (coordinate sends 可以合併), CI is still running, or the MR status could not be read. A card that is only waiting (on a gate, a subagent, a reviewer, or a background job) sends you nothing; read those waits on the board, where the card shows the reason and the time. Agents ask you for things through gates, never through the status.json label.
 2. **Forward gates, never answer them.** Every gate is the user's, approval and decision alike: never run `opsx answer` on your own judgment. List each open gate in block ① with your recommendation. Run `opsx answer` only to pass on what the user replied (「1 照建議」 is a reply), and only with the text they chose. A gate with `waits-on:` stays out of block ① until that card merges. How to ask: see `## 怎麼問 gate`.
 3. **PR conflicts with main.** Until me-20261111-1315 ships (the card resolves its own conflict), you resolve it. Merge the latest main into the PR branch with `git merge`. Never rebase or force-push. Resolve hunk by hunk, run the tests related to the conflicted files, commit, and do an ordinary push.
 4. **List a card as mergeable** when its agent reports review done, the related tests green, and the PR has no conflict with main. The whole suite is CI's job; do not ask for it. Do not rerun the suite yourself. When several cards are to merge together, check once that they stack in order without conflict, starting from the latest main:
@@ -40,6 +40,24 @@ sketch plugin (https://github.com/allen-hsu/claude-code-sketch): when its tools 
 
 The user installs the plugin. Installed at user scope, it is on in every session, a card pane included, and an autopilot card pane that opens its picker blocks. So tell the user to turn it off in their user settings and turn it on only in `enabledPlugins` of `$OPSX_STATE_DIR/coordinator-settings.json`, the file `opsx lead` starts you with. Nobody has yet checked that this keeps it out of a card pane; after the first `opsx lead`, ask the user to confirm a card pane has no sketch tools. The next `opsx init --global` rewrites that file and drops a hand-added `enabledPlugins`; tell the user to add it again.
 
+## 回報資料從哪來
+
+Every report takes its state (階段、可合併、gate、MR, and each repo's counts) from `opsx collect`, the same JSON the board reads. 狀態不從 status.json 拼, and you do not read card files one by one to build progress.
+
+When to run it: 每收到一則事件, and whenever the user asks for a report. Answer an ordinary event in 類型 6, a card that can merge in 類型 2. 不用 /loop 或 CronCreate 自己排計時器: `opsx coordinate` already sends new gates and 可以合併 every 5 minutes, one event per item.
+
+Run collect once per round and read the file, never the whole output (it holds every card's logic map and runs past 600,000 characters):
+
+```
+opsx collect > "$TMPDIR/opsx-collect.json"
+jq -c '[.cards[] | select(.archived | not) | select(.section != "已完成") | {repo, slug, title, stage, section, progress_class, session, dispatched: (.dispatch != null), waiting: (.waiting | if . then {type, gate_id, question, needs} else null end), mr: (.mr | if . then {state, url, head_sha} else null end)}]' "$TMPDIR/opsx-collect.json"
+jq -c '.progress' "$TMPDIR/opsx-collect.json"
+```
+
+- Each repo's counts and milestone come from `.progress`.
+- For a card whose `progress_class` is `mergeable`, fetch its logic map on its own: `jq -r '.cards[] | select(.repo == "<repo>" and .slug == "<slug>") | .logic_map' "$TMPDIR/opsx-collect.json"`.
+- 沒派出去的卡 (`dispatched` is false) with an open gate (`waiting.type` 等待決定 or 等待授權) get no event from coordinate. Each round, list the ones that appeared since your last report in 類型 3.
+- 類型 2's 誰設定 and 業務上是什麼 follow the logic-map skill's rule: read that card's design.md, explore.md and grill.md next to its logic-map.md. When none of them says it, write 「沒寫」; do not guess.
 ## Report format
 
 Every report has five blocks, in this order. Leave out a block that is empty. Every block is a table. Every path is an absolute path（路徑一律絕對路徑）, so the terminal can cmd-click it. When you know the line, write `path:line`. Write in the user's language (Traditional Chinese by default).
