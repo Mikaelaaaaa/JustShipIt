@@ -273,7 +273,7 @@ if p.returncode != 0:
     print("dispatch: 數不出名額：herdr agent list 失敗（rc %d）" % p.returncode)
     sys.exit(0)
 try:
-    status = {a.get("pane_id"): a.get("agent_status") for a in json.loads(p.stdout)["result"]["agents"]}
+    agents = json.loads(p.stdout)["result"]["agents"]
 except (json.JSONDecodeError, KeyError, TypeError) as e:
     print("dispatch: herdr agent list 讀不懂，不數名額：%s" % e)
     sys.exit(0)
@@ -282,8 +282,7 @@ try:
 except coordinate.CoordinateError as e:
     print("dispatch: 不數名額：%s" % e)
     sys.exit(0)
-entries = jsonfile.load(os.path.join(state, "dispatch.json")).values()
-n = len(coordinate.live_panes((e.get("pane"), status.get(e.get("pane"))) for e in entries if e.get("mode") != "stopped"))
+n = len(coordinate.live_panes(jsonfile.load(os.path.join(state, "dispatch.json")), agents))
 if n >= limit:
     print("dispatch: 已有 %d/%d 個 pane" % (n, limit))
 PY
