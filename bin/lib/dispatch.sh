@@ -362,9 +362,12 @@ import os, pathlib, sys, tomllib
 sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
 slug = os.environ["OPSX_SLUG"]
 try:
-    repos = sync.opsx_repos(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+    repos, conflicts, _ = sync.scan_repos(pathlib.Path(sys.argv[1]), sync.source_paths(pathlib.Path(sys.argv[2])))
 except tomllib.TOMLDecodeError as e:
     sys.exit("opsx: dispatch: sources.toml 壞了，找不了別的 repo：%s" % e)
+clashes = [sync.conflict_message(n, ps) for n, ps in conflicts.items() if any((p / "openspec" / "changes" / slug).is_dir() for p in ps)]
+if clashes:
+    sys.exit("opsx: dispatch: %s 在同名的 repo 裡，不派：%s" % (slug, "；".join(clashes)))
 hits = sorted(str(p) for p in repos.values() if (p / "openspec" / "changes" / slug).is_dir())
 if not hits:
     sys.exit("opsx: dispatch: 沒有這張卡：%s（cwd 的 repo 與 %d 個已登記 repo 的 openspec/changes/ 都沒有）" % (slug, len(repos)))

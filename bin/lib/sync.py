@@ -135,11 +135,6 @@ def conflict_message(name: str, paths: list[pathlib.Path]) -> str:
     return "repo 名 %s 重複：%s；兩個都不收，把其中一個資料夾改名" % (name, "、".join(str(p) for p in paths))
 
 
-def opsx_repos(root: pathlib.Path, state: pathlib.Path) -> dict[str, pathlib.Path]:
-    """scan_repos 的 repo 名 → 實體路徑，同名的不在裡面。"""
-    return scan_repos(root, source_paths(state))[0]
-
-
 def demote_headings(body: str) -> str:
     """issue 內文的 Markdown 標題降兩級：卡的段落靠 `## ` 切，內文裡的 `## Steps` 不能被當成下一段。"""
     return re.sub(r"(?m)^(#{1,6})(?=\s)", r"##\1", body)

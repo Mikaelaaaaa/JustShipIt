@@ -178,6 +178,21 @@ card "$A" card-j; printf -- '- [ ] 1.1 x\n' > "$A/openspec/changes/card-j/tasks.
 out="$(cd "$A" && opsx dispatch --feature archive --agent claude --mode interactive 2>&1)" || fail "feature archive 應該照常派：$out"
 assert_eq "$(key Acmecorp-AI/card-j)" true
 
+# --- 卡在同名的 repo（登記的 dup/Acmecorp-CS 跟 code/Acmecorp-CS 同名）：說同名、列兩個路徑，不派（opsx-dispatch「找卡時遇到同名衝突的 repo 要說衝突」）---
+DUP="$(mk_repo dup/Acmecorp-CS)"; mkdir -p "$DUP/openspec/changes"
+printf '\n[[source]]\nkind = "gitlab"\nrepo = "dup-cs"\nproject = "g/dupcs"\npath = "%s"\n' "$DUP" >> "$OPSX_STATE_DIR/sources.toml"
+card "$DUP" card-k
+dispatch_refused "$P" card-k
+assert_grep "$C" "$FX/err"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_not_grep '沒有這張卡' "$FX/err"
+assert_no_file "$DUP/.claude/worktrees/card-k"
+# 不同名的已登記 repo 照派
+card "$A" card-l
+dispatch_ok "$P" card-l >/dev/null
+assert_eq "$(key Acmecorp-AI/card-l)" true
+
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"
 card "$A" card-i
