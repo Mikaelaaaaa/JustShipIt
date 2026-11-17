@@ -46,8 +46,9 @@ row() { # <畫面文字> <gate id 或 無> <種類 或 無>
       gate_block "$2" | grep -q '^status: open$' || fail "$2 要 open: $(cat "$C/gates.md")"
       gate_block "$2" | grep '^問題:' | grep -qF "w1:p7" || fail "問題要有 pane id: $(cat "$C/gates.md")"
       gate_block "$2" | grep '^問題:' | grep -qF "$3" || fail "問題要有種類 $3（$1）: $(cat "$C/gates.md")"
-      gate_block "$2" | grep '^建議:' | grep -qF "到 pane w1:p7 按 Yes" || fail "建議要叫人到 pane 按 Yes: $(cat "$C/gates.md")"
-      gate_block "$2" | grep '^問題:' | grep -qF "先到 pane 按 Yes" || fail "問題要寫明先按 Yes 再回題: $(cat "$C/gates.md")"
+      # needs: run 的題，看板把建議欄原樣當成「在終端機跑這行」顯示（collect.sh 的 recommended 就是建議欄），不畫選項
+      gate_block "$2" | grep -qx '建議: 到 pane w1:p7 按 Yes' || fail "建議只寫動作: $(cat "$C/gates.md")"
+      gate_block "$2" | grep '^問題:' | grep -qF "打任一字送出" || fail "問題要說按完 Yes 打任一字回題: $(cat "$C/gates.md")"
       gate_block "$2" | grep '^選項:' | grep -qF '|' && fail "dialog gate 只留一個選項（drive 不讀它的答案）: $(cat "$C/gates.md")"
       assert_grep 'opsx coordinate --kick' "$KL" ;;
     *) assert_not_grep '^## dialog-' "$C/gates.md" ;;
@@ -55,6 +56,8 @@ row() { # <畫面文字> <gate id 或 無> <種類 或 無>
 }
 row "$TRUST" dialog-1 信任
 row "Do you trust this folder?${PERM_FOOT}" dialog-1 信任
+row $'This session hasn\'t worked here before. Is this a directory you created or one\nyou trust?\n❯ No, exit\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)' dialog-1 信任
+row $'Is this a directory you created or one you trust?\n❯ No, exit\n\nEsc to exit · To add it, press ↓ to Yes, then\nEnter (your text is kept)' dialog-1 信任
 row "Do you want to proceed?${PERM_FOOT}" dialog-1 權限
 row "Do you want to make this edit to tasks.md?${PERM_FOOT}" dialog-1 權限
 row "one you trust? ... Do you want to proceed?${PERM_FOOT}" dialog-1 信任

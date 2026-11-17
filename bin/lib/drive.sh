@@ -231,14 +231,15 @@ write_stuck_gate() { # <card dir> <stage> <repo> <slug>：gates.md 加一個 ope
 }
 
 # Claude Code 的對話框把 agent 卡住時，該做的是人到 pane 按 Yes，不是重做這一站。信任優先：兩種同時在畫面上時印信任。
-# 只有問句不算：agent 的文字、grep 輸出、已經按掉的舊對話框都可能留著問句；對話框開著時最後一個非空行是它的底列（Esc to …）
+# 只有問句不算：agent 的文字、grep 輸出、已經按掉的舊對話框都可能留著問句；對話框開著時最後的非空行是它的底列（Esc to …）。
+# pane 窄時問句與底列會折行，所以看最後兩個非空行、問句接成一行再比
 # shortcut: [已評估] 只認這四句加底列，信任那句與底列來自 skill-retrieval 的真畫面、權限兩句沒在真 pane 上校正過；漏掉的畫面照舊寫 drive-<站>-<n>，遇到再補
 dialog_kind() { # <pane 最後 20 行原文>：信任、權限，或空
-  case "$(printf '%s\n' "$1" | awk 'NF {last = $0} END {print last}')" in
+  case "$(printf '%s\n' "$1" | awk 'NF {prev = last; last = $0} END {print prev " " last}')" in
     *"Esc to "*) ;;
     *) return 0 ;;
   esac
-  case "$1" in
+  case "$(printf '%s' "$1" | tr '\n' ' ' | tr -s ' ')" in
     *"one you trust"*|*"trust this folder"*) echo 信任 ;;
     *"Do you want to proceed?"*|*"Do you want to make this edit"*) echo 權限 ;;
   esac
@@ -255,10 +256,10 @@ write_dialog_gate() { # <card dir> <信任|權限> <pane 最後 20 行原文> <r
   {
     printf '\n## dialog-%s\n' "$n"
     printf 'type: decision\nneeds: run\nstatus: open\n'
-    # 回這題時看板會把選項文字加 Enter 送進 pane；對話框還開著的話，這個 Enter 會選到對話框游標所在的項目
-    printf '問題: pane %s 停在 Claude Code 的%s對話框，agent 在等人按，drive 送的指令進不去。先到 pane 按 Yes，再回這題；順序反了，回題送進去的 Enter 會選到對話框游標所在的項目\n' "$RT_PANE" "$kind"
+    # needs: run 的題看板只顯示建議欄與一個回覆框，所以建議欄只寫人要做的動作
+    printf '問題: pane %s 停在 Claude Code 的%s對話框，agent 在等人按，drive 送的指令進不去。到 pane 按完 Yes，在這題打任一字送出，drive 就往下走\n' "$RT_PANE" "$kind"
     printf '選項: 已在 pane 按 Yes，繼續做原本那一步 (Recommended)\n'
-    printf '建議: 到 pane %s 按 Yes 後回這題；opsx 不替你按信任或權限。要整張卡停掉用板上的「停止」\n' "$RT_PANE"
+    printf '建議: 到 pane %s 按 Yes\n' "$RT_PANE"
     printf '證據: pane 最後 20 行：%s\n' "$(printf '%s' "$lines" | tr '\n' ' ')"
     printf '預設: drive 停在這裡等\n'
   } >> "$d/gates.md"
