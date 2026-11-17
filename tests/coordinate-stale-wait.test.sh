@@ -79,6 +79,9 @@ row_sub subagent-1 3 3 600 1
 row_sub claude 1 3 600 1
 printf '{"worker":"subagent-1",' > "$SUB/status.json"
 row "等背景 subagent（apply 站）" 9000 idle 1
+# 不是 UTF-8 的 status.json 當不在跑，這輪協調不中斷
+printf '\xff\xfe{"worker":"subagent-1"}' > "$SUB/status.json"
+row "等背景 subagent（apply 站）" 9000 idle 1
 # 「等背景工作」不看子 change
 sub_status subagent-1 1 3 600
 row "等背景工作（apply 站）" 9000 idle 1
@@ -88,6 +91,16 @@ rm -rf "$R/openspec/changes/card-a/subs"
 printf '{"_usage_limit":{"seen_at":"%s","resets_at":"%s"}}' "$(ago 10)" "$(ahead 60)" > "$MEMO"
 row "等背景工作（apply 站）" 9000 idle 0
 rm -f "$MEMO"
+
+# 這輪 check_args 剛 relaunch 過這個 pane：開頭讀到的 idle 已過時，不開，下一輪再看
+mkdir -p "$OPSX_STATE_DIR/settings"; printf '{}' > "$OPSX_STATE_DIR/settings/demo-card-a-autopilot.json"
+jq '(.result.process_info.foreground_processes[] | select(.argv0 == "claude") | .argv) = ["claude","--resume","abc"]' \
+  "$OPSX_ROOT/tests/fakes/herdr-samples/process-info-claude.json" > "$FX/pi-lost.json"
+rm -f "$G"; card "等背景工作（apply 站）" 9000 idle
+OPSX_TEST_PROCESS_INFO="$FX/pi-lost.json" round || fail "rc: $(cat "$FX/out")"
+assert_grep "^opsx relaunch card-a --repo $R\$" "$OPSX_FAKE_LOG"
+assert_eq "$(stale)" 0 "同一輪 relaunch 過不開：$(cat "$G" 2>/dev/null)"
+rm -f "$OPSX_STATE_DIR/settings/demo-card-a-autopilot.json" "$MEMO"
 
 # 已答的 stale-wait gate 屬於舊的停住時間、卡現在是新的停住時間：開新 gate
 OLD="$(gate_id "$(ago 20000)")"

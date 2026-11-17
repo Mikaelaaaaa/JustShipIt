@@ -631,7 +631,11 @@ class Round:
 
     def open_stale_wait_gate(self, c, top):
         """停在等背景工作超過上限的卡開一個 decision gate；同一次停住（同一個 stopped.at）開過就不再開，答過也不開。
-        這輪不通知：下一輪 collect 讀到 open gate，handle_gate 照規則通知。"""
+        這輪不通知：下一輪 collect 讀到 open gate，handle_gate 照規則通知。
+        這輪 check_args 剛 relaunch 過這個 pane 就不看：collect 的 agent_status 是動手前讀的，已經過時。"""
+        last = self.memo["_relaunched"].get(self.pane_chain(c)[-1])
+        if last and last["at"] == self.now.isoformat(timespec="seconds"):
+            return
         card_dir = os.path.join(top, "openspec", "changes", c["slug"])
         gate_id = stale_wait_gate(c, self.now, card_dir)
         if gate_id is None:
@@ -1288,7 +1292,7 @@ def subagent_running(card_dir, now):
         try:
             with open(path, encoding="utf-8") as f:
                 st = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             continue
         if not (isinstance(st, dict) and isinstance(st.get("worker"), str) and st["worker"].startswith("subagent-")
                 and type(st.get("step")) in (int, float) and type(st.get("total")) in (int, float)
