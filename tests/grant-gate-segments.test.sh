@@ -67,7 +67,8 @@ card_grants '[]'
 
 # command-gate-bypass：git 與 push 之間夾全域選項，一樣是 push（沒有 push 授權要擋）
 printf '[repos."Acmecorp-AI"]\npush = false\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
-for c in 'git -C /tmp/r push origin feat/x' 'git -c core.x=1 push origin feat/x' 'git --git-dir=/tmp/r/.git push origin feat/x' 'git --git-dir /tmp/r/.git push origin feat/x' 'git --work-tree=/tmp/r push origin feat/x' 'git --no-pager push origin feat/x' 'git -C /tmp/r -c a=b push origin feat/x'; do
+# 帶 -c 的 push 是設定注入、第三級，在 tests/git-global-options.test.sh
+for c in 'git -C /tmp/r push origin feat/x' 'git --git-dir=/tmp/r/.git push origin feat/x' 'git --git-dir /tmp/r/.git push origin feat/x' 'git --work-tree=/tmp/r push origin feat/x' 'git --no-pager push origin feat/x'; do
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 push 授權，夾全域選項的 push 要擋：${c}｜$(reason "$out")"
   case "$(reason "$out")" in *第二級*) ;; *) fail "要說這是第二級的 push：${c}｜$(reason "$out")" ;; esac
 done

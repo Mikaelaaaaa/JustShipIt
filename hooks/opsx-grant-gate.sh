@@ -96,10 +96,8 @@ level2() { # <action> <label>
 
 # 第二級的樣式：整串逐條查授權與逐段查涵蓋共用同一組
 CMD_START='(^|[[:space:];&|(`]|\$\()'   # 命令可以緊接在 ; & | ( ` $( 後面，不一定隔著空白
-# git 與子命令之間可以夾全域選項（hooks/openspec-commit-gate.sh 同一份寫法）：-C <dir>、-c k=v、--git-dir[=]x、--work-tree[=]x、--no-pager 這類旗標
-GIT_TOK='([^[:space:]\\]|\\.)+'
-GIT_GOPT="(-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env|--exec-path)[[:space:]]+${GIT_TOK}|--[a-z][a-z-]*(=${GIT_TOK})?|-[A-Za-z]"
-GIT_PUSH="git(([[:space:]]+(${GIT_GOPT}))*)[[:space:]]+push"
+# GIT_TOK、GIT_GOPT、GIT_PUSH 在 hooks/_git-re.sh（hooks/openspec-commit-gate.sh 同一份寫法）
+source "$(dirname "${BASH_SOURCE[0]}")/_git-re.sh"
 RE_PUSH="${CMD_START}${GIT_PUSH}(\\s|;|&|\\||\$)"
 RE_MR='(glab mr (create|update)|gh pr (create|edit)|glab issue (note|comment)|gh issue comment)'
 RE_MIGRATE='db:migrate|drizzle-kit (migrate|push)|alembic upgrade'
@@ -265,9 +263,16 @@ if [ "$tool" = "Bash" ]; then
   fi
   # push 的旗標與 refspec 照 shell 解析完的樣子比（hooks/cmd-normalize.pl：去引號與反斜線、併續行；"main"、\main、$'main'、'+feat/x' 才跟 main、+feat/x 一樣被認出來）；
   # 旗標只在同一段 push 裡找，後面串的指令自己的 -f、+5 不算。git 與 push 之間的全域選項（-C、-c、--git-dir 等）照 GIT_PUSH 認
+  # 比兩行，一行對上就算：第一行引號內的空白變 _（-C '/tmp/a b' 是一個參數），第二行留著（c="git push -f …"; $c 存在字串裡的指令）
   l3n="$(cmd_l3norm "$cmd")" || deny "opsx 授權閘門：perl 執行失敗，讀不到指令內容，先擋下。確認 perl 可用"
+  l3n="${l3n}"$'\n'"$(cmd_l3norm "$cmd" --keep-space)" || deny "opsx 授權閘門：perl 執行失敗，讀不到指令內容，先擋下。確認 perl 可用"
   push_args="${GIT_PUSH}([[:space:]][^;&|]*)?[[:space:]]"
   printf '%s' "$l3n" | grep -qE "${push_args}(--force[^[:space:]]*|--mirror|-[a-zA-Z]*f[a-zA-Z]*|\\+[^[:space:]]+)([[:space:]]|\$)" && level3 "force-push"
+  # 能執行程式的設定鍵列不完，git 與 push 之間有 -c / --config-env / --exec-path，或同一段 git 前面有 GIT_CONFIG_*、GIT_EXEC_PATH，就一律當第三級
+  push_inj="git([[:space:]]+(${GIT_GOPT}))*[[:space:]]+(-c|--config-env|--exec-path)([[:space:]]+|=)${GIT_TOK}([[:space:]]+(${GIT_GOPT}))*[[:space:]]+push([[:space:]]|\$)"
+  if printf '%s' "$l3n" | grep -qE "$push_inj" || printf '%s' "$l3n" | grep -qE "(GIT_CONFIG_[A-Z0-9_]*|GIT_EXEC_PATH)=[^;&|]*${GIT_PUSH}([[:space:]]|\$)"; then
+    level3 "push 帶設定注入（-c、--config-env、--exec-path、GIT_CONFIG_*、GIT_EXEC_PATH）"
+  fi
   printf '%s' "$l3n" | grep -qE "${push_args}--(receive-pack|exec)(=|[[:space:]]|\$)" && level3 "push 帶會執行程式的參數"
   printf '%s' "$l3n" | grep -qE "${push_args}--all([[:space:]]|\$)" && level3 "push --all"
   # 同一段 push 內，refspec 目標是 main / master 才算；分支名只含 main 片段、push 以外的 main 字樣不算（hooks/security-guard.sh 同一條）
