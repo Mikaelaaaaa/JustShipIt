@@ -2,8 +2,8 @@
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
 #   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","stuck","error","created_at","merged_at"}
 #            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed），不受排在前面的條件遮住
-#            stuck 是 MR 合不了、要人處理的第一個原因：已關閉、CI 紅、CI 不在跑也沒過的原值（如 canceled）、衝突、draft、要求修改；
-#              沒卡住、CI 還在跑（含 GitLab 的 canceling）而沒有別的原因、GitLab MR 合併中（locked）、或查不到時是 null。
+#            stuck 是 MR 合不了、要人處理的第一個原因：已關閉（GitLab 合併中的 locked 不算）、CI 紅、pipeline 原值 canceled／skipped／manual、
+#              衝突、draft、要求修改；沒卡住、或查不到時是 null。CI 還在跑或其他 pipeline 狀態不給原因，但不遮住後面的原因。
 #              Stop hook 的停住紀錄與 coordinate 的「MR 卡住」通知都讀它
 #   mr_state <card dir>  印 ready | draft | conflicts | pipeline:<status> | threads:<n> | state:<s> | none（drive 用的短字串）
 # 來源：report.md 的 ## MR 連結。project 從 URL 解出來用 -R 指定（不靠 cwd：server 的 cwd 不是那個 repo）。
@@ -145,17 +145,13 @@ first = next((k for k in ("opened", "not_draft", "no_conflicts", "pipeline", "th
 short = {"opened": "state:%s" % state, "not_draft": "draft", "no_conflicts": "conflicts",
          "pipeline": "pipeline:%s" % ps, "threads": "threads:%d" % n, None: "ready"}[first]
 pst = out["pipeline_status"]
-# CI 紅不被 draft 等排在前面的條件遮住；CI 還在跑只是還沒有結果，不算卡住，但不遮住後面的原因
-if pst == "failed":
-    ci = "CI 紅"
-elif not c["pipeline"] and pst is not None and pst not in ("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled", "canceling"):
-    ci = pst
-else:
-    ci = None
-reasons = (None if c["opened"] else "已關閉", ci, None if c["no_conflicts"] else "衝突",
+# CI 紅不被 draft 等排在前面的條件遮住；其他 pipeline 狀態（還在跑、不認得的）不算卡住，但不遮住後面的原因
+ci = "CI 紅" if pst == "failed" else pst if pst in ("canceled", "skipped", "manual") else None
+# GitLab 的 locked 是合併進行中，馬上會變 merged，不算已關閉
+closed = not c["opened"] and not (forge == "gitlab" and state == "locked")
+reasons = ("已關閉" if closed else None, ci, None if c["no_conflicts"] else "衝突",
            None if c["not_draft"] else "draft", None if c["threads"] else "要求修改")
-# GitLab 的 locked 是合併進行中，馬上會變 merged，不是要人處理的狀態
-stuck = None if forge == "gitlab" and state == "locked" else next((s for s in reasons if s), None)
+stuck = next((s for s in reasons if s), None)
 out.update(state=short, head_sha=sha, conditions=c, blocked_on=first, stuck=stuck)
 print(json.dumps(out))
 PY

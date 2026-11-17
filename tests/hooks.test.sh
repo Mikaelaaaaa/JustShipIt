@@ -1456,6 +1456,9 @@ mkdir -p "$OPSX_STATE_DIR/cache"
 printf '{"url": "https://gitlab.example.com/a/b/-/merge_requests/212", "state": "pipeline:running", "head_sha": "abc123", "conditions": {"opened": true, "not_draft": true, "no_conflicts": true, "pipeline": false, "threads": true}, "blocked_on": "pipeline", "error": null, "created_at": null, "merged_at": null}\n' > "$OLD_CACHE"
 out="$(OPSX_MR_CACHE_TTL=600 sgc)"; assert_eq "$out" "" "stop: 舊快取放行"
 assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，查不到 MR 狀態" "stop: 舊快取沒有 stuck 當查不到"
+printf '{"url": "https://gitlab.example.com/a/b/-/merge_requests/212", "state": "conflicts", "head_sha": "abc123", "conditions": {"opened": true, "not_draft": true, "no_conflicts": false, "pipeline": true, "threads": true}, "blocked_on": "no_conflicts", "error": null, "created_at": null, "merged_at": null}\n' > "$OLD_CACHE"
+out="$(OPSX_MR_CACHE_TTL=600 sgc)"; assert_eq "$out" "" "stop: 舊快取有衝突放行"
+assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，查不到 MR 狀態" "stop: 舊快取有衝突沒有 stuck 當查不到"
 rm -f "$OLD_CACHE"
 # 合不了的一律只記不推：MR 卡住由 coordinate 送
 bs_push() { # <MR JSON> <原因> <說明>

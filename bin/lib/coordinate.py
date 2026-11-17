@@ -523,8 +523,8 @@ class Round:
                 del self.memo["_notified"][key]
 
     def forget_mr_stuck(self, c, keep):
-        """清掉這張卡 MR 卡住紀錄裡不是 keep（<head sha>/<原因>，MR 不卡時是 None）的鍵：
-        MR 恢復、換了原因或 commit 之後再卡住（同一個 commit 的 CI 重跑又紅也算）要再通知。"""
+        """清掉這張卡 MR 卡住紀錄裡不是 keep（CI 原因是 <head sha>/<原因>，其他是 <原因>；MR 不卡時是 None）的鍵：
+        MR 恢復、換了原因或 CI 原因換了 commit 之後再卡住（同一個 commit 的 CI 重跑又紅也算）要再通知。"""
         prefix = "%s/mr-stuck/" % card_key(c)
         kept = prefix + keep if keep else None
         for key in [k for k in self.memo["_notified"] if k.startswith(prefix) and k != kept]:
@@ -1329,6 +1329,9 @@ def one_round(state, dry):
         if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]
             ident = "%s/%s" % (c["mr"]["head_sha"], reason) if reason else None
+            # 只有 CI 原因跟 commit 有關：新 commit 的 CI 結果是新的一件事，其他原因換 commit 還是同一件事
+            if reason in ("已關閉", "衝突", "draft", "要求修改"):
+                ident = reason
             r.forget_mr_stuck(c, ident)
             # session 的 pane 共用 agent 狀態：pane 在做別張卡時，這張卡的 MR 沒人在修
             if reason and (c["agent_status"] != "working" or session_scope(c)):

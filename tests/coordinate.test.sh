@@ -1640,7 +1640,8 @@ stuck_push() { # <agent_status JSON> <state> <stuck> <預期接在「卡在」�
   rm -f "$MEMO"; stk "$1" "$(mrj "$2" "\"$3\"")"
   assert_eq "$(stuck_n "$4")" 1 "MR 卡住要推：$5：$(cat "$OPSX_FAKE_LOG")"
   grep "^agent prompt opsx-coordinator \[demo/m\] MR 卡在" "$OPSX_FAKE_LOG" | grep -q '看板／MR：https://gitlab.example.com/a/b/-/merge_requests/9$' || fail "MR 卡住內文要帶 MR 連結：$5"
-  [ -n "$(memo_get _notified "demo/m/mr-stuck/abc/$3")" ] || fail "_notified 要有 demo/m/mr-stuck/abc/$3：$(cat "$MEMO")"
+  local k="abc/$3"; case "$3" in 已關閉|衝突|draft|要求修改) k="$3" ;; esac
+  [ -n "$(memo_get _notified "demo/m/mr-stuck/$k")" ] || fail "_notified 要有 demo/m/mr-stuck/${k}：$(cat "$MEMO")"
 }
 stuck_quiet() { # <agent_status JSON> <mr JSON> <說明>
   rm -f "$MEMO"; stk "$1" "$2"
@@ -1709,6 +1710,11 @@ stk '"idle"' "$(mrj pipeline:failed '"CI 紅"' null s2)"
 assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 2 "新 commit 又紅要再推"
 [ -n "$(memo_get _notified "demo/m/mr-stuck/s2/CI 紅")" ] || fail "_notified 要有 s2 的鍵：$(cat "$MEMO")"
 assert_eq "$(grep -o 'demo/m/mr-stuck/[^"]*' "$MEMO")" "demo/m/mr-stuck/s2/CI 紅" "_notified 只留 s2 的鍵"
+# 非 CI 原因換 commit 不再推
+rm -f "$MEMO"; stk '"idle"' "$(mrj threads:2 '"要求修改"' null s1)"; n1="$(stuck_n '要求修改')"
+stk '"idle"' "$(mrj threads:2 '"要求修改"' null s2)"
+assert_eq "$((n1 + $(stuck_n '要求修改')))" 1 "要求修改換 commit 不再推"
+[ -n "$(memo_get _notified "demo/m/mr-stuck/要求修改")" ] || fail "_notified 要有 demo/m/mr-stuck/要求修改：$(cat "$MEMO")"
 # 同一個 commit 原因換過再回來要再推：CI 紅 → draft → CI 紅
 rm -f "$MEMO"; : > "$FX/stuck-seq"
 stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; grep -o 'MR 卡在[^：]*' "$OPSX_FAKE_LOG" >> "$FX/stuck-seq"
