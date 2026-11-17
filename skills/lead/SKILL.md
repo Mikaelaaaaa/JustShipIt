@@ -19,7 +19,7 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
 5. **After a card merges,** stop its pane (`opsx stop <slug>`) and archive it.
 6. **De-duplicate the inbox.** Every round, read the one line and the evidence of each new inbox card. When two cards are about 同一件事 (the same problem, not only the same file), fold the newer one into the older with `opsx merge-card <newer> --into <older> --repo <top>`. This is not bound by 只併小事 (the small-items rule `opsx new` applies when it merges by shared file): a duplicate is merged whatever its type or priority. `opsx merge-card` carries the source's `kind_of_work`, `impact` and `evidence` into the older card (incident wins over planned, impact is the union), so the older card's level never drops below the newer one's. Log each fold in the older card's decisions.tsv with `opsx log`, and list it in 類型 5.
 7. **Open the card yourself.** When a discussion with the user turns up something to change, open it with `opsx new` and write its explore.md right away. 不問「要不要開卡」.
-8. **Do what you can do yourself.** When you have the access, push and open the MR yourself. Only when you cannot (no permission, your sandbox blocks it) give the user the command, as 類型 4.
+8. **Do what you can do yourself.** When you have the access, push and open the MR yourself. Only when you cannot (no permission, your sandbox blocks it) give the user the command, as 類型 4. A card with an open approval gate for that action (`action: push` or `mr`) waits for the user's answer; the gate comes first.
 9. **Never merge（絕不合併）.** Merging is always the user's call, from the board or the forge. Not with `glab mr merge`, not with `gh pr merge`, not with `opsx merge`.
 
 ## 怎麼問 gate
@@ -48,18 +48,22 @@ Every report takes its state (階段、可合併、gate、MR, and each repo's co
 
 When to run it: 每收到一則事件, and whenever the user asks for a report. Answer an ordinary event in 類型 6, a card that can merge in 類型 2. 不用 /loop 或 CronCreate 自己排計時器: `opsx coordinate` already sends new gates and 可以合併 every 5 minutes, one event per item.
 
-Run collect once per round and read the file, never the whole output (it holds every card's logic map and runs past 600,000 characters):
+一輪 is one reply: every event line already in your input when you start it. Run collect once for the round. When several cards can merge in the same round, write one 類型 2 that covers all of them, in merge-tree order. Read the file, never the whole output (it holds every card's logic map and runs past 600,000 characters):
 
 ```
 opsx collect > "$TMPDIR/opsx-collect.json"
-jq -c '[.cards[] | select(.archived | not) | select(.section != "已完成") | {repo, slug, title, stage, section, progress_class, session, dispatched: (.dispatch != null), waiting: (.waiting | if . then {type, gate_id, question, needs} else null end), mr: (.mr | if . then {state, url, head_sha} else null end)}]' "$TMPDIR/opsx-collect.json"
+jq -c '[.cards[] | select(.archived | not) | select(.section != "已完成") | {repo, slug, title, path, stage, section, session, agent_status, dispatched: (.dispatch != null), waiting: (.waiting | if . then {type, gate_id, question, needs, waits_on} else null end), mr: (.mr | if . then {state, url, head_sha} else null end)}]' "$TMPDIR/opsx-collect.json"
 jq -c '.progress' "$TMPDIR/opsx-collect.json"
+jq -c '.errors' "$TMPDIR/opsx-collect.json"
 ```
 
-- Each repo's counts and milestone come from `.progress`.
-- For a card whose `progress_class` is `mergeable`, fetch its logic map on its own: `jq -r '.cards[] | select(.repo == "<repo>" and .slug == "<slug>") | .logic_map' "$TMPDIR/opsx-collect.json"`.
-- 沒派出去的卡 (`dispatched` is false) with an open gate (`waiting.type` 等待決定 or 等待授權) get no event from coordinate. Each round, list the ones that appeared since your last report in 類型 3.
+- Take only each repo's milestone from `.progress`; its other numbers count by milestone, not by board column. Count 類型 1's 待處理, 進行中, 待指派 and 收件匣 from the first jq's `section`.
+- A card can merge when `mr.state` is `ready`, the same test coordinate uses for 可以合併, whatever the card's milestone. For each such card, fetch its logic map on its own: `jq -r '.cards[] | select(.repo == "<repo>" and .slug == "<slug>") | .logic_map' "$TMPDIR/opsx-collect.json"`. It prints `null` when the card has no logic map yet: point at `report.md` under `path` instead.
+- 類型 2's agent 已停 comes from `agent_status`, and its paths from `path`.
+- 沒派出去的卡 (`dispatched` is false) with an open gate (`waiting.gate_id` set, `type 不明` included) get no event from coordinate. List the ones that appeared since your last report in 類型 3, except a gate whose `waits_on` card is still in the live list (it waits for that card to merge) and a gate whose `needs` is `run`, which goes to 類型 4.
+- A sub-change gate event (`[<repo>/<主>/<子>] gate …`) has no row of its own: read `subs/<子>/gates.md` under the main card's `path`.
 - 類型 2's 誰設定 and 業務上是什麼 follow the logic-map skill's rule: read that card's design.md, explore.md and grill.md next to its logic-map.md. When none of them says it, write 「沒寫」; do not guess.
+- An entry in `.errors` whose `source` is `glab` or `gh` means some MR states are an old cache: say so in the reply's 最後一行, and in 類型 2's 狀態 write that the MR state may be cached.
 
 ## Report format
 
@@ -68,6 +72,7 @@ Rules for every type:
 - Write in the user's language (Traditional Chinese by default). The data comes from `## 回報資料從哪來`.
 - Paths and links go outside tables（表格外）, 一行一條, with a blank line before and after: a terminal cannot click a path inside a table cell. Every path is an absolute path（路徑一律絕對路徑）. When you know the line, write `path:line`.
 - Leave out a type that has nothing to report.
+- 最後一行 of any reply, whatever its types: what you did not check and the risk the user must know about, when there is any.
 - The examples below are made up. Copy the shape, not the data.
 
 ### 類型 1：進度
@@ -88,11 +93,11 @@ Then one table per repo, headed by the repo name in bold:
 
 - 區塊 is the repo and its milestone from `.progress`. The four counts are its cards per `section`.
 - List every card in progress, not a sample.
-- 最後一行: the cards not dispatched and why, what you did not check, and the risk the user must know about.
+- Its 最後一行 also names the cards not dispatched and why.
 
 ### 類型 2：可以合併
 
-One section per MR or PR, in the order that merges with no conflict (the `git merge-tree` check in duty 4). Every field is required.
+One section per MR or PR, in the order that merges with no conflict (the `git merge-tree` check in duty 4). Every field is required. A card with no logic map yet fills 狀態, the links and 測試, and writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠.
 
 **1. !101　結帳時套用會員折扣**
 

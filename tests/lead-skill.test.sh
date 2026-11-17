@@ -29,6 +29,12 @@ for s in \
   '表格外' '一行一條' '絕對路徑' 'path:line'; do
   case "$REPORT" in *"$s"*) ;; *) fail "Report format 缺：$s" ;; esac
 done
+# 沒有邏輯表的卡：那幾欄寫「還沒有邏輯表」（design D6）
+T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### /{exit} f' "$F")"
+case "$T2" in *'還沒有邏輯表'*) ;; *) fail "類型 2 要寫沒有邏輯表時那幾欄寫「還沒有邏輯表」" ;; esac
+# 最後一行是每份回覆的共用規則，不只類型 1（design D7）
+RULES="$(sed -n '/^## Report format/,/^### 類型 1：/p' "$F")"
+case "$RULES" in *'最後一行'*) ;; *) fail "Report format 共用規則要有最後一行的規則" ;; esac
 for s in '絕不合併' 'me-20261111-1315'; do
   grep -qF -- "$s" "$F" || fail "skill 缺：$s"
 done
@@ -61,12 +67,14 @@ done
 # 討論出要改的直接開卡、做得到的自己做（specs/opsx-lead「協調者討論出要改的直接開卡、做得到的自己做」）
 NEWCARD="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx new' | grep -vF 'opsx merge-card')"
 [ -n "$NEWCARD" ] || fail "Duties 缺 opsx new 開卡的職責"
-for s in 'explore' '不問' '要不要開卡'; do
+for s in 'explore' '不問「要不要開卡」'; do
   case "$NEWCARD" in *"$s"*) ;; *) fail "開卡職責缺：$s — $NEWCARD" ;; esac
 done
 SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F '類型 4')"
 [ -n "$SELFDO" ] || fail "Duties 缺「做得到的自己做，做不到照類型 4 給指令」的職責"
-case "$SELFDO" in *MR*) ;; *) fail "自己做的職責缺 MR — $SELFDO" ;; esac
+for s in 'MR' 'approval gate'; do
+  case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
+done
 # 絕不合併留在最後一條
 LAST="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | tail -1)"
 case "$LAST" in *'絕不合併'*) ;; *) fail "最後一條職責要是絕不合併 — $LAST" ;; esac
@@ -111,14 +119,28 @@ SRC="$(awk '/^## 回報資料從哪來/{f=1;next} f&&/^## /{exit} f' "$F")"
 [ -n "$SRC" ] || fail "找不到「## 回報資料從哪來」段"
 n_src="$(heading_of '## 回報資料從哪來')"
 [ "$n_src" -gt "$n_ask" ] && [ "$n_src" -lt "$n_report" ] \
-  || fail "「## 回報資料從哪來」要在 ## 怎麼問 gate（$n_ask）與 ## Report format（$n_report）之間，現在在 $n_src"
-for s in 'opsx collect' 'jq' 'logic_map' '.progress' 'dispatched' '每收到一則事件' '類型 6' '類型 2' \
-  '沒派出去' '類型 3' 'design.md' 'explore.md' 'grill.md' '「沒寫」'; do
+  || fail "「## 回報資料從哪來」要在 ## 怎麼問 gate（${n_ask}）與 ## Report format（${n_report}）之間，現在在 ${n_src}"
+for s in 'opsx collect' 'jq' 'logic_map' 'dispatched' '每收到一則事件' '類型 6' '類型 2' \
+  '沒派出去' '類型 3' 'design.md' 'explore.md' 'grill.md' '「沒寫」' \
+  'waits_on' 'agent_status' 'path' '.errors' 'type 不明' 'subs/' '一輪' 'since your last report'; do
   case "$SRC" in *"$s"*) ;; *) fail "回報資料從哪來段缺：$s" ;; esac
 done
-# 狀態不從 status.json 拼；不自己排計時器
-printf '%s\n' "$SRC" | grep -F 'status.json' | grep -qF '不' || fail "回報資料從哪來段要寫明狀態不從 status.json 拼"
-printf '%s\n' "$SRC" | grep -F '/loop' | grep -F 'CronCreate' | grep -qF '不' || fail "回報資料從哪來段要寫明不用 /loop 或 CronCreate 自己排"
+# 反向規則比對整句，換成別的「不」的句子不算
+for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate'; do
+  case "$SRC" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
+done
+# 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class（milestone 外的卡是 null）
+LM="$(printf '%s\n' "$SRC" | grep -F '.logic_map')"
+case "$LM" in *'mr.state'*'ready'*) ;; *) fail "取 logic_map 那行要以 mr.state ready 判斷 — $LM" ;; esac
+case "$LM" in *progress_class*) fail "取 logic_map 那行不能用 progress_class 判斷 — $LM" ;; esac
+# 計數：.progress 只取 milestone，四個數依 section 數
+printf '%s\n' "$SRC" | grep -F '.progress' | grep -qF 'milestone' || fail "取 .progress 那行要寫只取 milestone"
+printf '%s\n' "$SRC" | grep -F '.progress' | grep -qF 'section' || fail "計數要寫依 section 數"
+# 沒派出去的卡的 gate：等別張卡的不列、needs: run 進類型 4
+GATES="$(printf '%s\n' "$SRC" | grep -F '沒派出去')"
+for s in 'waits_on' 'needs' '類型 4' 'type 不明'; do
+  case "$GATES" in *"$s"*) ;; *) fail "沒派出去的卡的 gate 那行缺：$s — $GATES" ;; esac
+done
 # 職責 1 指向這段
 printf '%s\n' "$DUTIES" | grep '^1\. ' | grep -qF '回報資料從哪來' || fail "職責 1 要指向「回報資料從哪來」段"
 
