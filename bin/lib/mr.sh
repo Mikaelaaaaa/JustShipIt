@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
 #   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","error","created_at","merged_at"}
-#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed），不受排在前面的條件遮住
+#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed、canceled、timed_out），不受排在前面的條件遮住
 #   mr_state <card dir>  印 ready | draft | conflicts | pipeline:<status> | threads:<n> | state:<s> | none（drive 用的短字串）
 # 來源：report.md 的 ## MR 連結。project 從 URL 解出來用 -R 指定（不靠 cwd：server 的 cwd 不是那個 repo）。
 #   gitlab 的 https://<host>/<group>/<proj>/-/merge_requests/<iid> 變成 glab mr view <iid> -R <host>/<group>/<proj> -F json；
@@ -113,22 +113,28 @@ except json.JSONDecodeError as e:
     out["error"] = "%s 回的不是 JSON：%s" % (tool, e)
     print(json.dumps(out)); sys.exit()
 if forge == "github":
-    checks_ok, checks_failed = True, False
+    # 跟 GitLab 的 pipeline 一樣：還有 check 沒跑完就是 pending；全部跑完才依 GitLab 的用詞歸類，取消、逾時各自報，其他都是 failed，有 failed 就報 failed
+    checks_ok, ended, running = True, set(), False
     for c in d.get("statusCheckRollup") or []:
         if "conclusion" in c:   # CheckRun：要跑完而且過
             ok = c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
-            checks_failed = checks_failed or (c.get("status") == "COMPLETED" and not ok)
+            running = running or c.get("status") != "COMPLETED"
+            if c.get("status") == "COMPLETED" and not ok:
+                ended.add({"CANCELLED": "canceled", "TIMED_OUT": "timed_out"}.get(c.get("conclusion"), "failed"))
         else:                   # StatusContext：只有 state
             ok = c.get("state") == "SUCCESS"
-            checks_failed = checks_failed or c.get("state") in ("FAILURE", "ERROR")
+            running = running or c.get("state") in ("PENDING", "EXPECTED")
+            if c.get("state") in ("FAILURE", "ERROR"):
+                ended.add("failed")
         checks_ok = checks_ok and ok
+    checks_ended = None if running else next((s for s in ("failed", "timed_out", "canceled") if s in ended), None)
     decision = d.get("reviewDecision") or ""
     c = {"opened": d.get("state") == "OPEN", "not_draft": not d.get("isDraft"),
          "no_conflicts": d.get("mergeable") != "CONFLICTING" and d.get("mergeStateStatus") != "DIRTY",
          "pipeline": checks_ok, "threads": decision != "CHANGES_REQUESTED"}
     sha, ps, n, state = d.get("headRefOid"), ("success" if checks_ok else "failed"), (1 if decision == "CHANGES_REQUESTED" else 0), d.get("state")
     out.update(created_at=d.get("createdAt"), merged_at=d.get("mergedAt"),
-               pipeline_status="success" if checks_ok else "failed" if checks_failed else "pending")
+               pipeline_status="success" if checks_ok else checks_ended or "pending")
 else:
     ps = (d.get("head_pipeline") or d.get("pipeline") or {}).get("status")
     n = d.get("unresolved_discussions_count")

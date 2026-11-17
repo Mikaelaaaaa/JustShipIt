@@ -2429,7 +2429,7 @@ two_cards() {   # two_cards <a 的 drive_pid JSON>
 for v in '"x"' '"123"' 'true' '1.5' '[1]' '-1' '0' '1180591620717411303424'; do
   rm -f "$MEMO"; two_cards "$v"
   round || fail "drive_pid=$v 整輪要跑完（rc $?）：$(cat "$FX/out")"
-  grep -F '?? demo/a' "$LOG" | grep -F drive_pid | grep -qF -- "$v" || fail "drive_pid=$v：log 要有 ?? demo/a 含欄位名與原值：$(cat "$LOG")"
+  grep -F '?? demo/a' "$LOG" | grep -F drive_pid | grep -qF -- "$v" || fail "drive_pid=${v}：log 要有 ?? demo/a 含欄位名與原值：$(cat "$LOG")"
   assert_eq "$(count '^opsx dispatch a ')" 0 "drive_pid=$v 的卡不重派：$(cat "$OPSX_FAKE_LOG")"
   assert_eq "$(count '^opsx dispatch b ')" 1 "drive_pid=$v 不能拖累別張卡：$(cat "$OPSX_FAKE_LOG")"
   assert_eq "$(bad_prompts)" 1 "drive_pid=$v 通知一次"
@@ -2466,7 +2466,7 @@ FUTURE="$(shift_at 120)"
 for v in "\"$FUTURE\"" '"not-a-time"' '"2026-11-11T10:00:00"' '1762826400' '""'; do
   rm -f "$MEMO"; a_disp "$v"; a_unknown
   round || fail "relaunching_at=$v 整輪要跑完（rc $?）：$(cat "$FX/out")"
-  grep -F '?? demo/a' "$LOG" | grep -F relaunching_at | grep -qF -- "$v" || fail "relaunching_at=$v：log 要有 ?? demo/a 含欄位名與原值：$(cat "$LOG")"
+  grep -F '?? demo/a' "$LOG" | grep -F relaunching_at | grep -qF -- "$v" || fail "relaunching_at=${v}：log 要有 ?? demo/a 含欄位名與原值：$(cat "$LOG")"
   assert_eq "$(ecount '^opsx (stop|dispatch)')" 0 "relaunching_at=$v 不當成沒在 relaunch：$(cat "$OPSX_FAKE_LOG")"
   assert_eq "$(bad_prompts)" 1 "relaunching_at=$v 通知一次"
 done

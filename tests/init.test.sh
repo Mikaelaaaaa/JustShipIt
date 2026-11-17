@@ -442,7 +442,7 @@ assert_eq "$(pl StandardOutPath)" "$OPSX_STATE_DIR/sync.out"; assert_eq "$(pl St
 assert_eq "$(pl EnvironmentVariables.OPSX_STATE_DIR)" "$OPSX_STATE_DIR"
 P="$(pl EnvironmentVariables.PATH)"
 for d in "$OPSX_BIN_DIR" /opt/homebrew/bin "$(dirname "$(cat "$OPSX_STATE_DIR/python")")" "$(dirname "$(command -v openspec)")"; do
-  case ":$P:" in *":$d:"*) ;; *) fail "plist 的 PATH 少了 $d：$P" ;; esac
+  case ":$P:" in *":$d:"*) ;; *) fail "plist 的 PATH 少了 ${d}：$P" ;; esac
 done
 assert_grep "^bootstrap gui/$(id -u) $PL\$" "$OPSX_FAKE_LOG"
 
