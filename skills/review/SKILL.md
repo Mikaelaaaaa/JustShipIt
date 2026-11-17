@@ -67,7 +67,7 @@ Every round builds the logic map of the current head before the reviewers start,
    openspec/changes/<slug>/logic-map.md · <head sha 前 7 碼>
    ```
 
-Then read the map's `### ⚠ 要看的地方` lists for Step 2 and Step 4: `bug：違反 design Dn` items go to Agent A; `沒經過決定` items, and every item of a map that says 沒有 design.md，未分類, go to the gate in Step 4; `程式整理` items and the 照 design D line stay on the map for the user to read.
+Then read the map's `### ⚠ 要看的地方` lists for Step 2 and Step 4: `bug：違反 design Dn` items go to Agent A; `沒經過決定` items, and every item of a map that says 沒有 design.md，未分類, go to Step 4, which scopes them first and puts only the in-scope ones in the gate; `程式整理` items and the 照 design D line stay on the map for the user to read.
 
 ## Step 2: three agents, one message
 
@@ -111,7 +111,7 @@ Evidence you cannot verify downgrades the finding one level, so an unverifiable 
 
 A logic-map bug item that Agent A confirms is an ordinary MUST_FIX against its design Dn and goes through the scope rule below. A logic-map bug item that Agent A does not confirm goes to Dismissed, with Agent A's reason.
 
-Then scope every BUG and MUST_FIX left in Act on. 範圍內 = the failure scenario cannot happen on main (a caller this change broke counts); run the scenario on main when you can. When it cannot be run, 範圍內 = the cited file:line is inside the added or changed lines of `git diff -U0 main...HEAD` (take `main` as the remote default branch, `origin/main` after `git fetch`; a stale local main pulls already-merged code into scope, and the "on main" scenario runs on the same base). 範圍外 = the scenario happens on main too. Only 範圍內 BUG and MUST_FIX are sent back to `/opsx-workflow:apply`. This rule decides where a problem goes, and nobody is asked: 「另開卡」 is never a gate option. 範圍內的產品取捨 (whether or how to change something in scope) still gets a gate.
+Then scope every BUG and MUST_FIX left in Act on. 範圍內 = the failure scenario cannot happen on main (a caller this change broke counts); run the scenario on main when you can. When it cannot be run, 範圍內 = the cited file:line is inside the added or changed lines of `git diff -U0 main...HEAD` (take `main` as the remote default branch, `origin/main` after `git fetch`; a stale local main pulls already-merged code into scope, and the "on main" scenario runs on the same base). 範圍外 = the scenario happens on main too. Before the code is changed (explore, grill, or apply working on code not yet changed), 範圍內 is what this card's inbox.md, explore.md or proposal.md sets out to change; the on-main rule above applies only to findings against the implemented diff. Only 範圍內 BUG and MUST_FIX are sent back to `/opsx-workflow:apply`. This rule decides where a problem goes, and nobody is asked: 「另開卡」 is never a gate option. 範圍內的產品取捨 (whether or how to change something in scope) still gets a gate.
 
 Run `opsx check <slug>` and read every `Must-fix 候選` line it prints: the card's explore.md wrote 影響範圍 as skip, yet the diff touches a file other files reference. A candidate is a grep hit, not proof: it misses shell variables and config keys, and it flags files only their own tests reference. Read the cited reference yourself; a candidate you confirm is a Must-fix, and review sends it back to explore (the `## R<N>. review 退回` group in tasks.md, so `/opsx-workflow:apply` and explore's 影響範圍 step redo it); one you cannot confirm goes to Consider.
 

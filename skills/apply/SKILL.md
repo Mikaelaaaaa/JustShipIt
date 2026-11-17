@@ -29,8 +29,6 @@ If `openspec/workplan.yaml` exists, reconcile it before anything else:
 2. For each change with status ≠ `done`: if `openspec/changes/<name>/` is gone (archived) → update to `done`.
 3. Report drift only when a decision is needed (branch deleted but MR not merged).
 
-The 派工指示 「做到 propose 完成就停」 binds only the work before propose: only once the card already has tasks.md and it is dispatched for apply, treat that note as done, do not stop, and open no gate.
-
 ### 1. Pick the target
 
 Parse `$ARGUMENTS`: `--auto` → autopilot; a PR name → every pending change in that PR; change names → those; nothing → show the workplan table and use **AskUserQuestion**. Without a workplan, `openspec list --json` and ask; work on the current branch.

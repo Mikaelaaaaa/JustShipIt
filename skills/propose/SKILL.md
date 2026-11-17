@@ -148,9 +148,9 @@ openspec status --change "<name>"
 
 ### 6b. Dispatch gate for a card that stops at propose
 
-When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成就停」 and `opsx priority <name>` prints P2, write a `type: decision` gate `## dispatch-<name>` in gates.md that asks whether to dispatch apply, with the options 從看板派 apply，派的時候帶 --note「propose 已完成，可以 apply」 (Recommended) | 先不派, and stop instead of continuing to apply.
+When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成就停」 and `opsx priority <name>` prints P2, write a `type: decision` gate `## dispatch-<name>` in gates.md and use exactly this line as its 問題 line: 問題: <name> 已 propose 完，要派 apply 嗎？ Do not word the question as 要不要派: the Stop hook (`st_gates_file_blocking` in `bin/lib/stage.sh`) does not count such a gate as open. Give it the options 從看板派 apply，派的時候帶 --note「propose 已完成，可以 apply」 (Recommended) | 先不派, and stop instead of continuing to apply.
 
-A card without that note gets no such gate.
+A P0 or P1 card with that note continues to apply as usual and opens no gate. A card without that note gets no such gate.
 
 ## Output
 

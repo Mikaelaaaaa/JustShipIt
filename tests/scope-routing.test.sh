@@ -13,16 +13,28 @@ EXPLORE="$OPSX_ROOT/skills/explore/SKILL.md"
 LMAP="$OPSX_ROOT/skills/logic-map/SKILL.md"
 LEAD="$OPSX_ROOT/skills/lead/SKILL.md"
 PROPOSE="$OPSX_ROOT/skills/propose/SKILL.md"
+CONTINUE="$OPSX_ROOT/references/continue.md"
 NOTE='做到 propose 完成就停（留在待指派），不要 apply'
+# Stop hook 不把這種問法算成擋住的 gate（bin/lib/stage.sh st_gates_file_blocking）
+HOOK_ASK='要不要(接|派|繼續)([ ]*/|[ ]*下一|\?|？|：|$)'
 
 grep -F '| 6 |' "$APPLY" > "$FX/apply6"
 grep -F -- '- **範圍外.**' "$REVIEW" > "$FX/review-oos"
 grep -F -- '- **Logic map, undecided.**' "$REVIEW" > "$FX/review-lm"
+grep -F 'Then scope every BUG and MUST_FIX' "$REVIEW" > "$FX/review-scope"
+grep -F "Then read the map's" "$REVIEW" > "$FX/review-1b"
+grep -F "outside this card's scope" "$GRILL" > "$FX/grill-oos"
+grep -F "outside this card's scope" "$EXPLORE" > "$FX/explore-oos"
 awk '/^## Answering questions about a map/{on=1} /^## Output template/{on=0} on' "$LMAP" > "$FX/lmap-qa"
 grep -F '2. **Forward gates' "$LEAD" > "$FX/lead2"
 awk '/^## 怎麼問 gate/{on=1;next} /^## /{on=0} on' "$LEAD" > "$FX/lead-ask"
-grep -F 'dispatch-<' "$PROPOSE" > "$FX/propose-dispatch"
-for f in apply6 review-oos review-lm lmap-qa lead2 lead-ask propose-dispatch; do [ -s "$FX/$f" ] || fail "段落找不到：$f"; done
+awk '/^### 6b\./{on=1;next} /^##/{on=0} on' "$PROPOSE" > "$FX/propose-6b"
+grep -F 'binds only the work before propose' "$CONTINUE" > "$FX/expiry"
+for f in apply6 review-oos review-lm review-scope review-1b grill-oos explore-oos lmap-qa lead2 lead-ask propose-6b expiry; do
+  [ -s "$FX/$f" ] || fail "段落找不到：$f"
+done
+[ "$(wc -l < "$FX/grill-oos" | tr -d ' ')" = 1 ] || fail "grill 的範圍出口要剛好一段"
+[ "$(wc -l < "$FX/explore-oos" | tr -d ' ')" = 1 ] || fail "explore 的範圍出口要剛好一段"
 
 # --- apply 以卡範圍判開卡（正例／反例）---
 has "this card's scope" "$FX/apply6"
@@ -30,50 +42,67 @@ has 'add a task' "$FX/apply6"
 hasnt "outside this task's scope" "$FX/apply6"
 
 # --- 開卡的 skill 都寫派工指示（Scenario Outline：review、apply、grill、explore）---
-for f in "$FX/apply6" "$FX/review-oos" "$GRILL" "$EXPLORE"; do
+for f in "$FX/apply6" "$FX/review-oos" "$FX/grill-oos" "$FX/explore-oos"; do
   has 'opsx note' "$f"
   has "$NOTE" "$f"
 done
 
 # --- 併進別張卡時不寫指示（反例）---
-has 'skip `opsx note` when it merged' "$FX/apply6"
-has 'skip `opsx note` when it merged' "$FX/review-oos"
+for f in "$FX/apply6" "$FX/review-oos"; do
+  has 'only when the printed slug is a fresh card' "$f"
+  has 'skip `opsx note` when it merged' "$f"
+done
 
 # --- skill 明寫範圍不問人（Scenario Outline：review、apply、grill、explore）---
-for f in "$APPLY" "$REVIEW" "$GRILL" "$EXPLORE"; do
+for f in "$FX/apply6" "$FX/review-scope" "$FX/grill-oos" "$FX/explore-oos"; do
   has 'never a gate option' "$f"
   has '範圍內的產品取捨' "$f"
 done
 
 # --- 範圍內的產品取捨仍開 gate（反例）---
-has 'is still bucket 3' "$GRILL"
+has 'is still bucket 3' "$FX/grill-oos"
 
-# --- review 先判 ⚠ 的範圍 ---
+# --- 改程式前以卡打算改的東西判範圍（正例／反例）---
+has 'inbox.md, explore.md or proposal.md sets out to change' "$FX/review-scope"
+has 'only to findings against the implemented diff' "$FX/review-scope"
+
+# --- review 先判 ⚠ 的範圍；Step 1b 不再說全部進 gate ---
 has '（既有）' "$FX/review-lm"
-has '範圍外' "$FX/review-lm"
+has 'happens on main too, is 範圍外' "$FX/review-lm"
 has 'opens a card instead of entering the gate' "$FX/review-lm"
+has 'which scopes them first' "$FX/review-1b"
+hasnt 'go to the gate in Step 4' "$FX/review-1b"
 
 # --- logic-map 問答標範圍外／不開卡 ---
 has '範圍外，review 會開卡' "$FX/lmap-qa"
 hasnt 'opsx new' "$FX/lmap-qa"
 has 'Do not write or change any file' "$FX/lmap-qa"
 
-# --- 協調者判範圍題（正例）／其他 gate 仍不代答（反例）---
+# --- 協調者判範圍題（正例）／其他 gate 仍不代答（反例）／帶 waits-on 的先等 ---
 has '協調者判定：範圍內' "$FX/lead2"
 has '協調者判定：範圍外' "$FX/lead2"
 has '④' "$FX/lead2"
+has 'answer only the scope half' "$FX/lead2"
 has 'never answer' "$FX/lead2"
+has 'waits for that card to merge before you judge its scope' "$FX/lead2"
 has '不代答' "$FX/lead-ask"
 
-# --- P2 討論卡 propose 完開派工 gate（正例／反例）---
-has '做到 propose 完成就停' "$FX/propose-dispatch"
-has 'P2' "$FX/propose-dispatch"
-has 'A card without that note gets no such gate' "$PROPOSE"
+# --- P2 討論卡 propose 完開派工 gate；P0／P1 照常接 apply；沒帶指示不開 ---
+has 'dispatch-<name>' "$FX/propose-6b"
+has '做到 propose 完成就停' "$FX/propose-6b"
+has 'P2' "$FX/propose-6b"
+has 'stop instead of continuing to apply' "$FX/propose-6b"
+has 'A P0 or P1 card with that note continues to apply as usual and opens no gate' "$FX/propose-6b"
+has 'A card without that note gets no such gate' "$FX/propose-6b"
+ASK='<name> 已 propose 完，要派 apply 嗎？'
+has "問題: $ASK" "$FX/propose-6b"
+! printf '%s\n' "$ASK" | grep -qE "$HOOK_ASK" || fail "dispatch gate 的問題會被 Stop hook 當成不擋：$ASK"
 
-# --- propose-stop 指示在 apply 時失效（正例／反例）---
-grep -F '做到 propose 完成就停' "$APPLY" | grep -F 'tasks.md' > "$FX/apply-expiry"
-[ -s "$FX/apply-expiry" ] || fail "apply 沒有講「做到 propose 完成就停」在有 tasks.md 時失效"
-has 'open no gate' "$FX/apply-expiry"
-has 'only once the card already has tasks.md' "$FX/apply-expiry"
+# --- propose-stop 指示在有 tasks.md 時失效（寫在 continue.md，apply 不再自己寫）---
+has '做到 propose 完成就停' "$FX/expiry"
+has 'only once the card has tasks.md' "$FX/expiry"
+has 'whoever invokes apply' "$FX/expiry"
+has 'open no gate' "$FX/expiry"
+hasnt 'binds only the work before propose' "$APPLY"
 
 echo "scope-routing OK"
