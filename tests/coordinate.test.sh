@@ -1625,21 +1625,22 @@ assert_eq "$(cat "$FX/merges")" "" "沒有任何 merge 指令"
 rm -f "$MEMO"
 
 # --- MR 卡住：agent 不在 working 時推，同一件事只推一次，回到不卡住清鍵，查不到不清（agent-20261117-1122）---
-mrj() { # <state> <stuck 的 JSON 值，absent 表示沒有這個欄位> [error 的 JSON 值]：mr_json 的輸出
+mrj() { # <state> <stuck 的 JSON 值，absent 表示沒有這個欄位> [error 的 JSON 值] [head sha]：mr_json 的輸出
   local s=',"stuck":'"$2"; [ "$2" = absent ] && s=""
-  printf '{"url":"https://gitlab.example.com/a/b/-/merge_requests/9","state":"%s","head_sha":"abc","conditions":{"no_conflicts":true},"merged_at":null,"error":%s%s}' "$1" "${3:-null}" "$s"
+  printf '{"url":"https://gitlab.example.com/a/b/-/merge_requests/9","state":"%s","head_sha":"%s","conditions":{"no_conflicts":true},"merged_at":null,"error":%s%s}' "$1" "${4:-abc}" "${3:-null}" "$s"
 }
-stk() { # <agent_status 的 JSON 值> <mr JSON>：協調者在、輸入框空，跑一輪
-  cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":'"$1"',"mr":'"$2"'}]'
+stk() { # <agent_status 的 JSON 值> <mr JSON> [dispatch JSON]：協調者在、輸入框空，跑一輪
+  cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"${3:-$D}"',"agent_status":'"$1"',"mr":'"$2"'}]'
   OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
 }
+SESS_D='{"mode":"autopilot","agent":"claude","pane":"w1:p9","feature":"g","drive_pid":null}'
 stuck_n() { count "^agent prompt opsx-coordinator \[demo/m\] MR 卡在$1："; }
 any_stuck() { count '^agent prompt opsx-coordinator \[demo/m\] MR 卡在'; }
 stuck_push() { # <agent_status JSON> <state> <stuck> <預期接在「卡在」後的字> <說明>
   rm -f "$MEMO"; stk "$1" "$(mrj "$2" "\"$3\"")"
   assert_eq "$(stuck_n "$4")" 1 "MR 卡住要推：$5：$(cat "$OPSX_FAKE_LOG")"
   grep "^agent prompt opsx-coordinator \[demo/m\] MR 卡在" "$OPSX_FAKE_LOG" | grep -q '看板／MR：https://gitlab.example.com/a/b/-/merge_requests/9$' || fail "MR 卡住內文要帶 MR 連結：$5"
-  [ -n "$(memo_get _notified "demo/m/mr-stuck/$3")" ] || fail "_notified 要有 demo/m/mr-stuck/$3：$(cat "$MEMO")"
+  [ -n "$(memo_get _notified "demo/m/mr-stuck/abc/$3")" ] || fail "_notified 要有 demo/m/mr-stuck/abc/$3：$(cat "$MEMO")"
 }
 stuck_quiet() { # <agent_status JSON> <mr JSON> <說明>
   rm -f "$MEMO"; stk "$1" "$2"
@@ -1654,9 +1655,22 @@ stuck_push '"idle"' draft draft " draft" "draft、idle"
 stuck_push '"idle"' "threads:2" "要求修改" "要求修改" "有沒解的討論、idle"
 stuck_push '"idle"' "state:closed" "已關閉" "已關閉" "關掉沒合併、idle"
 stuck_push null "pipeline:failed" "CI 紅" " CI 紅" "pipeline failed、herdr 查不到"
+# 用量上限暫停中：通知人不是派工，照推
+rm -f "$MEMO"; printf '{"_usage_limit":{"seen_at":"%s","resets_at":"%s"}}' "$(ago 10)" "$(ahead 60)" > "$MEMO"; printf 'ok\n' > "$AR"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+[ -n "$(memo_get _usage_limit resets_at)" ] || fail "這輪要是用量上限暫停中：$(cat "$MEMO")"
+assert_eq "$(stuck_n ' CI 紅')" 1 "用量上限暫停中照推：$(cat "$OPSX_FAKE_LOG")"
+# 卡沒派過（dispatch 是 null）
+rm -f "$MEMO"; stk null "$(mrj pipeline:failed '"CI 紅"')" null
+assert_eq "$(stuck_n ' CI 紅')" 1 "dispatch 是 null 照推：$(cat "$OPSX_FAKE_LOG")"
+# feature session 的卡：pane 的 working 不代表在修這張卡
+rm -f "$MEMO"; stk '"working"' "$(mrj pipeline:failed '"CI 紅"')" "$SESS_D"
+assert_eq "$(stuck_n ' CI 紅')" 1 "feature session 的卡 working 照推：$(cat "$OPSX_FAKE_LOG")"
 # Examples：不推
 stuck_quiet '"working"' "$(mrj pipeline:failed '"CI 紅"')" "agent 還在修"
 stuck_quiet '"idle"' "$(mrj pipeline:running null)" "CI 還在跑"
+stuck_quiet '"idle"' "$(mrj pipeline:canceling null)" "GitLab 取消中（mr_json 給 null）"
+stuck_quiet '"idle"' "$(mrj state:locked null)" "GitLab 合併中（mr_json 給 null）"
 stuck_quiet '"idle"' "$(mrj pipeline:failed null)" "GitHub check 還是 IN_PROGRESS（mr_json 給 null）"
 stuck_quiet '"idle"' "$(mrj ready null)" "ready"
 assert_eq "$(count '^agent prompt opsx-coordinator \[demo/m\] 可以合併')" 1 "ready 照舊送可以合併：$(cat "$OPSX_FAKE_LOG")"
@@ -1676,16 +1690,36 @@ stk '"idle"' "$(mrj pipeline:running null)"
 assert_not_grep 'mr-stuck' "$MEMO"
 stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
 assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 2 "CI 跑過又紅要再推"
-# 查不到 MR 狀態、快取沒有 stuck 欄位、agent 在 working：不清鍵
+# 查不到 MR 狀態、快取沒有 stuck 欄位：不清鍵
 for mid in "$(mrj none null '"glab mr view 9 逾時"')" "$(mrj pipeline:running absent)"; do
   rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; n1="$(stuck_n ' CI 紅')"
   stk '"idle"' "$mid"
   stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
   assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 1 "分不出來那輪不清鍵：$mid"
 done
-rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+# agent 修到一半 MR 恢復、停下時又卡住要再推：working 那輪只是不推，清鍵照做
+rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; n1="$(stuck_n ' CI 紅')"
 stk '"working"' "$(mrj pipeline:running null)"
-[ -n "$(memo_get _notified "demo/m/mr-stuck/CI 紅")" ] || fail "agent 在 working 不清鍵：$(cat "$MEMO")"
+assert_not_grep 'mr-stuck' "$MEMO"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 2 "working 時恢復、停下又紅要再推"
+# 換了 commit 又卡住要再推，舊 commit 的鍵清掉
+rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"' null s1)"; n1="$(stuck_n ' CI 紅')"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"' null s2)"
+assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 2 "新 commit 又紅要再推"
+[ -n "$(memo_get _notified "demo/m/mr-stuck/s2/CI 紅")" ] || fail "_notified 要有 s2 的鍵：$(cat "$MEMO")"
+assert_eq "$(grep -o 'demo/m/mr-stuck/[^"]*' "$MEMO")" "demo/m/mr-stuck/s2/CI 紅" "_notified 只留 s2 的鍵"
+# 同一個 commit 原因換過再回來要再推：CI 紅 → draft → CI 紅
+rm -f "$MEMO"; : > "$FX/stuck-seq"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; grep -o 'MR 卡在[^：]*' "$OPSX_FAKE_LOG" >> "$FX/stuck-seq"
+stk '"idle"' "$(mrj draft '"draft"')"; grep -o 'MR 卡在[^：]*' "$OPSX_FAKE_LOG" >> "$FX/stuck-seq"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; grep -o 'MR 卡在[^：]*' "$OPSX_FAKE_LOG" >> "$FX/stuck-seq"
+assert_eq "$(cat "$FX/stuck-seq")" "$(printf 'MR 卡在 CI 紅\nMR 卡在 draft\nMR 卡在 CI 紅')" "原因換過再回來要再推"
+# session 的卡 pane 在做別張卡時照推
+rm -f "$MEMO"
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$SESS_D"',"agent_status":"working","mr":'"$(mrj pipeline:failed '"CI 紅"')"'},{"slug":"m2","section":"進行中","stage":"apply","dispatch":'"$SESS_D"',"agent_status":"working"}]'
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(stuck_n ' CI 紅')" 1 "session 的卡 pane 在做別張卡時照推：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- 十分鐘內第二次掛掉才通知 ---

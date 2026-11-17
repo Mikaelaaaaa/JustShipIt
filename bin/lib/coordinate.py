@@ -522,10 +522,12 @@ class Round:
             for key in [k for k in self.memo["_notified"] if k.startswith(scope + "/blocked/") and k not in still]:
                 del self.memo["_notified"][key]
 
-    def forget_mr_stuck(self, c):
-        """MR 不卡了（ready 或 CI 在跑）：清掉這張卡的 MR 卡住紀錄，之後再卡住（同一個 commit 的 CI 重跑又紅也算）要再通知。"""
+    def forget_mr_stuck(self, c, keep):
+        """清掉這張卡 MR 卡住紀錄裡不是 keep（<head sha>/<原因>，MR 不卡時是 None）的鍵：
+        MR 恢復、換了原因或 commit 之後再卡住（同一個 commit 的 CI 重跑又紅也算）要再通知。"""
         prefix = "%s/mr-stuck/" % card_key(c)
-        for key in [k for k in self.memo["_notified"] if k.startswith(prefix)]:
+        kept = prefix + keep if keep else None
+        for key in [k for k in self.memo["_notified"] if k.startswith(prefix) and k != kept]:
             del self.memo["_notified"][key]
 
     def notify_sub_gates(self, sessions):
@@ -1324,12 +1326,13 @@ def one_round(state, dry):
             # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
-        if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"] and c["agent_status"] != "working":
+        if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]
-            if reason:
-                r.notify(c, "mr-stuck", reason, "MR 卡在" + spaced(reason), "看板／MR：" + c["mr"]["url"])
-            else:
-                r.forget_mr_stuck(c)
+            ident = "%s/%s" % (c["mr"]["head_sha"], reason) if reason else None
+            r.forget_mr_stuck(c, ident)
+            # session 的 pane 共用 agent 狀態：pane 在做別張卡時，這張卡的 MR 沒人在修
+            if reason and (c["agent_status"] != "working" or session_scope(c)):
+                r.notify(c, "mr-stuck", ident, "MR 卡在" + spaced(reason), "看板／MR：" + c["mr"]["url"])
     if not paused:
         r.notify_sub_gates(data.get("sessions") or [])
     for c in live:
