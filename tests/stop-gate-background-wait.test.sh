@@ -46,12 +46,13 @@ out="$(sg)"; assert_eq "$(decision "$out")" block "沒有 transcript_path 要擋
 rm -rf "$STOP_STATE"
 out="$(sg "$FX/no-such-transcript.jsonl")"; assert_eq "$(decision "$out")" block "transcript 不存在要擋"
 
-# --- 正例：放行時回報協調者「等背景工作」 ---
+# --- 正例：放行時記下「等背景工作」，不回報協調者 ---
 CL="$FX/coord.log"; mkdir -p "$FX/cbin"
 printf '#!/usr/bin/env bash\nexec bash "%s/tests/fakes/herdr" "$@"\n' "$OPSX_ROOT" > "$FX/cbin/herdr"; chmod +x "$FX/cbin/herdr"
 rm -rf "$STOP_STATE" "$OPSX_STATE_DIR/stop-said"; : > "$CL"; start_monitor job1 > "$T"
 printf '{"cwd":"%s","transcript_path":"%s"}' "$R" "$T" | PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" OPSX_TEST_COORDINATOR_UP=1 bash "$H/openspec-stop-gate.sh" > /dev/null 2>&1
-assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：等背景工作（apply 站）' "$CL"
+assert_not_grep '^agent prompt' "$CL"
+assert_eq "$(sed -n 1p "$OPSX_STATE_DIR/stop-said/Acmecorp-AI-eval-core")" "等背景工作（apply 站）" "停住紀錄是等背景工作"
 
 # --- Scenario Outline：結束狀態與 120 分鐘上限，每一列一個斷言 ---
 row() { # <說明> <allow|block> <啟動分鐘前> [通知 status]

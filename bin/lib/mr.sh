@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
-#   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","error","created_at","merged_at"}
+#   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","error","created_at","merged_at"}
+#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed），不受排在前面的條件遮住
 #   mr_state <card dir>  印 ready | draft | conflicts | pipeline:<status> | threads:<n> | state:<s> | none（drive 用的短字串）
 # 來源：report.md 的 ## MR 連結。project 從 URL 解出來用 -R 指定（不靠 cwd：server 的 cwd 不是那個 repo）。
 #   gitlab 的 https://<host>/<group>/<proj>/-/merge_requests/<iid> 變成 glab mr view <iid> -R <host>/<group>/<proj> -F json；
@@ -75,7 +76,7 @@ mr_json() { # <card dir>
   local d="$1" url ttl cache raw rc=0 forge iid proj host path out tmp
   url="$(st_mr_url "$d")"
   if [ -z "$url" ]; then
-    printf '{"url": null, "state": "none", "head_sha": null, "conditions": null, "blocked_on": null, "error": null, "created_at": null, "merged_at": null}\n'; return
+    printf '{"url": null, "state": "none", "head_sha": null, "conditions": null, "blocked_on": null, "pipeline_status": null, "error": null, "created_at": null, "merged_at": null}\n'; return
   fi
   ttl="${OPSX_MR_CACHE_TTL:-60}"
   cache="$(mr_cache "$url")"
@@ -95,7 +96,7 @@ mr_json() { # <card dir>
 import json, os, sys
 url, forge, proj, iid = sys.argv[1:5]
 raw = os.environ.get("OPSX_MR_RAW", "").strip()   # heredoc 占了 stdin，原始 JSON 走環境變數
-out = {"url": url, "state": "none", "head_sha": None, "conditions": None, "blocked_on": None, "error": None, "created_at": None, "merged_at": None}
+out = {"url": url, "state": "none", "head_sha": None, "conditions": None, "blocked_on": None, "pipeline_status": None, "error": None, "created_at": None, "merged_at": None}
 tool = "gh pr view %s -R %s" % (iid, proj) if forge == "github" else "glab mr view %s -R %s" % (iid, proj)
 if not raw:
     rc = os.environ["OPSX_MR_RC"]
@@ -112,18 +113,22 @@ except json.JSONDecodeError as e:
     out["error"] = "%s 回的不是 JSON：%s" % (tool, e)
     print(json.dumps(out)); sys.exit()
 if forge == "github":
-    checks_ok = True
+    checks_ok, checks_failed = True, False
     for c in d.get("statusCheckRollup") or []:
         if "conclusion" in c:   # CheckRun：要跑完而且過
-            checks_ok = checks_ok and c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
+            ok = c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
+            checks_failed = checks_failed or (c.get("status") == "COMPLETED" and not ok)
         else:                   # StatusContext：只有 state
-            checks_ok = checks_ok and c.get("state") == "SUCCESS"
+            ok = c.get("state") == "SUCCESS"
+            checks_failed = checks_failed or c.get("state") in ("FAILURE", "ERROR")
+        checks_ok = checks_ok and ok
     decision = d.get("reviewDecision") or ""
     c = {"opened": d.get("state") == "OPEN", "not_draft": not d.get("isDraft"),
          "no_conflicts": d.get("mergeable") != "CONFLICTING" and d.get("mergeStateStatus") != "DIRTY",
          "pipeline": checks_ok, "threads": decision != "CHANGES_REQUESTED"}
     sha, ps, n, state = d.get("headRefOid"), ("success" if checks_ok else "failed"), (1 if decision == "CHANGES_REQUESTED" else 0), d.get("state")
-    out.update(created_at=d.get("createdAt"), merged_at=d.get("mergedAt"))
+    out.update(created_at=d.get("createdAt"), merged_at=d.get("mergedAt"),
+               pipeline_status="success" if checks_ok else "failed" if checks_failed else "pending")
 else:
     ps = (d.get("head_pipeline") or d.get("pipeline") or {}).get("status")
     n = d.get("unresolved_discussions_count")
@@ -132,7 +137,7 @@ else:
     c = {"opened": d.get("state") == "opened", "not_draft": not (d.get("draft") or d.get("work_in_progress")),
          "no_conflicts": not d.get("has_conflicts"), "pipeline": ps is None or ps == "success", "threads": n == 0}
     sha, state = d.get("sha") or (d.get("diff_refs") or {}).get("head_sha"), d.get("state")
-    out.update(created_at=d.get("created_at"), merged_at=d.get("merged_at"))
+    out.update(created_at=d.get("created_at"), merged_at=d.get("merged_at"), pipeline_status=ps)
 first = next((k for k in ("opened", "not_draft", "no_conflicts", "pipeline", "threads") if not c[k]), None)
 short = {"opened": "state:%s" % state, "not_draft": "draft", "no_conflicts": "conflicts",
          "pipeline": "pipeline:%s" % ps, "threads": "threads:%d" % n, None: "ready"}[first]

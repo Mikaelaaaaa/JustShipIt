@@ -84,6 +84,32 @@ class RowsTest(unittest.TestCase):
         run = next(r for r in rows if r["kind"] == "card" and r["card"]["slug"] == "run1")
         self.assertIn("apply 3/8", run["text"])
 
+    def test_card_line_stopped_without_waiting(self):
+        c = dict(card("s1", "進行中", pane="p1", status={"phase": "review", "step": "2", "total": "5", "label": "x"}),
+                 stopped={"reason": "等 reviewer（review 站）", "at": "2026-11-16T10:05:00+08:00"}, agent_status="idle")
+        line = tm._line(c)
+        self.assertIn("停住：等 reviewer（review 站）", line)
+        self.assertIn("10:05", line)
+
+    def test_card_line_working_hides_stopped(self):
+        stopped = {"reason": "等 reviewer（review 站）", "at": "2026-11-16T10:05:00+08:00"}
+        c = dict(card("s4", "進行中", pane="p1", status={"phase": "review", "step": "2", "total": "5", "label": "x"}), stopped=stopped)
+        self.assertNotIn("停住：", tm._line(c), "agent 在跑時不顯示舊的停住")
+        self.assertIn("停住：", tm._line(dict(c, agent_status=None)), "herdr 查不到時照舊顯示")
+
+    def test_card_line_waiting_hides_stopped(self):
+        c = dict(card("s2", "待處理", pane="p1", waiting={"type": "等待決定", "question": "快取放哪"}),
+                 stopped={"reason": "等人答 gate（apply 站）", "at": "2026-11-16T10:05:00+08:00"})
+        line = tm._line(c)
+        self.assertIn("快取放哪", line)
+        self.assertNotIn("停住：", line)
+
+    def test_card_line_stopped_null_shows_progress(self):
+        c = dict(card("s3", "進行中", pane="p1", status={"phase": "apply", "step": "3", "total": "6", "label": "寫測試"}), stopped=None)
+        line = tm._line(c)
+        self.assertIn("apply 3/6 · 寫測試", line)
+        self.assertNotIn("停住：", line)
+
 
 SESSION = {"repo": "a", "feature": "fb", "section": "進行中", "main_done": 1, "main_total": 2, "sub_done": 5, "sub_total": 7,
            "current": {"slug": "bt", "stage": "review"},
