@@ -101,14 +101,15 @@ check_gherkin() { # <卡目錄，主殼或子殼>：一個問題一行「<相對
     || printf '%s\n' "spec 規則是舊版：先跑 opsx init 拿插件版 specs instruction，再照它改 spec"
 }
 
+# workplan 所屬 PR 的 mr 有值又不是 none 時印一行。已 merged 的 PR 不報：它走 merged 的 archive，用不到 mr（同 st_no_mr_why）
+check_mr() { # <top> <slug>
+  local mr; mr="$(wp_pr_field "$1" "$2" mr)"
+  [ -z "$mr" ] || [ "$mr" = none ] || st_workplan_merged "$1" "$2" || printf 'workplan.yaml: mr: %s 不認得，只認 none\n' "$mr"
+}
+
 # 併進這張卡的項目（inbox.md 的 ## 併入 段）要有去處：tasks.md 提到它的 id，或已經 opsx split-out。
 # 有 tasks.md（propose 寫完了）或 outcome: declined（archive 正要捨棄）才檢查；沒有 tasks.md 時一個 id 都不算提到。
 # 不給 Stop hook 用：explore 階段的卡本來就還沒處理併入項目。
-check_mr() { # <top> <slug>：workplan 所屬 PR 的 mr 有值又不是 none 時印一行
-  local mr; mr="$(wp_pr_field "$1" "$2" mr)"
-  [ -z "$mr" ] || [ "$mr" = none ] || printf 'workplan.yaml: mr: %s 不認得，只認 none\n' "$mr"
-}
-
 check_merged() { # <卡目錄>：一個沒去處的 id 印一行
   local d="$1" slug id; slug="$(basename "$1")"
   [ -f "$d/inbox.md" ] || return 0

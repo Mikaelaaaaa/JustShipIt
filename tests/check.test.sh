@@ -503,4 +503,7 @@ mk_wp "mr: none"
 out="$(cd "$M" && opsx check c 2>&1)" || fail "mr: none 不報: $out"
 mk_wp ""
 out="$(cd "$M" && opsx check c 2>&1)" || fail "沒寫 mr 不報: $out"
+# 已 merged 的 PR 留著錯的 mr 值：stage 走 merged 的 archive，不用改 mr，check 不報（否則 archive 卡住）
+printf 'features:\n  - name: f\n    prs:\n      - name: c\n        branch: feat/c/mikaela\n        status: merged\n        mr: no\n' > "$M/openspec/workplan.yaml"
+out="$(cd "$M" && opsx check c 2>&1)" || fail "merged 的 PR 帶 mr: no 不報: $out"
 echo ok

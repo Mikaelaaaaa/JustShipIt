@@ -52,4 +52,11 @@ workplan pending ""; rm -rf "$STOP_STATE"
 out="$(sg)"
 case "$(reason "$out")" in *"再跑一次 /opsx-workflow:review"*) ;; *) fail "pr 站在 report 後有新 commit 要求重審：$out" ;; esac
 
+# 反例（D11）：workplan 的 branch 沒有自己的 commit（站仍是 archive），但 session 的 HEAD 在另一個 branch 上有 report 之後的 commit → 照舊要求重審
+git -C "$R" checkout -q -b feat/docs/other
+git -C "$R" commit -q --allow-empty -m unreviewed
+workplan pending "mr: none"; rm -rf "$STOP_STATE"
+out="$(sg)"
+case "$(reason "$out")" in *"再跑一次 /opsx-workflow:review"*) ;; *) fail "HEAD 有 report 之後的自己的 commit 要求重審：$out" ;; esac
+
 echo "stop-gate-no-mr ok"
