@@ -8,6 +8,7 @@
 import datetime
 import fcntl
 import functools
+import glob
 import json
 import os
 import re
@@ -631,29 +632,30 @@ class Round:
     def open_stale_wait_gate(self, c, top):
         """停在等背景工作超過上限的卡開一個 decision gate；同一次停住（同一個 stopped.at）開過就不再開，答過也不開。
         這輪不通知：下一輪 collect 讀到 open gate，handle_gate 照規則通知。"""
-        gate_id = stale_wait_gate(c, self.now)
+        card_dir = os.path.join(top, "openspec", "changes", c["slug"])
+        gate_id = stale_wait_gate(c, self.now, card_dir)
         if gate_id is None:
             return
-        gates_path = os.path.join(top, "openspec", "changes", c["slug"], "gates.md")
+        gates_path = os.path.join(card_dir, "gates.md")
         if late.gate_status(gates_path, gate_id) is not None:
             return
-        key, s = card_key(c), c["stopped"]
+        key, s, hours = card_key(c), c["stopped"], STALE_WAIT_SECONDS // 3600
         if self.dry:
-            self.log("DRY 開 gate %s（%s 停在%s超過 2 小時）" % (gate_id, key, s["reason"]))
+            self.log("DRY 開 gate %s（%s 停在%s超過 %d 小時）" % (gate_id, key, s["reason"], hours))
             return
         text = (
             "## %s\ntype: decision\nstatus: open\nopened_at: %s\n"
-            "問題: 卡停在%s超過 2 小時、agent 閒著，背景工作要怎麼處理？\n"
-            "已確認: 停住紀錄時間 %s；Stop hook 只在 Stop 時算 7200 秒上限，agent 閒著不會再算\n"
-            "選項: 繼續等 (Recommended) | 停掉背景工作再接站\n"
-            "建議: 背景工作可能是要留著的（dev server、長測試），先看 pane 再決定；確定沒用了才選停掉。\n"
+            "問題: 卡停在%s超過 %d 小時、agent 閒著，背景工作要怎麼處理？\n"
+            "已確認: 停住紀錄時間 %s；Stop hook 只在 Stop 時算 %d 秒上限，agent 閒著不會再算\n"
+            "選項: 接著做（背景工作已不算在跑） (Recommended) | 停掉背景工作再接站\n"
+            "建議: 回答後 agent 接著做這站；背景工作不該再跑才選停掉。\n"
             "證據: %s\n風險: 停掉的話背景工作做到一半的結果會丟。\n預設: 不回答就一直停著\n"
-        ) % (gate_id, self.now.isoformat(timespec="seconds"), s["reason"], s["at"],
+        ) % (gate_id, self.now.isoformat(timespec="seconds"), s["reason"], hours, s["at"], STALE_WAIT_SECONDS,
              os.path.join(self.state, "stop-said", "%s-%s" % (c["repo"], c["slug"])))
         prefix = "\n" if os.path.exists(gates_path) and os.path.getsize(gates_path) else ""
         with safefile.open_append(gates_path) as f:
             f.write(prefix + text)
-        self.log("?? %s 停在%s超過 2 小時，開 gate %s" % (key, s["reason"], gate_id))
+        self.log("?? %s 停在%s超過 %d 小時，開 gate %s" % (key, s["reason"], hours, gate_id))
 
     def session_siblings(self, key, top):
         """同 feature 還活著的其他卡的 key（chain.session_siblings）。"""
@@ -1279,15 +1281,39 @@ def owner_gone(c):
     return not c["dispatch"] or c["agent_status"] == "unknown"
 
 
-def stale_wait_gate(c, now):
+def subagent_running(card_dir, now):
+    """卡的子 change 有 subagent 還在跑：subs/*/status.json 有一份 worker 是 subagent-*、step < total、at 在上限內。
+    跟 hook 的 st_subagent_running 同一個時間基準（最後一次更新）；讀不了或格式不對的 status.json 不算在跑，hook 那邊 jq 失敗也是不算。"""
+    for path in glob.glob(os.path.join(card_dir, "subs", "*", "status.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                st = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not (isinstance(st, dict) and isinstance(st.get("worker"), str) and st["worker"].startswith("subagent-")
+                and type(st.get("step")) in (int, float) and type(st.get("total")) in (int, float)
+                and st["step"] < st["total"] and isinstance(st.get("at"), str)):
+            continue
+        try:
+            at = datetime.datetime.fromisoformat(st["at"])
+        except ValueError:
+            continue
+        if at.tzinfo is not None and 0 <= (now - at).total_seconds() <= STALE_WAIT_SECONDS:
+            return True
+    return False
+
+
+def stale_wait_gate(c, now, card_dir):
     """派出去的卡 agent 閒著、沒有 open gate、停在等背景工作超過上限：回這次停住的 gate id，否則 None。
-    agent 在 working 時停住紀錄是舊的，不看。"""
+    agent 在 working 時停住紀錄是舊的，不看；等背景 subagent 時子 change 的 subagent 還在跑也不看。"""
     s = c["stopped"]
     if not (c["dispatch"] and c["agent_status"] in ("idle", "done") and not c["open_gates"] and s
             and s["reason"].startswith(STALE_WAIT_REASONS)):
         return None
     at = datetime.datetime.fromisoformat(s["at"])
     if (now - at).total_seconds() <= STALE_WAIT_SECONDS:
+        return None
+    if s["reason"].startswith("等背景 subagent") and subagent_running(card_dir, now):
         return None
     return "stale-wait-" + at.strftime("%Y%m%d%H%M%S")
 

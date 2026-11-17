@@ -8,6 +8,11 @@ mkcard card-a
 printf '{"demo/card-a":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":null}}' > "$DISP"
 
 ago() { python3 -I -c 'import datetime,sys; print((datetime.datetime.now().astimezone()-datetime.timedelta(seconds=int(sys.argv[1]))).isoformat(timespec="seconds"))' "$1"; }
+ahead() { python3 -I -c 'import datetime,sys; print((datetime.datetime.now().astimezone()+datetime.timedelta(minutes=int(sys.argv[1]))).isoformat(timespec="seconds"))' "$1"; }
+LIMIT="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import coordinate; print(coordinate.STALE_WAIT_SECONDS)' "$OPSX_ROOT/bin/lib")"
+SUB="$R/openspec/changes/card-a/subs/sub-x"
+# sub_status <worker> <step> <total> <秒數>：子 change 的 status.json，最後一次更新在 <秒數> 秒前
+sub_status() { mkdir -p "$SUB"; printf '{"worker":"%s","step":%s,"total":%s,"at":"%s"}' "$1" "$2" "$3" "$(ago "$4")" > "$SUB/status.json"; }
 gate_id() { local d="${1:0:19}"; echo "stale-wait-${d//[-T:]/}"; }
 stale() { cat "$G" 2>/dev/null | grep -c '^## stale-wait-' || true; }
 # card <原因> <秒數> <agent> [open_gates JSON]：寫一張已派出的卡，停住紀錄在 <秒數> 秒前
@@ -27,11 +32,14 @@ row "等背景工作（apply 站）" 9000 idle 1
 assert_grep "^## $(gate_id "$AT")\$" "$G"
 assert_grep '^type: decision$' "$G"
 assert_grep '^status: open$' "$G"
-assert_grep '^選項: 繼續等 (Recommended) | 停掉背景工作再接站$' "$G"
-assert_grep "^已確認: 停住紀錄時間 $AT" "$G"
+assert_grep '^選項: 接著做（背景工作已不算在跑） (Recommended) | 停掉背景工作再接站$' "$G"
+assert_not_grep '繼續等' "$G"
+assert_grep "^問題: 卡停在等背景工作（apply 站）超過 $((LIMIT / 3600)) 小時" "$G"
+assert_grep "^已確認: 停住紀錄時間 ${AT}；Stop hook 只在 Stop 時算 ${LIMIT} 秒上限" "$G"
 assert_grep '^證據: .*/stop-said/demo-card-a$' "$G"
 assert_not_grep '^waits-on' "$G"
 grep '??' "$LOG" | grep -q "$(gate_id "$AT")" || fail "要記 ?? 並點名 gate：$(cat "$LOG")"
+grep '??' "$LOG" | grep -q "超過 $((LIMIT / 3600)) 小時" || fail "?? 的時數要從 STALE_WAIT_SECONDS 算：$(cat "$LOG")"
 row "等背景 subagent（apply 站）" 9000 idle 1
 row "等背景工作（apply 站）" 9000 done 1
 row "等 reviewer（review 站）" 9000 idle 0
@@ -57,11 +65,37 @@ cases = [
     ({**c(9000), "dispatch": None}, None),
     ({**c(9000), "open_gates": [{"id": "q1", "opened_at": None}]}, None),
 ]
-bad = [(card, want, got) for card, want in cases if (got := coordinate.stale_wait_gate(card, now)) != want]
+bad = [(card, want, got) for card, want in cases if (got := coordinate.stale_wait_gate(card, now, "/nonexistent")) != want]
 for b in bad:
     print("壞案例：", b)
 sys.exit(1 if bad else 0)
 PY
+
+# 等背景 subagent：子 change 的 subagent 在上限內更新過 status.json 就是還在跑，不開；跟 hook 的 st_subagent_running 同一個時間基準
+row_sub() { sub_status "$1" "$2" "$3" "$4"; row "等背景 subagent（apply 站）" 9000 idle "$5"; }
+row_sub subagent-1 1 3 600 0
+row_sub subagent-1 1 3 9000 1
+row_sub subagent-1 3 3 600 1
+row_sub claude 1 3 600 1
+printf '{"worker":"subagent-1",' > "$SUB/status.json"
+row "等背景 subagent（apply 站）" 9000 idle 1
+# 「等背景工作」不看子 change
+sub_status subagent-1 1 3 600
+row "等背景工作（apply 站）" 9000 idle 1
+rm -rf "$R/openspec/changes/card-a/subs"
+
+# 用量上限暫停：不開
+printf '{"_usage_limit":{"seen_at":"%s","resets_at":"%s"}}' "$(ago 10)" "$(ahead 60)" > "$MEMO"
+row "等背景工作（apply 站）" 9000 idle 0
+rm -f "$MEMO"
+
+# 已答的 stale-wait gate 屬於舊的停住時間、卡現在是新的停住時間：開新 gate
+OLD="$(gate_id "$(ago 20000)")"
+card "等背景工作（apply 站）" 9000 idle
+printf '## %s\ntype: decision\nstatus: answered\n答案: 接著做\n' "$OLD" > "$G"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(stale)" 2 "新的停住時間要開新 gate：$(cat "$G")"
+assert_grep "^## $(gate_id "$AT")\$" "$G"
 
 # 卡上已有 open gate q1：不開
 rm -f "$G"; printf '## q1\ntype: decision\nstatus: open\n問題: 要哪個？\n' > "$G"
@@ -86,5 +120,5 @@ assert_not_grep '^status: open$' "$G"
 rm -f "$G"; card "等背景工作（apply 站）" 9000 idle
 round --dry || fail "rc: $(cat "$FX/out")"
 assert_no_file "$G"
-assert_grep "DRY 開 gate $(gate_id "$AT")" "$LOG"
+assert_grep "DRY 開 gate $(gate_id "$AT").*超過 $((LIMIT / 3600)) 小時" "$LOG"
 echo "coordinate-stale-wait ok"
