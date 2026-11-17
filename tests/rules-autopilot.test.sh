@@ -38,6 +38,16 @@ has "$n" 'pnpm test'
 has "$n" 'pytest'
 has "$n" '主 checkout'
 case "$n" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+# test-run-rule-edges Scenario Outline：否分支列出前綴規則與清單外做法（一般 4 列、邊界 1 列）
+has "$n" '不加 `VAR=…` 或 `export`'
+has "$n" '`TEST_DATABASE_URL=`'
+has "$n" 'needs: run gate'
+has "$n" '不換寫法重試'
+has "$n" 'pnpm vitest'
+case "$n" in *'TEST_DATABASE_URL='*'pnpm test / pnpm vitest 除外'*) ;; *) fail "TEST_DATABASE_URL 例外要點名 pnpm test 與 pnpm vitest: $n" ;; esac
+# 反例：有 tests/run.sh 時不出現否分支的字句
+gone "$r" 'TEST_DATABASE_URL='
+gone "$r" '不換寫法重試'
 # Scenario Outline 邊界：沒有 package.json 的 repo 不提醒 pnpm docs:api
 gone "$n" 'pnpm docs:api'
 gone "$r" 'pnpm docs:api'
