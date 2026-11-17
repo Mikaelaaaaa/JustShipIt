@@ -124,11 +124,33 @@ assert_no_file "$(git -C "$R/.claude/worktrees/nopane-card" rev-parse --absolute
 R="$(new_repo Inst-L killed-card pnpm-lock.yaml)"
 git -C "$R" worktree add -q "$R/.claude/worktrees/killed-card" -b feat/killed-card/mikaela
 printf 'pnpm install 沒跑完\n' > "$(git -C "$R/.claude/worktrees/killed-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
+mkdir -p "$R/.claude/worktrees/killed-card/node_modules/.pnpm"   # 裝到一半留下的，或使用者之後自己裝好的
 out="$(cd "$R" && opsx dispatch killed-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
 assert_eq "$rc" 0 "被殺後重派 rc: $out"
 assert_not_grep '^pnpm ' "$OPSX_FAKE_LOG"
-assert_grep '^## install-deps$' "$R/openspec/changes/killed-card/gates.md"
-assert_grep 'pnpm install 沒跑完' "$R/openspec/changes/killed-card/gates.md"
+G="$R/openspec/changes/killed-card/gates.md"
+assert_grep '^## install-deps$' "$G"
+assert_grep 'pnpm install 沒跑完' "$G"
+# 有 node_modules 也只建議 pnpm install，不建議刪掉重裝（D15）
+assert_grep "^建議: cd $R/.claude/worktrees/killed-card && pnpm install --frozen-lockfile\$" "$G"
+assert_not_grep 'rm -rf' "$G"
+
+# worktree 目錄在但不是一棵能用的 worktree：die、寫明怎麼修、不開 pane、標記不落到主 repo 的 .git（D16）
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-N nogit-card pnpm-lock.yaml)"
+mkdir -p "$R/.claude/worktrees/nogit-card"
+out="$(cd "$R" && opsx dispatch nogit-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "沒有 .git 的 worktree 目錄 dispatch 要失敗：$out"
+echo "$out" | grep -q 'git worktree prune' || fail "訊息要寫怎麼修：$out"
+assert_not_grep '^agent start nogit-card' "$OPSX_FAKE_LOG"
+assert_no_file "$R/.git/opsx-deps-pending"
+R="$(new_repo Inst-O deadgit-card pnpm-lock.yaml)"
+mkdir -p "$R/.claude/worktrees/deadgit-card"
+printf 'gitdir: %s/.git/worktrees/gone\n' "$R" > "$R/.claude/worktrees/deadgit-card/.git"
+out="$(cd "$R" && opsx dispatch deadgit-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail ".git 指向不存在的 git-dir 時 dispatch 要失敗：$out"
+echo "$out" | grep -q 'git worktree prune' || fail "訊息要寫怎麼修：$out"
+assert_not_grep '^agent start deadgit-card' "$OPSX_FAKE_LOG"
 
 # pnpm 輸出帶 \r：寫進 gate 時跟換行一樣換成空白，看板不會讀出第二段 gate
 : > "$OPSX_FAKE_LOG"

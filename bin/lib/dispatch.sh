@@ -151,7 +151,11 @@ PY
     fi
   fi
   # 依賴沒裝好的標記放在 worktree 的 git-dir，跟著樹走：上次派工裝失敗或被殺在半路、卡又沒派出去時，重派看得到。卡派出去、gate 開好才刪
-  local mark deps_fail=""
+  local mark deps_fail="" real
+  # 頂層不是這棵樹（沒有 .git 時 git 往上找到主 repo；.git 指向已刪的 git-dir 時找不到）：標記會寫錯地方，pane 也會開在壞掉的樹上
+  real="$(cd "$wt" && pwd -P)"
+  [ "$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)" = "$real" ] \
+    || die "dispatch: $wt 不是一棵能用的 git worktree（.git 不在或指向已刪的 git-dir）。先 cd $top && git worktree prune，或刪掉 $wt 再派"
   mark="$(git -C "$wt" rev-parse --absolute-git-dir)/opsx-deps-pending"
   # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
   if [ -n "$fresh" ] && [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt" "$mark"; fi
@@ -269,9 +273,8 @@ write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 
   n=$(cat "$d/gates.md" 2>/dev/null | grep -cE '^## install-deps(-[0-9]+)?$' || true)
   [ "$n" -eq 0 ] || id="install-deps-$((n + 1))"
   printf -v q '%q' "$wt"
+  # 不建議刪 node_modules：使用者可能已經自己裝好（CLAUDE.md §7 不刪除重裝）
   cmd="cd $q && pnpm install --frozen-lockfile"
-  # 裝到一半留下的 node_modules 會讓 pnpm 以為裝過了
-  [ ! -d "$wt/node_modules" ] || cmd="cd $q && rm -rf node_modules && pnpm install --frozen-lockfile"
   {
     printf '\n## %s\n' "$id"
     # blocks-from: apply：卡寫出 tasks.md 前 stop hook、drive、看板都不當它在等人（stage.sh st_gates_file_count）
