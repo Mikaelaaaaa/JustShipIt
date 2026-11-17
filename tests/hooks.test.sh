@@ -1445,10 +1445,38 @@ printf '%s' "${OPEN_MR/\"success\"/\"running\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: CI 在跑不推"
 printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: MR ready 不推"
+assert_eq "$(grep -c '^mr view' "$CL")" 1 "stop: 同一次 Stop 只查一次 forge"
 printf '' > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_eq "$out" "" "stop: 查不到 MR 時有 babysit: 行照樣放行"
 assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: 查不到 MR 不推"
-printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
+# 排除法：ready、CI 還在跑、查不到以外，合不了的一律推
+bs_push() { # <MR JSON> <原因> <說明>
+  printf '%s' "$1" > "$OPSX_TEST_GLAB_JSON"; out="$(sgc)"; assert_eq "$out" "" "stop: $3 放行"
+  assert_grep "^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，MR 卡在$2\$" "$CL"
+}
+bs_push "${OPEN_MR/\"success\"/\"canceled\"}" " canceled" "pipeline canceled"
+bs_push "${OPEN_MR/\"unresolved_discussions_count\":0/\"unresolved_discussions_count\":2}" 要求修改 "有沒解的討論"
+bs_push "${OPEN_MR/\"state\":\"opened\"/\"state\":\"closed\"}" 已關閉 "MR 關掉沒合併"
+bs_push "${OPEN_MR/\"draft\":false/\"draft\":true}" " draft" "draft"
+DRAFT_RED="${OPEN_MR/\"draft\":false/\"draft\":true}"
+bs_push "${DRAFT_RED/\"success\"/\"failed\"}" " CI 紅" "draft 且 CI 紅"
+# forge 掛住：只等一次，放行在 hook 的 10 秒內完成，停住紀錄照寫
+printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"; rm -rf "$OPSX_STATE_DIR/stop-said"
+t0="$(date +%s)"; out="$(unset OPSX_MR_TIMEOUT; OPSX_TEST_GLAB_SLEEP=9 sgc)"; elapsed=$(( $(date +%s) - t0 ))
+[ "$elapsed" -lt 8 ] || fail "stop: babysit 放行時 forge 掛住要在 8 秒內放棄，花了 ${elapsed} 秒"
+assert_eq "$out" "" "stop: forge 掛住照樣放行"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: forge 掛住照寫停住紀錄"
+assert_eq "$(grep -c '^mr view' "$CL")" 1 "stop: forge 掛住也只查一次"
+# GitHub：check 還在跑不算 CI 紅，跑完失敗才算
+use_fakes gh; export OPSX_TEST_GH_JSON="$FX/pr.json"
+printf '# report\n\n## MR\nhttps://github.com/a/b/pull/33 · opened 2026-11-10 · auto-merge: no\nbabysit: 2026-11-10T14:00:00+08:00\n' > "$C/report.md"
+GH_PR='{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null}]}'
+printf '%s' "$GH_PR" > "$OPSX_TEST_GH_JSON"
+out="$(sgc)"; assert_eq "$out" "" "stop: GitHub check 在跑放行"
+assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: GitHub check 在跑不推"
+GH_RED="${GH_PR/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"FAILURE\"}"
+printf '%s' "$GH_RED" > "$OPSX_TEST_GH_JSON"
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，MR 卡在 CI 紅$' "$CL"
+printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"; done_report
 # 沒有卡的 branch 不擋
 git -C "$R" checkout -q -b scratch-x; out="$(sg)"; assert_eq "$out" "" "stop: branch 對不到卡不擋"
 git -C "$R" checkout -q "feat/eval-core/mikaela"

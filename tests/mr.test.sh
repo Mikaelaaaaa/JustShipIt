@@ -40,6 +40,10 @@ printf '%s' "$GREEN" > "$OPSX_TEST_GLAB_JSON"
 printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"abc123","head_pipeline":{"status":"failed"},"unresolved_discussions_count":0}' > "$OPSX_TEST_GLAB_JSON"
 j="$(mr_json "$C")"
 assert_eq "$(field "$j" state)" "pipeline:failed"; assert_eq "$(field "$j" conditions.pipeline)" false; assert_eq "$(field "$j" blocked_on)" pipeline
+assert_eq "$(field "$j" pipeline_status)" failed "pipeline_status 是 CI 本身的狀態"
+# draft 排在 pipeline 前面，state 是 draft，pipeline_status 仍看得出 CI 紅
+printf '{"state":"opened","draft":true,"has_conflicts":false,"sha":"abc123","head_pipeline":{"status":"failed"},"unresolved_discussions_count":0}' > "$OPSX_TEST_GLAB_JSON"
+j="$(mr_json "$C")"; assert_eq "$(field "$j" state)" draft; assert_eq "$(field "$j" pipeline_status)" failed "draft 時 pipeline_status 照給"
 
 # --- 兩個未解 thread ---
 printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"abc123","head_pipeline":{"status":"success"},"unresolved_discussions_count":2}' > "$OPSX_TEST_GLAB_JSON"
@@ -62,6 +66,11 @@ assert_eq "$(field "$j" state)" ready "github ready: $j"; assert_eq "$(field "$j
 assert_grep '^pr view 33 -R Mikaelaaaaa/scam-guard --json ' "$OPSX_FAKE_LOG"
 printf '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null}]}' > "$OPSX_TEST_GH_JSON"
 assert_eq "$(mr_state "$C2")" "pipeline:failed" "check 還在跑不算過"
+assert_eq "$(field "$(mr_json "$C2")" pipeline_status)" pending "check 還在跑的 pipeline_status 是 pending，不是 failed"
+printf '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}' > "$OPSX_TEST_GH_JSON"
+assert_eq "$(field "$(mr_json "$C2")" pipeline_status)" failed "有一個 check 跑完失敗就是 failed"
+printf '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"StatusContext","state":"ERROR"}]}' > "$OPSX_TEST_GH_JSON"
+assert_eq "$(field "$(mr_json "$C2")" pipeline_status)" failed "StatusContext ERROR 是 failed"
 printf '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"CHANGES_REQUESTED","statusCheckRollup":[]}' > "$OPSX_TEST_GH_JSON"
 assert_eq "$(mr_state "$C2")" "threads:1" "CHANGES_REQUESTED 當未解"
 printf '{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"CLEAN","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[],"createdAt":"2026-11-05T02:00:00Z","mergedAt":null}' > "$OPSX_TEST_GH_JSON"

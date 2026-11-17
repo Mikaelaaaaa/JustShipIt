@@ -12,7 +12,7 @@ const START = '/* 停住 start */', END = '/* 停住 end */';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0 || e < s) throw new Error(`index.html 找不到標記 ${START} / ${END}`);
 const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-const {stoppedNote} = new Function('esc', html.slice(s, e) + ';return {stoppedNote};')(esc);
+const {stoppedNote, stoppedLine} = new Function('esc', html.slice(s, e) + ';return {stoppedNote, stoppedLine};')(esc);
 
 const at = '2026-11-16T10:05:00+08:00';
 // 沒有 waiting：顯示原因與時:分
@@ -33,5 +33,13 @@ assert.ok(stoppedNote({waiting: null, agent_status: null, stopped}).includes('�
 
 // 進行中那一列接在進度後面
 assert.ok(html.includes('${prog}${mrNote}${stoppedNote(c)}'), '進行中列放進停住原因');
+// TUI 每一區都顯示，web 的待指派與收件匣也要放
+const body = name => { const i = html.indexOf(`function ${name}(c){`); return html.slice(i, html.indexOf('\nfunction ', i + 1)); };
+for (const name of ['rowReady', 'rowInbox']) assert.ok(body(name).includes('stoppedLine(c)'), `${name} 要放停住原因`);
+const line = stoppedLine({waiting: null, agent_status: null, stopped});
+assert.ok(line.includes('停住：等 reviewer（review 站）') && line.includes('10:05'), '待指派的停住行要有原因與時:分：' + line);
+assert.ok(!stoppedLine({waiting: null, stopped: {reason: '<b>x</b>', at}}).includes('<b>'), '停住行的原因要 escape');
+for (const c of [{waiting: {type: '等待決定'}, stopped}, {waiting: null, stopped: null}, {waiting: null, agent_status: 'working', stopped}])
+  assert.strictEqual(stoppedLine(c), '', '有 waiting、沒有紀錄、agent 在跑時沒有停住行');
 JS
 echo ok
