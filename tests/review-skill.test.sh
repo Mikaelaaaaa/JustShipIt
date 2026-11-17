@@ -83,8 +83,10 @@ assert_fixed 'A line pointing at a `spec.md` is a spec that breaks the Gherkin r
 
 # --- 沒 CI 的 repo：review 自己背景跑全套，紅就退回 apply；有 CI 不必（specs/review-full-suite-gate）---
 grep -F 'No CI:' "$STEP0" > "$FX/noci"; [ -s "$FX/noci" ] || fail "Step 0 找不到 No CI 段"
-# 有沒有 CI 照主要 remote 判斷（D8、D9、D10）：Examples 表每一列對到一句條件
+# 有沒有 CI 照主要 remote 判斷（D8、D9、D10、D12）：Examples 表每一列對到一句條件
 for k in 'the primary remote (`gitlab` when the repo has that remote, otherwise `origin`)' \
+  'the forge is the host in `git remote get-url <primary>`: a host with `gitlab` in its name is GitLab, `github.com` is GitHub.' \
+  'No remote at all, or a primary on any other host, is no CI.' \
   'A GitLab primary has CI when the repo has a `.gitlab-ci.yml`' \
   'a GitHub primary has CI when `.github/workflows/` holds a `.yml` or `.yaml` file' \
   '(a README or `.gitkeep` alone is no CI)' \
@@ -97,9 +99,10 @@ for k in 'an empty workflows directory is no CI' 'has no CI when the repo has a 
   'With no CI present, the full run is not required' 'Skip this if status.json is green'; do
   assert_not_fixed "$k" "$FX/noci"
 done
-# 全套指令照 apply 的找法（D11），不寫死 tests/run.sh
+# 全套指令照 apply 的找法（D11），不寫死 tests/run.sh；找不到指令照常開審（D13）
 for k in '`bash tests/run.sh` when the repo has `tests/run.sh`' \
-  'otherwise the test command found the way apply finds it (CLAUDE.md first, then package.json / pyproject)'; do
+  'otherwise the test command found the way apply finds it (CLAUDE.md first, then package.json / pyproject, then the usual `pnpm test`, `pytest`, `go test ./...`).' \
+  'When that finds no test command, do not run the suite: write `找不到測試指令，沒跑全套` under `## 測試` in report.md and start review.'; do
   assert_fixed "$k" "$FX/noci"
 done
 assert_not_fixed '背景跑 the whole suite `bash tests/run.sh`' "$FX/noci"
@@ -188,3 +191,14 @@ assert_not_fixed '(add the heading when it is missing)' "$MAP"
 assert_fixed 'In round 1, when report.md does not exist yet, keep the failure line for Step 5 the same way.' "$MAP"
 assert_fixed 'Delete the whole `## 邏輯表` section from report.md' "$FX/answered"
 assert_not_fixed 'Clear the line under `## 邏輯表`' "$FX/answered"
+
+# --- No CI 的探查指令要過得了 grant hook（D8、D9）：點名 CI 路徑的 Bash 連唯讀都判第三級 ---
+PROBE='Look with `git ls-files .github` and `ls -a` at the repo root: the grant hook denies any Bash command whose text names `.gitlab-ci.yml` or `.github/workflows`, even a read.'
+grep -qF -- "$PROBE" "$FX/noci" || fail "No CI 段要寫明探查指令與 hook 的限制"
+# grant-gate-fixture 會再 source lib.sh 開新的 $FX，先清掉這支用完的
+rm -rf "$FX"
+source "$(dirname "${BASH_SOURCE[0]}")/grant-gate-fixture.sh"
+for c in 'git ls-files .github' 'ls -a'; do
+  out="$(gg "$c")"; assert_eq "$(decision "$out")" allow "探查指令要放行（${c}）: $(reason "$out")"
+done
+out="$(gg 'ls .github/workflows')"; assert_eq "$(decision "$out")" deny "點名 .github/workflows 的唯讀指令被擋，SKILL.md 才要繞開: $(reason "$out")"
