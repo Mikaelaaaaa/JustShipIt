@@ -52,10 +52,26 @@ python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["al
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"].get("allow",[]);assert not [r for r in a if "orca" in r],a' "$SI" || fail "interactive 不放行 orca"
 assert_eq "$(grep -c '://' "$S")" 0 "settings 不含連線字串（任何 scheme://）"
 
-# --- docs-api-autopilot-allow：autopilot 只放行 pnpm docs:api，不放行整個 pnpm、tsx 與其他 tsx script；interactive 不放行 ---
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm docs:api:*)" in a,a' "$S" || fail "autopilot allow 缺 Bash(pnpm docs:api:*)"
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm:*)" not in a and "Bash(tsx:*)" not in a,a;assert not [r for r in a if r.startswith(("Bash(pnpm i18n:split","Bash(pnpm seed:e2e"))],a' "$S" || fail "autopilot allow 不能放行整個 pnpm、tsx 或其他 tsx script"
-assert_eq "$(grep -c 'pnpm docs:api' "$SI")" 0 "interactive 不放行 pnpm docs:api"
+# --- docs-api-autopilot-allow：主 checkout 根目錄 package.json 的 scripts 有 docs:api 才放行；不放行整個 pnpm、tsx 與其他 tsx script；interactive 不放行 ---
+# 邊界：沒有 package.json（上面那張卡的 TOP）
+assert_eq "$(grep -c 'pnpm docs:api' "$S")" 0 "沒有 package.json 的 repo 不放行 pnpm docs:api"
+# 一般：scripts 只有 build 與 test
+printf '{"scripts":{"build":"tsc","test":"vitest"}}\n' > "$TOP/package.json"
+launch_args claude claude-sonnet-5-5 autopilot Acmecorp-CS no-docs "$TOP"
+assert_eq "$(grep -c 'pnpm docs:api' "$SD/settings/Acmecorp-CS-no-docs-autopilot.json")" 0 "scripts 沒有 docs:api 的 repo 不放行"
+# 邊界："docs:api" 只出現在 scripts 以外
+printf '{"description":"run docs:api by hand","scripts":{"build":"tsc"},"docs:api":"x"}\n' > "$TOP/package.json"
+launch_args claude claude-sonnet-5-5 autopilot Acmecorp-CS docs-outside "$TOP"
+assert_eq "$(grep -c 'pnpm docs:api' "$SD/settings/Acmecorp-CS-docs-outside-autopilot.json")" 0 "docs:api 只在 scripts 以外時不放行"
+# 正例
+printf '{"scripts":{"build":"tsc","docs:api":"tsx scripts/api-docs/gen.ts"}}\n' > "$TOP/package.json"
+launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI docs-card "$TOP"
+SA="$SD/settings/Acmecorp-AI-docs-card-autopilot.json"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm docs:api:*)" in a,a' "$SA" || fail "根目錄 package.json 有 docs:api 時 allow 要有 Bash(pnpm docs:api:*)"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm:*)" not in a and "Bash(tsx:*)" not in a,a;assert not [r for r in a if r.startswith(("Bash(pnpm i18n:split","Bash(pnpm seed:e2e","Bash(pnpm docs:*"))],a' "$SA" || fail "autopilot allow 不能放行整個 pnpm、tsx、pnpm docs:* 或其他 tsx script"
+launch_args claude claude-opus-5-5 interactive Acmecorp-AI docs-card "$TOP"
+assert_eq "$(grep -c 'pnpm docs:api' "$SD/settings/Acmecorp-AI-docs-card-interactive.json")" 0 "interactive 不放行 pnpm docs:api"
+rm -f "$TOP/package.json"
 
 # --- migrate 授權：filter 寫法只在 grants.toml 開 migrate 時出現 ---
 launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI no-grant "$TOP"

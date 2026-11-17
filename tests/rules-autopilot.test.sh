@@ -47,6 +47,8 @@ D="$(mk_repo DocsApi)"
 printf '{"scripts":{"build":"tsc","docs:api":"tsx scripts/api-docs/gen.ts"}}\n' > "$D/package.json"
 d="$(rule_autopilot "$D")"
 has "$d" ' · `pnpm docs:api` 要單獨下'
+# openspec 規則會 cd 到主 checkout；沒先回 worktree 根，沙箱外的產生器就寫進主 checkout 的 docs/api/
+has "$d" '先單獨 cd 到 worktree 根'
 has "$d" '不接 `cd … &&`'
 has "$d" '不接 pipe'
 gone "$d" ' ·  · '

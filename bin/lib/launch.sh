@@ -34,7 +34,7 @@ if os.environ["OPSX_MODE"]=="interactive":
     safefile.write_atomic(sys.argv[1], json.dumps({"env":env,"permissions":{"additionalDirectories":dirs}},indent=2))
     sys.exit(0)
 allow=["Read","Edit","Write","Glob","Grep","Bash(git status:*)","Bash(git diff:*)","Bash(git log:*)","Bash(git add:*)","Bash(git commit:*)","Bash(git checkout:*)","Bash(git worktree:*)",
-       "Bash(pnpm test:*)","Bash(pnpm vitest:*)","Bash(TEST_DATABASE_URL=* pnpm vitest:*)","Bash(TEST_DATABASE_URL=* pnpm test:*)","Bash(pnpm build:*)","Bash(pnpm lint:*)","Bash(pnpm typecheck:*)","Bash(pnpm docs:api:*)","Bash(npx vitest:*)","Bash(pytest:*)","Bash(uv run:*)","Bash(ruff:*)","Bash(go test:*)",
+       "Bash(pnpm test:*)","Bash(pnpm vitest:*)","Bash(TEST_DATABASE_URL=* pnpm vitest:*)","Bash(TEST_DATABASE_URL=* pnpm test:*)","Bash(pnpm build:*)","Bash(pnpm lint:*)","Bash(pnpm typecheck:*)","Bash(npx vitest:*)","Bash(pytest:*)","Bash(uv run:*)","Bash(ruff:*)","Bash(go test:*)",
        "Bash(openspec:*)","Bash(opsx:*)","Bash(ls:*)","Bash(cat:*)","Bash(grep:*)","Bash(rg:*)","Bash(find:*)","Bash(node:*)","Bash(python3:*)",
        "Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(diff:*)","Bash(sort:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(herdr pane read:*)","Bash(orca status:*)","Bash(orca repo list:*)","Bash(orca repo add:*)","Bash(orca repo set:*)","Bash(orca worktree list:*)","Bash(orca tab create:*)","Bash(orca terminal read:*)",
        "Bash(git show:*)","Bash(git branch:*)","Bash(git rev-parse:*)","Bash(git fetch:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)","Bash(mkdir:*)",
@@ -42,6 +42,11 @@ allow=["Read","Edit","Write","Glob","Grep","Bash(git status:*)","Bash(git diff:*
 # merge 不在 deny：settings 的 deny 蓋得過 hook 的放行，所以 merge 交給 opsx-grant-gate.sh 的 merge_gate 單獨把關；
 # 放進 allow 是為了閘門放行那一次不再跳 Claude Code 自己的權限框。
 allow += ["Bash(glab mr merge:*)", "Bash(gh pr merge:*)"]
+# pnpm docs:api 在沙箱外跑（使用者層 excludedCommands）：只放行主 checkout 本來就有這條 script 的 repo，
+# 免得 agent 在別的 repo 自己補一條 docs:api 就能在沙箱外跑任意指令。worktree 裡改的 package.json 不算數
+try:
+    if "docs:api" in json.load(open(os.path.join(os.path.dirname(sys.argv[2]),"package.json"))).get("scripts",{}): allow.append("Bash(pnpm docs:api:*)")
+except FileNotFoundError: pass
 deny=["Bash(git push --force:*)","Bash(git push -f:*)","Bash(deploy.sh:*)","Bash(sops:*)","Bash(rm -rf /:*)"]
 try:
     g=tomllib.load(open(os.path.join(sd,"grants.toml"),"rb")).get("repos",{}).get(repo,{})
