@@ -134,11 +134,12 @@ $missing
   local mr="" mr_err=""
   if [ "$stage" = babysit ]; then
     # forge 說合併了但 workplan 還沒標 merged（標它是 /archive 與 coordinate 的事）：下一站是 /archive，不是 babysit
-    if mr="$(mr_json "$d" 2>&1)"; then
+    if [ "$mr_rc" -eq 0 ]; then
+      mr="$mr_out"
       mr_err="$(printf '%s' "$mr" | jq -r '.error // empty')"
       [ -z "$(printf '%s' "$mr" | jq -r '.merged_at // empty')" ] || stage=archive
     else
-      mr_err="mr_json 失敗：$mr"
+      mr_err="mr_json 失敗：$mr_out"
     fi
   fi
   [ "$stage" = babysit ] && grep -q '^babysit:' "$d/report.md" && return 0
@@ -192,20 +193,47 @@ write_auto_gate() { # <dir> <slug> <站>；站是 facts 時問的是事實欄位
   } | opsx_append "$f"
 }
 
-# 放行不等於這一站做完（真做完時 hook 會擋，導向下一站）：只報停在哪、為什麼
+# 放行不等於這一站做完（真做完時 hook 會擋，導向下一站）：只報停在哪、為什麼。
+# 印「push|原因」或「quiet|原因」。等待類不推：gate 由 coordinate 的 gate 事件送，MR 能合併由「可以合併」送，其餘只是狀態，看板看得到。
+# 站放行而沒有要擋的條件要推：autopilot 下沒有別的通知蓋得到它
 wait_reason() { # <dir> <站>
-  if [ "$(st_open_gates_blocking "$1")" -gt 0 ]; then printf '等人答 gate（%s 站）' "$2"
-  elif st_subagent_running "$1"; then printf '等背景 subagent（%s 站）' "$2"
-  elif st_review_running "$1"; then printf '等 reviewer（%s 站）' "$2"
-  elif [ -n "$bg_wait" ]; then printf '等背景工作（%s 站）' "$2"
-  elif [ "$2" = babysit ]; then printf 'babysit 一輪做完，等 MR 合併'
-  else printf '%s 站放行，沒有要擋的條件' "$2"
+  if [ "$(st_open_gates_blocking "$1")" -gt 0 ]; then printf 'quiet|等人答 gate（%s 站）' "$2"
+  elif st_subagent_running "$1"; then printf 'quiet|等背景 subagent（%s 站）' "$2"
+  elif st_review_running "$1"; then printf 'quiet|等 reviewer（%s 站）' "$2"
+  elif [ -n "$bg_wait" ]; then printf 'quiet|等背景工作（%s 站）' "$2"
+  elif [ "$2" = babysit ]; then babysit_reason
+  else printf 'push|%s 站放行，沒有要擋的條件' "$2"
   fi
 }
 
-# 回報協調者：同一張卡連續兩次放行送同一行只送一次（中間被擋過就算卡又動了），送出成功才記
-say_once() { # <一行>
-  local f="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
+# coordinate 只在 MR ready 時送「可以合併」，MR 合不了時沒有別的通知，要推。只有 ready、CI 還在跑、查不到 MR 狀態不推
+babysit_reason() {
+  local blocked=""
+  [ "$mr_rc" -eq 0 ] && blocked="$(printf '%s' "$mr_out" | jq -r '
+    select(.error == null and .conditions != null) |
+    [ (if .pipeline_status == "failed" then " CI 紅"
+       elif (.conditions.pipeline | not) and ((.pipeline_status // "") | IN("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled") | not)
+       then " " + (.pipeline_status // "CI") else empty end),
+      (if .conditions.no_conflicts then empty else "衝突" end),
+      (if .conditions.not_draft then empty else " draft" end),
+      (if .conditions.threads then empty else "要求修改" end),
+      (if .conditions.opened then empty else "已關閉" end)
+    ] | .[0] // empty' 2>/dev/null)"
+  # 原因前面的空白跟著原因走：英文前面空一格，中文直接接「卡在」
+  if [ -n "$blocked" ]; then printf 'push|babysit 做完，MR 卡在%s' "$blocked"
+  else printf 'quiet|babysit 一輪做完，等 MR 合併'
+  fi
+}
+
+# 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉
+stop_record() { # <原因>
+  mkdir -p "$(dirname "$said")" || return 0
+  printf '%s\n%s\n' "$1" "$(now_iso)" | opsx_replace "$said" || return 0   # 記不下來只是看板少一行，不能讓 hook 以非 0 結束
+}
+
+# 回報協調者：同一張卡連續兩次放行送同一行只送一次（中間被擋過就算卡又動了），送出或排進佇列才記進 .sent，送失敗下次放行再試
+say_once() { # <一行> [去重檔，預設 $said.sent]
+  local f="${2:-$said.sent}"
   [ "$(cat "$f" 2>/dev/null)" = "$1" ] && return 0
   coordinator_say "$1" || return 0
   mkdir -p "$(dirname "$f")"
@@ -224,13 +252,20 @@ case "$stage" in
 esac
 
 state="$OPSX_STATE_DIR/stop-chain/$(repo_name)-$slug"
+said="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
 
 # 啟動參數丟了：這個 claude 寫不了檔，逼它接站只會空轉到開「卡在接」gate。只有判出遺失才放行，認不得照舊擋
 lost_rc=0; lost_why="$(args_lost_status "$(repo_name)" "$slug" "$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)")" || lost_rc=$?
+# 「無法判斷啟動參數」跟放行與擋停無關，去重另記一個檔，判得出來才清，一直判不了只送一次
 case "$lost_rc" in
-  1) rm -f "$state"; say_once "[$slug] 停住：參數遺失，跑 opsx relaunch $slug"; exit 0 ;;
-  2) say_once "[$slug] 無法判斷啟動參數：$lost_why" ;;
+  1) rm -f "$state" "$said.args"; stop_record "參數遺失，跑 opsx relaunch $slug"; say_once "[$slug] 停住：參數遺失，跑 opsx relaunch $slug"; exit 0 ;;
+  2) say_once "[$slug] 無法判斷啟動參數：$lost_why" "$said.args" ;;
+  *) rm -f "$said.args" ;;
 esac
+
+# babysit 站只查一次 forge（hook 只有 10 秒）：stop_reason 看合併了沒、babysit_reason 看卡在哪，都讀這一份
+mr_out=""; mr_rc=0
+if [ "$stage" = babysit ] && [ "$(st_open_gates_blocking "$d")" -eq 0 ]; then mr_out="$(mr_json "$d" 2>&1)" || mr_rc=$?; fi
 
 out="$(stop_reason "$d" "$slug" "$stage")"
 # 背景工作還在跑：agent 只能等通知，這一輪不算沒接站
@@ -239,7 +274,12 @@ if [ -n "$out" ] && st_background_running "$(jqr '.transcript_path')"; then out=
 if [ -z "$out" ]; then
   # 背景工作在跑、「卡在接」gate 開著：次數不動也不歸零，答覆後的第一輪才分得出來
   if [ -z "$bg_wait" ] && ! stuck_gate_any_open "$d"; then rm -f "$state"; fi
-  say_once "[$slug] 停住：$(wait_reason "$d" "$stage")"
+  why="$(wait_reason "$d" "$stage")"
+  stop_record "${why#*|}"
+  case "${why%%|*}" in
+    push) say_once "[$slug] 停住：${why#*|}" ;;
+    *) rm -f "$said.sent" ;;   # 中間換過原因就不算連續，之後再停成同一行要再推
+  esac
   exit 0
 fi
 want="${out%%|*}"     # hook 這次要求的站：不一定等於 stage_of 的站（report.md 在但要重跑 /review 時 stage 是 babysit）
@@ -258,12 +298,13 @@ if [ "$n" -ge "$MAX_BLOCKS" ]; then
   titled_gate_open "$d" "$want" || [ "$gated" = gated ] || write_auto_gate "$d" "$slug" "$want"
   if titled_gate_open "$d" "$want"; then
     printf '%s %s gated %s\n' "$want" "$n" "$fp" | opsx_replace "$state"
+    stop_record "連續 ${n} 次沒接 ${want}，已開「卡在接」gate"
     say_once "[$slug] 停住：連續 ${n} 次沒接 ${want}，已開「卡在接」gate"
     exit 0
   fi
   if [ "$gated" = gated ]; then   # gate 剛被回答：這一輪是回應它，照擋但不計次，下一輪從 1 算起
     printf '%s 0 - %s\n' "$want" "$fp" | opsx_replace "$state"
-    rm -f "$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
+    rm -f "$said" "$said.sent"
     stop_block "$reason"
   fi
   n=0; gated="-"
@@ -271,5 +312,5 @@ fi
 
 mkdir -p "$(dirname "$state")"
 printf '%s %s - %s\n' "$want" "$((n + 1))" "$fp" | opsx_replace "$state"
-rm -f "$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
+rm -f "$said" "$said.sent"
 stop_block "$reason"

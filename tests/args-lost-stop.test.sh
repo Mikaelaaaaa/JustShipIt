@@ -71,6 +71,19 @@ pane_unknown() { # <說明> → 呼叫前設好 env 或 dispatch.json
   assert_no_file "$OPSX_STATE_DIR/args-lost/Acmecorp-AI-eval-core"
 }
 fresh; OPSX_TEST_PROCESS_INFO_ERR=1 pane_unknown "herdr pane process-info 失敗"
+# 一直判不了：同一則只送一次，不管中間是擋停還是等人答 gate 的放行
+fresh
+OPSX_TEST_PROCESS_INFO_ERR=1 OPSX_FAKE_PS="claude --model m" stop >/dev/null
+OPSX_TEST_PROCESS_INFO_ERR=1 OPSX_FAKE_PS="claude --model m" stop >/dev/null
+assert_eq "$(grep -c '無法判斷啟動參數' "$CL")" 1 "判不了又被擋：只送一次"
+printf '## g\nstatus: open\n' > "$C/gates.md"
+OPSX_TEST_PROCESS_INFO_ERR=1 OPSX_FAKE_PS="claude --model m" stop >/dev/null
+OPSX_TEST_PROCESS_INFO_ERR=1 OPSX_FAKE_PS="claude --model m" stop >/dev/null
+assert_eq "$(grep -c '無法判斷啟動參數' "$CL")" 1 "判不了又在等人答 gate：只送一次"
+# 判得出來後再判不了：要再送
+OPSX_FAKE_PS="claude --settings $S" stop >/dev/null
+OPSX_TEST_PROCESS_INFO_ERR=1 OPSX_FAKE_PS="claude --model m" stop >/dev/null
+assert_eq "$(grep -c '無法判斷啟動參數' "$CL")" 2 "判得出來後再判不了要再送"
 fresh; OPSX_TEST_PROCESS_INFO="$SAMPLES/process-info-shell.json" pane_unknown "pane 前景沒有 claude"
 assert_grep "前景沒有 claude" "$CL"
 fresh; OPSX_TEST_PROCESS_INFO="$PI_TWO" pane_unknown "pane 前景有兩個 claude"

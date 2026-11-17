@@ -511,13 +511,25 @@ function rowRunning(c){
   const badge=st==='working'?'<span class="badge ok"><span class="dot live"></span>執行中</span>':st==='done'?'<span class="badge line">完成</span>':st==='idle'?'<span class="badge line">閒置</span>':st==null?`<span class="badge line" title="${esc(herdrWhy(data.errors))}">herdr —</span>`:`<span class="badge line">${esc(st)}</span>`;
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar">${bot(c,30)}</div>
-    <div class="main"><div class="l1">${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.dispatch.agent||'')} · ${esc(since(c))}</span></div><div class="l2">${prog}${mrNote}</div></div>
+    <div class="main"><div class="l1">${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.dispatch.agent||'')} · ${esc(since(c))}</span></div><div class="l2">${prog}${mrNote}${stoppedNote(c)}</div></div>
     <div class="act">${badge}</div></div>`;
 }
+/* 停住（collect 的 stopped，Stop hook 最後一次放行的原因）：tests/board-stop-reason-web.test.sh 從 start 切到 end 執行 */
+/* 停住 start */
+function stoppedNote(c){
+  if(c.waiting||!c.stopped||c.agent_status==='working')return '';
+  return `<span class="sep">·</span><span class="faint">停住：${esc(c.stopped.reason)} ${esc(String(c.stopped.at).slice(11,16))}</span>`;
+}
+/* 待指派與收件匣的列沒有第二行：有停住才加一行 */
+function stoppedLine(c){
+  if(c.waiting||!c.stopped||c.agent_status==='working')return '';
+  return `<div class="l2"><span class="faint">停住：${esc(c.stopped.reason)} ${esc(String(c.stopped.at).slice(11,16))}</span></div>`;
+}
+/* 停住 end */
 function rowReady(c){
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar plain">${c.stage==='apply'?'RDY':'NEW'}</div>
-    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · 階段 ${esc(c.stage)} · ${esc(since(c))}</span></div></div>
+    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · 階段 ${esc(c.stage)} · ${esc(since(c))}</span></div>${stoppedLine(c)}</div>
     <div class="act"><button class="primary sm" data-act="dispatch">指派</button></div></div>`;
 }
 function rowDone(c){
@@ -607,7 +619,7 @@ function rowInbox(c){
   const gone=c.upstream==='closed'?'上游已關閉':c.stale?'註解已刪':'';
   return `<div class="row${gone?' gone':''}" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar plain">NEW</div>
-    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${gone?`<span class="badge line">${gone}</span>`:''}${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.source||'沒有 source')} · ${esc(since(c))}</span></div></div>
+    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${gone?`<span class="badge line">${gone}</span>`:''}${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.source||'沒有 source')} · ${esc(since(c))}</span></div>${stoppedLine(c)}</div>
     <div class="act">${prioCtl(c)}<button class="primary sm" data-act="dispatch">指派</button><button class="sm" data-act="explore">先 explore</button>${mergeCtl(c,data.cards)}${dropCtl(key(c))}</div></div>`;
 }
 /* 併進（opsx merge-card）：就地選同 repo 的目標卡，已選的目標存在 ui.mergeInto，重畫不丟。tests/merge-card-web.test.sh 從 start 切到 end 執行 */

@@ -136,4 +136,5 @@ After `opsx chain` fans out (see `archive` step 6b), this pane hands each child 
 - Stage by pathspec. Conventional commit subject in English, body in Chinese when a design call needs recording. No AI attribution anywhere.
 - Max three test runs per change. Aborted changes do not block the others. Respect `depends-on`.
 - Out-of-scope problems become inbox cards, never silent fixes.
+- Anything you need the coordinator or the user to do is a gate in gates.md (step 5), with `needs: run` when it is a command for them to run. The status.json label carries progress only: a card that is waiting sends the coordinator no 停住 line, so a request written in the label reaches nobody.
 - Principles are read when the situation calls for them (`../../references/principles/INDEX.md` lists which); cite only what you actually read this session.
