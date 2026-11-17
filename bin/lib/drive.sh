@@ -84,7 +84,10 @@ opsx_drive() {
         case "$mr" in
           ready) say "drive: $slug MR 五條件全綠，可以合併，停在這裡等人"; opsx_status_quiet "$top" "$slug" pr 5/5 "可以合併"; coordinate_kick "$slug"; return 0 ;;
           none)  say "drive: $slug report.md 有 MR 但 glab 讀不到，等 $poll 秒再看"; sleep "$poll"; settled=0 ;;
-          *)     say "drive: $slug MR 卡在 $mr → /opsx-workflow:babysit"; herdr_step "$slug" runtime_prompt "$DRIVE_REPO/$slug" "/opsx-workflow:babysit $slug" wait || return 0; sleep "$poll"; settled=0 ;;
+          *)     say "drive: $slug MR 卡在 $mr → /opsx-workflow:babysit"; herdr_step "$slug" runtime_prompt "$DRIVE_REPO/$slug" "/opsx-workflow:babysit $slug" wait || return 0
+             # 沒送進去時 herdr_step 已退避過或人剛處理完 pane，不再等 CI
+             if [ "$HERDR_STEP_OK" = 1 ] || [ "$HERDR_STEP_TIMEOUT" = 1 ]; then sleep "$poll"; fi
+             settled=0 ;;
         esac ;;
       explore|grill|propose|apply|review|pr|archive)
         # 上一輪送出後 pane 有背景工作：不重送。指紋動了就照常往下；還在跑就再等；不跑了指紋仍沒動才算卡住
