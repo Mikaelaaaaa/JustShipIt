@@ -39,6 +39,14 @@ confirmed_covers_head() { # <確認的 sha> <HEAD sha>
   return 0
 }
 
+# 討論卡：inbox.md ## 派工指示 段（到下一個 ## 為止，跟 collect.sh 的 notes_of 同範圍）有一條含 bin/lib/propose-stop-note.txt 那句
+stops_at_propose() { # <卡目錄>
+  local marker
+  [ -f "$1/inbox.md" ] || return 1
+  IFS= read -r marker < "$OPSX_ROOT/bin/lib/propose-stop-note.txt"
+  awk '/^## 派工指示[[:space:]]*$/ { f = 1; next } /^## / { f = 0 } f && /^- /' "$1/inbox.md" | grep -qF -- "$marker"
+}
+
 # 印要擋的原因；空字串表示放行。
 stop_reason() { # <dir> <slug> <stage>
   local d="$1" slug="$2" stage="$3" open missing last_commit report_ts confirmed head_sha
@@ -98,6 +106,7 @@ $missing
       [ "$(st_open_gates_blocking "$d")" -gt 0 ] && return 0
       # 子 change 的 subagent 在背景做：session 只能等通知，不算沒接站
       st_subagent_running "$d" && return 0
+      [ "$(tasks_done "$d")" -eq 0 ] && stops_at_propose "$d" && return 0
       printf '%s' "apply|opsx：$slug 的 tasks.md 還有 $open 個 task 沒勾。要停下來就先把做到一半的 task 做完勾起來（測試綠才准勾），或用 Edit 或 Write 寫 gates.md 說明卡在哪；不要帶著半個 task 收工。要繼續就 invoke /opsx-workflow:apply ${slug}，不要問要不要接。"
       return 0
     fi

@@ -17,7 +17,7 @@ cards() {
 import json, sys
 top, given, errors = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 base = {"repo": "demo", "kind": "dev", "stage": "apply", "section": "待指派", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None}
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "notes": []}
 out = [{**base, **c, "path": "%s/openspec/changes/%s" % (top, c["slug"])} for c in given]
 print(json.dumps({"repo_paths": {"demo": top}, "cards": out, "errors": errors}, ensure_ascii=False))
 PY
@@ -53,11 +53,11 @@ assert_eq "$(cat "$MEMO")" "{" "memo 壞掉不能被改寫"
 assert_eq "$(count '^opsx dispatch')" 0
 rm -f "$MEMO"
 
-# --- 派卡：收件匣不派、沒 tasks.md 不派、有 MR 不派 ---
+# --- 派卡：沒帶停在 propose 指示的收件匣不派、沒 tasks.md 不派、有 MR 不派 ---
 mkdir -p "$R/openspec/changes/i" "$R/openspec/changes/nt"; mkcard hasmr
 cards '[{"slug":"i","section":"收件匣","stage":"explore"},{"slug":"nt","stage":"propose"},{"slug":"hasmr","stage":"babysit","mr":'"$READY"'}]'
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch')" 0 "收件匣、沒 tasks.md、有 MR 都不派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch')" 0 "沒帶停在 propose 指示的收件匣、沒 tasks.md、有 MR 都不派：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- 派卡：依賴沒合不派 ---

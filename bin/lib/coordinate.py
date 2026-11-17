@@ -24,6 +24,11 @@ import priority  # noqa: E402
 import runtime  # noqa: E402
 import safefile  # noqa: E402
 
+# 討論卡：派工指示有一條含這句。Stop hook 讀同一個檔，兩邊認定一致
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
+    PROPOSE_STOP = _f.read().strip()
+# 派工指示只能追加：派 apply 時加一條較新的，蓋過停在 propose 的那條
+APPLY_NOTE = "propose 已完成，照等級規則派 apply，前面停在 propose 的指示到此為止"
 MAX_DISPATCH = 6
 # 同時活著的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
@@ -132,7 +137,7 @@ class Round:
         if herdr:
             raise CoordinateError("herdr 讀不到，agent 狀態不可得，這輪不動：%s" % "；".join(herdr))
         self.memo = read_json(self.memo_path, "coordinator memo")
-        for k in ("_parked", "_redispatched", "_notified", "_relaunched"):
+        for k in ("_parked", "_redispatched", "_notified", "_relaunched", "_proposed"):
             self.memo.setdefault(k, {})   # 沒有這個 key 就是還沒記過任何一張
         self.dispatch_file = read_json(os.path.join(self.state, "dispatch.json"), "dispatch.json")
         check_dispatch_entries(self.dispatch_file)
@@ -798,6 +803,8 @@ class Round:
         dispatch_new 照派卡規則重派：卡是 coordinator 停的，不重派就沒有 agent 讀得到答案。"""
         for c in cards:
             key = card_key(c)
+            if c["dispatch"] and key in self.memo["_proposed"]:
+                del self.memo["_proposed"][key]   # 人又派出去了：之後再停掉就是人停的
             parked = self.memo["_parked"].get(key)
             if not parked:
                 continue
@@ -807,6 +814,14 @@ class Round:
             elif not parked.get("answered") and parked["gate"] not in [g["id"] for g in c["open_gates"]]:
                 self.log("-- %s 等的 gate %s 被人答掉，記成已答，照派卡規則重派" % (key, parked["gate"]))
                 parked["answered"] = True
+
+    def collect_proposed(self, c, top):
+        """討論卡 propose 完停下：收 pane 放出名額，記成 coordinator 收的，dispatch_new 照等級規則再派 apply。"""
+        key = card_key(c)
+        self.log("-- %s 是討論卡，propose 完停下，收 pane" % key)
+        rc, _, _ = self.act(["opsx", "stop", c["slug"], "--repo", top])
+        if rc == 0:
+            self.memo["_proposed"][key] = {"at": self.now.isoformat(timespec="seconds")}
 
     def slots_used(self):
         """佔掉的派工名額：這輪開始時活著的 pane，加上這輪新開的。"""
@@ -835,6 +850,9 @@ class Round:
             key, top = card_key(c), repo_paths[c["repo"]]
             entry = self.dispatch_file.get(key)
             parked = self.memo["_parked"].get(key)
+            # 收件匣的討論卡派去跑 explore 到 propose：還沒有 tasks.md，P2 也派
+            discuss = c["section"] == "收件匣" and stops_at_propose(c)
+            proposed = key in self.memo["_proposed"]
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
@@ -847,13 +865,13 @@ class Round:
                         self.notify(c, "gate", parked["gate"], "gate %s 等的 PR 合了，要你回" % parked["gate"],
                                     "看板：停下之後合進 main 的 PR：%s；回了這個 gate 才重派" % "、".join(newly))
                     continue
-            elif c["section"] != "待指派":
+            elif c["section"] != "待指派" and not discuss:
                 continue
             elif key in self.woken_cards:
                 continue   # 這輪收尾時已交給 session；collect 是收尾前讀的，還當它待指派
-            elif entry and entry.get("mode") == "stopped":
-                continue   # 人在板上停掉的
-            if not os.path.isfile(os.path.join(c["path"], "tasks.md")) or c["mr"]:
+            elif entry and entry.get("mode") == "stopped" and not proposed:
+                continue   # 人在板上停掉的；coordinator 在 propose 完收的不算
+            if not (discuss or os.path.isfile(os.path.join(c["path"], "tasks.md"))) or c["mr"]:
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session
             owner = None if parked else self.session_feature_of(top, c["slug"])
@@ -882,7 +900,7 @@ class Round:
                 self.log("?? %s 等級算不出來：%s" % (key, got["error"]))
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本的工作，不算自動派新卡
-            if got["level"] == "P2" and not parked:
+            if got["level"] == "P2" and not parked and not discuss:
                 self.log("-- %s 是 P2（%s），不自動派" % (key, got["reason"]))
                 continue
             # P0（自己判出或繼承來的）排最前、一起派，不佔每輪上限；在跑的卡一律不停
@@ -894,7 +912,8 @@ class Round:
                 self.log("-- 同時在跑 %d 個 pane，達上限 %d，%s 下輪" % (self.slots_used(), self.max_working, key))
                 continue
             agent = entry["agent"] if entry and "agent" in entry else "claude"
-            rc, _, err = self.act(["opsx", "dispatch", c["slug"], "--agent", agent, "--mode", "autopilot", "--kind", c["kind"], "--repo", top])
+            note = ["--note", APPLY_NOTE] if proposed else []
+            rc, _, err = self.act(["opsx", "dispatch", c["slug"], "--agent", agent, "--mode", "autopilot", "--kind", c["kind"], "--repo", top] + note)
             if not p0:
                 n += 1
             if rc != 0:
@@ -903,6 +922,7 @@ class Round:
             # P0 不受上限擋，但它開的 pane 照佔名額
             self.opened += 1
             self.memo["_parked"].pop(key, None)
+            self.memo["_proposed"].pop(key, None)
         return n
 
     def branch_holder(self, top, slug):
@@ -1243,6 +1263,20 @@ def is_merged(c):
     return bool(c["mr"] and c["mr"]["merged_at"])
 
 
+def stops_at_propose(c):
+    return any(PROPOSE_STOP in n["text"] for n in c["notes"])
+
+
+def propose_done(c):
+    """討論卡停在 propose 完：tasks.md 有 task、一個都沒勾，agent 沒在做。task 的寫法跟 stage.sh 的 st_tasks_open / st_tasks_done 一樣。"""
+    path = os.path.join(c["path"], "tasks.md")
+    if c["agent_status"] not in ("idle", "done") or not stops_at_propose(c) or not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    return bool(re.search(r"^\s*- \[ \]", text, re.M)) and not re.search(r"^\s*- \[x\]", text, re.M)
+
+
 def owner_gone(c):
     """已合併的卡的 agent 不在了。drive pid 死掉不算：/opsx-workflow:archive 是 pane 裡的 agent 做的，不是 drive。"""
     return not c["dispatch"] or c["agent_status"] == "unknown"
@@ -1323,6 +1357,8 @@ def one_round(state, dry):
                 r.redispatch(c, repo_paths[c["repo"]], "agent 不在 herdr 裡（pane %s）" % c["dispatch"].get("pane"))
             elif dead:
                 r.redispatch(c, repo_paths[c["repo"]], "drive pid %s 已經不在" % c["dispatch"]["drive_pid"])
+            elif propose_done(c):
+                r.collect_proposed(c, repo_paths[c["repo"]])
             else:
                 r.check_args(c, repo_paths[c["repo"]])
         except DispatchFieldError as e:
