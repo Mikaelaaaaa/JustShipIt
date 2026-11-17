@@ -8,6 +8,24 @@
 
 OPSX_PHASES="explore grill propose apply review pr archive"
 
+# 沒給 --change 時寫哪張卡，規則同 hooks/_lib.sh 的 card_slug：分支第二段對得到卡就用它；
+# 對不到而所在 worktree 的根是 <top>/.claude/worktrees/<名>、<名> 是卡，就用 <名>。
+# dispatch 的 agent（帶 OPSX_CARD）在主 checkout 時改看自己 pane 的 worktree：主 checkout 的分支是別張卡的。
+status_card() { # <top>
+  local top="$1" from s w
+  from="$(pwd -P)"
+  if [ -n "${OPSX_CARD:-}" ] && [ "$(git rev-parse --path-format=absolute --git-dir)" = "$(git_common_dir)" ]; then
+    from="$top/.claude/worktrees/$OPSX_CARD"
+    [ -d "$from" ] || die "status: 在主 checkout 跑，這個 pane 的 worktree 不在：${from}；給 --change <slug>"
+  fi
+  s="$(slug_from_branch "$(git -C "$from" rev-parse --abbrev-ref HEAD 2>/dev/null)")"
+  [ -n "$s" ] && [ -d "$(st_card_dir "$top" "$s")" ] && { printf '%s' "$s"; return 0; }
+  w="$(git -C "$from" rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$w" ] && w="$(cd "$w" && pwd -P)"
+  [ "${w%/*}" = "$top/.claude/worktrees" ] && [ -d "$(st_card_dir "$top" "${w##*/}")" ] && { printf '%s' "${w##*/}"; return 0; }
+  printf '%s' "$s"
+}
+
 opsx_status() {
   local phase="" step="" total="" label=() tests="" change="" show="" sub="" worker=""
   while [ $# -gt 0 ]; do
@@ -28,7 +46,7 @@ opsx_status() {
 
   local top; top="$(git_toplevel)"
   [ -n "$top" ] || die "status: 不在 git repo 裡"
-  [ -n "$change" ] || change="$(slug_from_branch "$(git_branch)")"
+  [ -n "$change" ] || change="$(status_card "$top")" || exit 2
   [ -n "$change" ] || die "status: branch '$(git_branch)' 對不到卡（要 {action}/{slug}/{user}），或給 --change <slug>"
   case "$change" in *--*) [ -z "$worker" ] && worker="subagent-${change#*--}" ;; esac
   [ -n "$sub" ] && change="${change%%--*}--$sub"
