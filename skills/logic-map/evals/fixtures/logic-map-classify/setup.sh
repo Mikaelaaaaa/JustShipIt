@@ -10,6 +10,8 @@ dest="${1:?dest}"
 mkdir -p "$dest"
 git -C "$dest" init -q -b feat/member-export/dev
 mkdir -p "$dest/src" "$dest/openspec/changes/member-export"
+# 卡寫 schema: opsx 就要帶 schema，不然 candidate 會跑出 repo 外找模板；借 apply 題目已提交的那份，不另存一份
+cp -R "$(dirname "${BASH_SOURCE[0]}")/../../../../apply/evals/fixtures/price-cents-padding/repo/openspec/schemas" "$dest/openspec/"
 
 cat > "$dest/schema.sql" <<'EOF'
 CREATE TABLE members (

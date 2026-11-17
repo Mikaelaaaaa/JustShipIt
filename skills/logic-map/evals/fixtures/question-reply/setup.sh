@@ -9,6 +9,8 @@ mkdir -p "$dest"
 git -C "$dest" init -q -b feat/report-export/dev
 ch="$dest/openspec/changes/report-export"
 mkdir -p "$ch"
+# 卡寫 schema: opsx 就要帶 schema，不然 candidate 會跑出 repo 外找模板；借 apply 題目已提交的那份，不另存一份
+cp -R "$(dirname "${BASH_SOURCE[0]}")/../../../../apply/evals/fixtures/price-cents-padding/repo/openspec/schemas" "$dest/openspec/"
 
 cat > "$ch/logic-map.md" <<'EOF'
 # 邏輯表：feat/report-export/dev

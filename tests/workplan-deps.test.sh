@@ -176,9 +176,9 @@ printf -- '---\ntype: 功能\nsplit_into: p1, p2\n---\n\n## 一句話\n\n大卡\
 printf '## 已知\n- x\n\n## 待決\n\n## 不做\n' > "$S/explore.md"
 assert_eq "$(bash_fn stage_name "$R" big)" split "有 explore.md、沒 tasks.md，但已拆 → split 不是 propose"
 printf -- '---\ntype: 功能\nsplit_into:\n---\n' > "$FX/empty-inbox.md"; cp "$FX/empty-inbox.md" "$S/inbox.md"
-assert_eq "$(bash_fn stage_name "$R" big)" propose "split_into 空的不算已拆"
+assert_eq "$(bash_fn stage_name "$R" big)" grill "split_into 空的不算已拆"
 printf -- '---\ntype: 功能\n---\n\nsplit_into: p1\n' > "$S/inbox.md"
-assert_eq "$(bash_fn stage_name "$R" big)" propose "frontmatter 外的 split_into 不算"
+assert_eq "$(bash_fn stage_name "$R" big)" grill "frontmatter 外的 split_into 不算"
 printf -- '---\ntype: 功能\nsplit_into: p1, p2\n---\n' > "$S/inbox.md"
 
 # --- Scenario：router 不推已拆的卡 ---
