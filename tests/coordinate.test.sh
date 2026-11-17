@@ -1624,6 +1624,70 @@ assert_eq "$(cat "$FX/merges")" "" "沒有任何 merge 指令"
 [ -n "$(memo_get _notified demo/m/ready/abc)" ] && [ -n "$(memo_get _notified demo/m/ready/s2)" ] || fail "_notified 要綁 head sha：$(cat "$MEMO")"
 rm -f "$MEMO"
 
+# --- MR 卡住：agent 不在 working 時推，同一件事只推一次，回到不卡住清鍵，查不到不清（agent-20261117-1122）---
+mrj() { # <state> <stuck 的 JSON 值，absent 表示沒有這個欄位> [error 的 JSON 值]：mr_json 的輸出
+  local s=',"stuck":'"$2"; [ "$2" = absent ] && s=""
+  printf '{"url":"https://gitlab.example.com/a/b/-/merge_requests/9","state":"%s","head_sha":"abc","conditions":{"no_conflicts":true},"merged_at":null,"error":%s%s}' "$1" "${3:-null}" "$s"
+}
+stk() { # <agent_status 的 JSON 值> <mr JSON>：協調者在、輸入框空，跑一輪
+  cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":'"$1"',"mr":'"$2"'}]'
+  OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+}
+stuck_n() { count "^agent prompt opsx-coordinator \[demo/m\] MR 卡在$1："; }
+any_stuck() { count '^agent prompt opsx-coordinator \[demo/m\] MR 卡在'; }
+stuck_push() { # <agent_status JSON> <state> <stuck> <預期接在「卡在」後的字> <說明>
+  rm -f "$MEMO"; stk "$1" "$(mrj "$2" "\"$3\"")"
+  assert_eq "$(stuck_n "$4")" 1 "MR 卡住要推：$5：$(cat "$OPSX_FAKE_LOG")"
+  grep "^agent prompt opsx-coordinator \[demo/m\] MR 卡在" "$OPSX_FAKE_LOG" | grep -q '看板／MR：https://gitlab.example.com/a/b/-/merge_requests/9$' || fail "MR 卡住內文要帶 MR 連結：$5"
+  [ -n "$(memo_get _notified "demo/m/mr-stuck/$3")" ] || fail "_notified 要有 demo/m/mr-stuck/$3：$(cat "$MEMO")"
+}
+stuck_quiet() { # <agent_status JSON> <mr JSON> <說明>
+  rm -f "$MEMO"; stk "$1" "$2"
+  assert_eq "$(any_stuck)" 0 "MR 卡住不推：$3：$(cat "$OPSX_FAKE_LOG")"
+}
+# Examples：要人處理，推
+stuck_push '"idle"' "pipeline:failed" "CI 紅" " CI 紅" "pipeline failed、idle"
+stuck_push '"idle"' "pipeline:failed" "CI 紅" " CI 紅" "GitHub check 跑完是 FAILURE（mr_json 給 CI 紅）、idle"
+stuck_push '"done"' "pipeline:canceled" canceled " canceled" "pipeline canceled、done"
+stuck_push '"idle"' conflicts "衝突" "衝突" "有衝突、idle"
+stuck_push '"idle"' draft draft " draft" "draft、idle"
+stuck_push '"idle"' "threads:2" "要求修改" "要求修改" "有沒解的討論、idle"
+stuck_push '"idle"' "state:closed" "已關閉" "已關閉" "關掉沒合併、idle"
+stuck_push null "pipeline:failed" "CI 紅" " CI 紅" "pipeline failed、herdr 查不到"
+# Examples：不推
+stuck_quiet '"working"' "$(mrj pipeline:failed '"CI 紅"')" "agent 還在修"
+stuck_quiet '"idle"' "$(mrj pipeline:running null)" "CI 還在跑"
+stuck_quiet '"idle"' "$(mrj pipeline:failed null)" "GitHub check 還是 IN_PROGRESS（mr_json 給 null）"
+stuck_quiet '"idle"' "$(mrj ready null)" "ready"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/m\] 可以合併')" 1 "ready 照舊送可以合併：$(cat "$OPSX_FAKE_LOG")"
+stuck_quiet '"idle"' "$(mrj none null '"glab mr view 9 沒回東西"')" "查不到"
+stuck_quiet '"idle"' "$(mrj pipeline:failed null)" "pipeline_status 是 null 且 pipeline 不過（mr_json 給 null）"
+stuck_quiet '"idle"' "$(mrj pipeline:failed absent)" "快取沒有 stuck 欄位"
+# 同一件事只推一次
+rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; n1="$(stuck_n ' CI 紅')"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 1 "連跑兩輪只推一次"
+# 原因換了要再推
+stk '"idle"' "$(mrj conflicts '"衝突"')"
+assert_eq "$(stuck_n '衝突')" 1 "CI 紅換成衝突要再推"
+# 回到不卡住後再卡住要再推（head sha 相同）
+rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; n1="$(stuck_n ' CI 紅')"
+stk '"idle"' "$(mrj pipeline:running null)"
+assert_not_grep 'mr-stuck' "$MEMO"
+stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 2 "CI 跑過又紅要再推"
+# 查不到 MR 狀態、快取沒有 stuck 欄位、agent 在 working：不清鍵
+for mid in "$(mrj none null '"glab mr view 9 逾時"')" "$(mrj pipeline:running absent)"; do
+  rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"; n1="$(stuck_n ' CI 紅')"
+  stk '"idle"' "$mid"
+  stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+  assert_eq "$((n1 + $(stuck_n ' CI 紅')))" 1 "分不出來那輪不清鍵：$mid"
+done
+rm -f "$MEMO"; stk '"idle"' "$(mrj pipeline:failed '"CI 紅"')"
+stk '"working"' "$(mrj pipeline:running null)"
+[ -n "$(memo_get _notified "demo/m/mr-stuck/CI 紅")" ] || fail "agent 在 working 不清鍵：$(cat "$MEMO")"
+rm -f "$MEMO"
+
 # --- 十分鐘內第二次掛掉才通知 ---
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"unknown"}]'
 printf '{"_redispatched":{"demo/u":"%s"}}' "$(ago 5)" > "$MEMO"

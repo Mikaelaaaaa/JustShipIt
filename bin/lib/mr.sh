@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
-#   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","error","created_at","merged_at"}
+#   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","stuck","error","created_at","merged_at"}
 #            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed），不受排在前面的條件遮住
+#            stuck 是 MR 合不了、要人處理的第一個原因：CI 紅、CI 不在跑也沒過的原值（如 canceled）、衝突、draft、要求修改、已關閉；
+#              沒卡住、CI 還在跑而沒有別的原因、或查不到時是 null。Stop hook 的停住紀錄與 coordinate 的「MR 卡住」通知都讀它
 #   mr_state <card dir>  印 ready | draft | conflicts | pipeline:<status> | threads:<n> | state:<s> | none（drive 用的短字串）
 # 來源：report.md 的 ## MR 連結。project 從 URL 解出來用 -R 指定（不靠 cwd：server 的 cwd 不是那個 repo）。
 #   gitlab 的 https://<host>/<group>/<proj>/-/merge_requests/<iid> 變成 glab mr view <iid> -R <host>/<group>/<proj> -F json；
@@ -76,7 +78,7 @@ mr_json() { # <card dir>
   local d="$1" url ttl cache raw rc=0 forge iid proj host path out tmp
   url="$(st_mr_url "$d")"
   if [ -z "$url" ]; then
-    printf '{"url": null, "state": "none", "head_sha": null, "conditions": null, "blocked_on": null, "pipeline_status": null, "error": null, "created_at": null, "merged_at": null}\n'; return
+    printf '{"url": null, "state": "none", "head_sha": null, "conditions": null, "blocked_on": null, "pipeline_status": null, "stuck": null, "error": null, "created_at": null, "merged_at": null}\n'; return
   fi
   ttl="${OPSX_MR_CACHE_TTL:-60}"
   cache="$(mr_cache "$url")"
@@ -96,7 +98,7 @@ mr_json() { # <card dir>
 import json, os, sys
 url, forge, proj, iid = sys.argv[1:5]
 raw = os.environ.get("OPSX_MR_RAW", "").strip()   # heredoc 占了 stdin，原始 JSON 走環境變數
-out = {"url": url, "state": "none", "head_sha": None, "conditions": None, "blocked_on": None, "pipeline_status": None, "error": None, "created_at": None, "merged_at": None}
+out = {"url": url, "state": "none", "head_sha": None, "conditions": None, "blocked_on": None, "pipeline_status": None, "stuck": None, "error": None, "created_at": None, "merged_at": None}
 tool = "gh pr view %s -R %s" % (iid, proj) if forge == "github" else "glab mr view %s -R %s" % (iid, proj)
 if not raw:
     rc = os.environ["OPSX_MR_RC"]
@@ -141,7 +143,17 @@ else:
 first = next((k for k in ("opened", "not_draft", "no_conflicts", "pipeline", "threads") if not c[k]), None)
 short = {"opened": "state:%s" % state, "not_draft": "draft", "no_conflicts": "conflicts",
          "pipeline": "pipeline:%s" % ps, "threads": "threads:%d" % n, None: "ready"}[first]
-out.update(state=short, head_sha=sha, conditions=c, blocked_on=first)
+pst = out["pipeline_status"]
+# CI 紅不被 draft 等排在前面的條件遮住；CI 還在跑只是還沒有結果，不算卡住，但不遮住後面的原因
+if pst == "failed":
+    ci = "CI 紅"
+elif not c["pipeline"] and pst is not None and pst not in ("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled"):
+    ci = pst
+else:
+    ci = None
+reasons = (ci, None if c["no_conflicts"] else "衝突", None if c["not_draft"] else "draft",
+           None if c["threads"] else "要求修改", None if c["opened"] else "已關閉")
+out.update(state=short, head_sha=sha, conditions=c, blocked_on=first, stuck=next((s for s in reasons if s), None))
 print(json.dumps(out))
 PY
 )"

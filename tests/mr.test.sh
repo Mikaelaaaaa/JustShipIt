@@ -77,6 +77,29 @@ printf '{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatu
 assert_eq "$(mr_state "$C2")" "state:MERGED"
 assert_eq "$(field "$(mr_json "$C2")" created_at)" "2026-11-05T02:00:00Z"; assert_eq "$(field "$(mr_json "$C2")" merged_at)" null
 
+# --- stuck：MR 合不了的第一個原因；ready、CI 還在跑、查不到是 null（agent-20261117-1122）---
+stuck_is() { # <MR JSON> <卡片目錄> <預期> <說明>
+  local f="$OPSX_TEST_GLAB_JSON"; [ "$2" = "$C2" ] && f="$OPSX_TEST_GH_JSON"
+  printf '%s' "$1" > "$f"; assert_eq "$(field "$(mr_json "$2")" stuck)" "$3" "stuck: $4"
+}
+stuck_is "$GREEN" "$C" null "GitLab ready"
+stuck_is "${GREEN/\"success\"/\"failed\"}" "$C" "CI 紅" "GitLab pipeline failed"
+stuck_is "${GREEN/\"success\"/\"canceled\"}" "$C" canceled "GitLab pipeline canceled 用原值"
+stuck_is "${GREEN/\"success\"/\"running\"}" "$C" null "GitLab CI 還在跑"
+stuck_is "${GREEN/\"success\"/\"waiting_for_resource\"}" "$C" null "GitLab CI 等資源也算在跑"
+stuck_is "${GREEN/\"has_conflicts\":false/\"has_conflicts\":true}" "$C" "衝突" "GitLab 衝突"
+stuck_is "${GREEN/\"draft\":false/\"draft\":true}" "$C" draft "GitLab draft"
+DRAFT_RED="${GREEN/\"draft\":false/\"draft\":true}"
+stuck_is "${DRAFT_RED/\"success\"/\"failed\"}" "$C" "CI 紅" "GitLab draft 不遮住 CI 紅"
+stuck_is "${GREEN/\"unresolved_discussions_count\":0/\"unresolved_discussions_count\":2}" "$C" "要求修改" "GitLab 有沒解的討論"
+stuck_is "${GREEN/\"state\":\"opened\"/\"state\":\"closed\"}" "$C" "已關閉" "GitLab 關掉沒合併"
+stuck_is "" "$C" null "GitLab 查不到"
+assert_eq "$(field "$(mr_json "$FX/repo/openspec/changes/nomr")" stuck)" null "stuck: 沒有 MR"
+GH_RUN='{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":null}]}'
+stuck_is "$GH_RUN" "$C2" null "GitHub check 還是 IN_PROGRESS"
+stuck_is "${GH_RUN/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"FAILURE\"}" "$C2" "CI 紅" "GitHub check 跑完是 FAILURE"
+stuck_is "${GH_RUN/\"MERGEABLE\"/\"CONFLICTING\"}" "$C2" "衝突" "GitHub CI 還在跑不遮住衝突"
+
 # --- 快取：鍵是 URL；TTL 60 內第二次不打；兩個 repo 同 slug 不同 MR 不互串；TTL 0 一定打；讀不到時不寫 ---
 : > "$OPSX_FAKE_LOG"; export OPSX_MR_CACHE_TTL=60
 printf '%s' "$GREEN" > "$OPSX_TEST_GLAB_JSON"
