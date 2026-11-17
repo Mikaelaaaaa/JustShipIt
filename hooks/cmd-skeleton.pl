@@ -185,20 +185,20 @@ sub skeleton {
         }
         if ($c eq '"') {
             my $end = skip_dq($s, $i);
-            if ($end < $n) {
-                my $body = substr $s, $i + 1, $end - $i - 1;
-                if (substr($out, -80) =~ $RUNS_STRING) {
-                    (my $plain = $body) =~ s/\\(["\\\$`])/$1/g;
-                    $out .= " ; " . skeleton($plain, $depth + 1) . " ; ";
-                } elsif ($body =~ /^[^\s\\\$`]*$/) {
-                    $out .= $body;
-                } else {
-                    $out .= '""';
-                    $out .= " ; " . skeleton($_, $depth + 1) . " ; " for substitutions($body);
-                }
-                $i = $end + 1;
-                next;
+            # 沒結尾的雙引號：剩下的原樣保留就停，逐字往下走會讓後面每個 "$( 都重掃到尾（二次方）
+            if ($end >= $n) { $out .= substr $s, $i; last }
+            my $body = substr $s, $i + 1, $end - $i - 1;
+            if (substr($out, -80) =~ $RUNS_STRING) {
+                (my $plain = $body) =~ s/\\(["\\\$`])/$1/g;
+                $out .= " ; " . skeleton($plain, $depth + 1) . " ; ";
+            } elsif ($body =~ /^[^\s\\\$`]*$/) {
+                $out .= $body;
+            } else {
+                $out .= '""';
+                $out .= " ; " . skeleton($_, $depth + 1) . " ; " for substitutions($body);
             }
+            $i = $end + 1;
+            next;
         }
         $out .= $c;
         $i++;

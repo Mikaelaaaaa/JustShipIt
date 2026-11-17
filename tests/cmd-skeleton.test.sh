@@ -49,6 +49,12 @@ big="$(perl -e 'print "git commit -m x; :\n", "<<a\n" x 8000')"   # 換行讓每
 t0=$SECONDS; skel "$big" >/dev/null; elapsed=$((SECONDS - t0))
 [ "$elapsed" -le 3 ] || fail "32KB 的一串 <<a 骨架花了 ${elapsed} 秒（要線性）"
 has_commit "$big" || fail "那串 <<a 之前的 git commit 不能不見"
+# 一串沒結尾的 "$( 也要線性；有結尾的雙引號字串照舊換成空字串
+big="$(perl -e 'print "git commit -m x; ", q{"$(} x 10900')"
+t0=$SECONDS; skel "$big" >/dev/null 2>&1; elapsed=$((SECONDS - t0))
+[ "$elapsed" -le 3 ] || fail "32KB 的一串沒結尾 \"\$( 骨架花了 ${elapsed} 秒（要線性）"
+has_commit "$big" 2>/dev/null || fail "那串 \"\$( 之前的 git commit 不能不見"
+has_commit 'echo "git commit -m x"' && fail "有結尾的雙引號字串要換成空字串：$(skel 'echo "git commit -m x"')"
 
 # --- R1.2：指令位置的 \<字母> 還原，含 ; && 之後與絕對路徑的 git；參數位置的路徑字保留跳脫 ---
 has_commit 'cd /tmp;g\it commit -m x' || fail '; 之後的 g\it：'"$(skel 'cd /tmp;g\it commit -m x')"
