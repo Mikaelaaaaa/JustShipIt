@@ -21,7 +21,7 @@ The board's 指派 button and this skill run the same script: `bin/opsx dispatch
    - **kind** (default from the card's source hint: GitLab label bug / agent 回報 bug → `bug-fix`; shortcut → `refactoring`; "太慢" in the title → `perf`; else `dev`). Seven values: dev, bug-fix, refactoring, perf, experiment, ops, chore.
    - **agent + model**: claude with the model implied by kind (dev / refactoring / perf / experiment → `claude-opus-5-5`; bug-fix / chore / ops → `claude-sonnet-5-5`), or codex (`gpt-5`).
    - **mode**: `interactive` (每步問) or `autopilot` (開到可合併: `drive.sh` carries it through every stage to review → pr → babysit until the five merge conditions are green; anything that needs the user becomes a gate). `drive` is still accepted and means `autopilot`.
-3. Run it from the repo root:
+3. Run it from the repo root. From anywhere else, it finds the card in the registered repos (`~/code/*` plus `sources.toml` paths) when exactly one of them has it; when several do, it refuses and lists them, so add `--repo <path>`:
 
    ```bash
    bash "${CLAUDE_PLUGIN_ROOT}/bin/opsx" dispatch <slug> --agent <a> --model <m> --mode <mode> --kind <kind>
