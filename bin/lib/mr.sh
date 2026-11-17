@@ -113,19 +113,21 @@ except json.JSONDecodeError as e:
     out["error"] = "%s 回的不是 JSON：%s" % (tool, e)
     print(json.dumps(out)); sys.exit()
 if forge == "github":
-    # 跑完沒過的 check 依 GitLab 的用詞歸類：取消、逾時各自報，其他都是 failed；有 failed 就報 failed
-    checks_ok, ended = True, set()
+    # 跟 GitLab 的 pipeline 一樣：還有 check 沒跑完就是 pending；全部跑完才依 GitLab 的用詞歸類，取消、逾時各自報，其他都是 failed，有 failed 就報 failed
+    checks_ok, ended, running = True, set(), False
     for c in d.get("statusCheckRollup") or []:
         if "conclusion" in c:   # CheckRun：要跑完而且過
             ok = c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
+            running = running or c.get("status") != "COMPLETED"
             if c.get("status") == "COMPLETED" and not ok:
                 ended.add({"CANCELLED": "canceled", "TIMED_OUT": "timed_out"}.get(c.get("conclusion"), "failed"))
         else:                   # StatusContext：只有 state
             ok = c.get("state") == "SUCCESS"
+            running = running or c.get("state") in ("PENDING", "EXPECTED")
             if c.get("state") in ("FAILURE", "ERROR"):
                 ended.add("failed")
         checks_ok = checks_ok and ok
-    checks_ended = next((s for s in ("failed", "timed_out", "canceled") if s in ended), None)
+    checks_ended = None if running else next((s for s in ("failed", "timed_out", "canceled") if s in ended), None)
     decision = d.get("reviewDecision") or ""
     c = {"opened": d.get("state") == "OPEN", "not_draft": not d.get("isDraft"),
          "no_conflicts": d.get("mergeable") != "CONFLICTING" and d.get("mergeStateStatus") != "DIRTY",
