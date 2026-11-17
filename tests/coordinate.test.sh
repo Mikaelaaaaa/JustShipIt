@@ -17,7 +17,7 @@ cards() {
 import json, sys
 top, given, errors = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 base = {"repo": "demo", "kind": "dev", "stage": "apply", "section": "待指派", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None}
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None}
 out = [{**base, **c, "path": "%s/openspec/changes/%s" % (top, c["slug"])} for c in given]
 print(json.dumps({"repo_paths": {"demo": top}, "cards": out, "errors": errors}, ensure_ascii=False))
 PY

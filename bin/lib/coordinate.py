@@ -20,6 +20,7 @@ import chain  # noqa: E402
 import coordq  # noqa: E402
 import gaterule  # noqa: E402
 import jsonfile  # noqa: E402
+import late  # noqa: E402
 import priority  # noqa: E402
 import runtime  # noqa: E402
 import safefile  # noqa: E402
@@ -43,6 +44,9 @@ USAGE_LIMIT_WARNING = "grace allowance"   # 「還有一小段寬限」是警告
 USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.IGNORECASE)
 # 合併後交給卡自己的 /archive（它標 workplan merged、叫 opsx chain）；過了這麼久還沒歸檔就要人看
 ARCHIVE_GRACE_MINUTES = 30
+# 跟 stage.sh 的背景工作、背景 subagent 上限一樣：Stop hook 只在 Stop 時算，agent 閒著就沒人算
+STALE_WAIT_SECONDS = 7200
+STALE_WAIT_REASONS = ("等背景工作", "等背景 subagent")
 # 協調者 session 在 herdr 裡的 agent 名；hooks 與 common.sh 的 COORDINATOR_AGENT 是同一個名字
 COORDINATOR = "opsx-coordinator"
 # _notified 的值帶這個前綴，表示只送到桌面、協調者還沒收到：協調者回來那輪要補送
@@ -623,6 +627,33 @@ class Round:
         self.log(line % {"key": key, "gate": w["gate_id"], "q100": q[:100], "q120": q[:120], "pick60": pick[:60],
                          "rec100": (w.get("recommended") or "")[:100]})
         self.notify_gate(c, w, why)
+
+    def open_stale_wait_gate(self, c, top):
+        """停在等背景工作超過上限的卡開一個 decision gate；同一次停住（同一個 stopped.at）開過就不再開，答過也不開。
+        這輪不通知：下一輪 collect 讀到 open gate，handle_gate 照規則通知。"""
+        gate_id = stale_wait_gate(c, self.now)
+        if gate_id is None:
+            return
+        gates_path = os.path.join(top, "openspec", "changes", c["slug"], "gates.md")
+        if late.gate_status(gates_path, gate_id) is not None:
+            return
+        key, s = card_key(c), c["stopped"]
+        if self.dry:
+            self.log("DRY 開 gate %s（%s 停在%s超過 2 小時）" % (gate_id, key, s["reason"]))
+            return
+        text = (
+            "## %s\ntype: decision\nstatus: open\nopened_at: %s\n"
+            "問題: 卡停在%s超過 2 小時、agent 閒著，背景工作要怎麼處理？\n"
+            "已確認: 停住紀錄時間 %s；Stop hook 只在 Stop 時算 7200 秒上限，agent 閒著不會再算\n"
+            "選項: 繼續等 (Recommended) | 停掉背景工作再接站\n"
+            "建議: 背景工作可能是要留著的（dev server、長測試），先看 pane 再決定；確定沒用了才選停掉。\n"
+            "證據: %s\n風險: 停掉的話背景工作做到一半的結果會丟。\n預設: 不回答就一直停著\n"
+        ) % (gate_id, self.now.isoformat(timespec="seconds"), s["reason"], s["at"],
+             os.path.join(self.state, "stop-said", "%s-%s" % (c["repo"], c["slug"])))
+        prefix = "\n" if os.path.exists(gates_path) and os.path.getsize(gates_path) else ""
+        with safefile.open_append(gates_path) as f:
+            f.write(prefix + text)
+        self.log("?? %s 停在%s超過 2 小時，開 gate %s" % (key, s["reason"], gate_id))
 
     def session_siblings(self, key, top):
         """同 feature 還活著的其他卡的 key（chain.session_siblings）。"""
@@ -1248,6 +1279,19 @@ def owner_gone(c):
     return not c["dispatch"] or c["agent_status"] == "unknown"
 
 
+def stale_wait_gate(c, now):
+    """派出去的卡 agent 閒著、沒有 open gate、停在等背景工作超過上限：回這次停住的 gate id，否則 None。
+    agent 在 working 時停住紀錄是舊的，不看。"""
+    s = c["stopped"]
+    if not (c["dispatch"] and c["agent_status"] in ("idle", "done") and not c["open_gates"] and s
+            and s["reason"].startswith(STALE_WAIT_REASONS)):
+        return None
+    at = datetime.datetime.fromisoformat(s["at"])
+    if (now - at).total_seconds() <= STALE_WAIT_SECONDS:
+        return None
+    return "stale-wait-" + at.strftime("%Y%m%d%H%M%S")
+
+
 def main():
     state, dry = sys.argv[1], "--dry" in sys.argv[2:]
     rerun = os.path.join(state, "coordinator.rerun")
@@ -1325,6 +1369,7 @@ def one_round(state, dry):
                 r.redispatch(c, repo_paths[c["repo"]], "drive pid %s 已經不在" % c["dispatch"]["drive_pid"])
             else:
                 r.check_args(c, repo_paths[c["repo"]])
+                r.open_stale_wait_gate(c, repo_paths[c["repo"]])
         except DispatchFieldError as e:
             r.bad_dispatch(c, e)
     if not paused:
