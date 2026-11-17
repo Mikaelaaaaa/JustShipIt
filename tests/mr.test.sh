@@ -113,6 +113,9 @@ stuck_is "${GH_RUN/\"MERGEABLE\"/\"CONFLICTING\"}" "$C2" "衝突" "GitHub CI 還
 stuck_is "${GH_RUN/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"CANCELLED\"}" "$C2" canceled "GitHub check 被取消報 canceled"
 GH_CANCEL_FAIL='{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"CANCELLED"},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}'
 stuck_is "$GH_CANCEL_FAIL" "$C2" "CI 紅" "GitHub 一個取消一個失敗時報 CI 紅"
+stuck_is "${GH_RUN/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"ACTION_REQUIRED\"}" "$C2" manual "GitHub check 要人核准報 manual"
+stuck_is "${GH_CANCEL_FAIL/\"FAILURE\"/\"ACTION_REQUIRED\"}" "$C2" canceled "GitHub 一個取消一個要核准時報 canceled"
+stuck_is "${GH_CANCEL_FAIL/\"COMPLETED\",\"conclusion\":\"FAILURE\"/\"IN_PROGRESS\",\"conclusion\":null}" "$C2" canceled "GitHub 一個取消一個還在跑時報 canceled"
 
 # --- 快取：鍵是 URL；TTL 60 內第二次不打；兩個 repo 同 slug 不同 MR 不互串；TTL 0 一定打；讀不到時不寫 ---
 : > "$OPSX_FAKE_LOG"; export OPSX_MR_CACHE_TTL=60
