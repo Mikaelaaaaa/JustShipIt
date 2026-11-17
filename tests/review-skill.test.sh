@@ -81,12 +81,31 @@ assert_fixed 'Every card: also run `opsx check <slug>`.' "$STEP0"
 assert_not_fixed 'A main change with `subs/`: also run `opsx check' "$STEP0"
 assert_fixed 'A line pointing at a `spec.md` is a spec that breaks the Gherkin rules: stop the same way, list those lines, and send it back to `/opsx-workflow:apply <slug>`.' "$STEP0"
 
-# --- 沒 CI 的 repo：review 自己背景跑全套，紅就退回 apply；有 CI 不必 ---
+# --- 沒 CI 的 repo：review 自己背景跑全套，紅就退回 apply；有 CI 不必（specs/review-full-suite-gate）---
 grep -F 'No CI:' "$STEP0" > "$FX/noci"; [ -s "$FX/noci" ] || fail "Step 0 找不到 No CI 段"
-for k in '`.gitlab-ci.yml`' '`.github/workflows/`' 'an empty workflows directory is no CI' \
-  '背景跑 the whole suite `bash tests/run.sh`' 'Any red file means do not review' \
-  'each red test name with its first error line' 'send it back to `/opsx-workflow:apply <slug>`' \
+# 有沒有 CI 照主要 remote 判斷（D8、D9、D10）：Examples 表每一列對到一句條件
+for k in 'the primary remote (`gitlab` when the repo has that remote, otherwise `origin`)' \
+  'A GitLab primary has CI when the repo has a `.gitlab-ci.yml`' \
+  'a GitHub primary has CI when `.github/workflows/` holds a `.yml` or `.yaml` file' \
+  '(a README or `.gitkeep` alone is no CI)' \
+  'Any other CI file (a Jenkinsfile, `.circleci/`) does not count' \
+  'Without CI, nothing else runs the whole suite before merge' \
   'With CI present, the full run is not required'; do
+  assert_fixed "$k" "$FX/noci"
+done
+for k in 'an empty workflows directory is no CI' 'has no CI when the repo has a `.gitlab-ci.yml`' \
+  'With no CI present, the full run is not required' 'Skip this if status.json is green'; do
+  assert_not_fixed "$k" "$FX/noci"
+done
+# 全套指令照 apply 的找法（D11），不寫死 tests/run.sh
+for k in '`bash tests/run.sh` when the repo has `tests/run.sh`' \
+  'otherwise the test command found the way apply finds it (CLAUDE.md first, then package.json / pyproject)'; do
+  assert_fixed "$k" "$FX/noci"
+done
+assert_not_fixed '背景跑 the whole suite `bash tests/run.sh`' "$FX/noci"
+# 全綠才開審、有紅退回
+for k in 'Any red file means do not review' 'each red test name with its first error line' \
+  'send it back to `/opsx-workflow:apply <slug>`' 'Review starts only after the whole suite finishes with no red file'; do
   assert_fixed "$k" "$FX/noci"
 done
 [ "$(line_of 'No CI:' "$SK")" -gt "$(line_of 'A review of untested code is a review of a guess.' "$SK")" ] || fail "No CI 段要接在 status.json 段之後"
