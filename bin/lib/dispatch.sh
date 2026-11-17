@@ -221,7 +221,12 @@ PY
     die "dispatch: feature「${feature}」能開工的主 change 在派工途中都被人停了，tab 已關"
   fi
   card="$(printf '%s\n' "$written" | head -1)"; d="$top/openspec/changes/$card"
-  if [ -n "$deps_fail" ]; then write_install_gate "$d" "$wt" "$deps_fail"; rm -f "$mark"; fi
+  local c via=""
+  # feature session 的卡共用這棵樹，每張進 apply 前都要看得到依賴沒裝好
+  if [ -n "$deps_fail" ]; then
+    for c in $written; do write_install_gate "$top/openspec/changes/$c" "$wt" "$deps_fail"; done
+    rm -f "$mark"
+  fi
 
   # 第一句：照狀態
   local first; first="$(stage_name "$top" "$card")"
@@ -229,7 +234,6 @@ PY
   # 指示要在 agent 讀到第一句前就在卡上；放在前面每一步之後，失敗的派工不會留下指示，重跑也不會寫兩條
   if [ -n "$note" ]; then note_append "$d" "$note" || die "dispatch: 寫不進 $d/inbox.md 的派工指示，第一句沒送"; fi
   runtime_prompt "$me_key" "/opsx-workflow:$first $card" nowait >/dev/null
-  local c via=""
   [ -n "$feature" ] && via="（session ${feature}）"
   for c in $written; do
     log_row "$top/openspec/changes/$c" 你 已指派 "指派給 ${agent}${via}，第一句 /opsx-workflow:${first} ${card}" "${agent} · ${mode} · ${model}"
@@ -262,7 +266,7 @@ install_deps() { # <worktree> <標記檔>：裝不起來不擋派工，原因寫
   # shortcut: 沒有時限，registry 卡住時 dispatch 跟著等、coordinate 那一輪也停住；量到 Agentory-AI 實際要裝幾秒，或 coordinate 真的被卡過一輪，就加 timeout，逾時照 install 失敗開 gate
   if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then rm -f "$mark"; say "dispatch: 依賴裝好了"; return 0; fi
   # \r 也換掉：看板用 Python 讀 gates.md 時把 \r 當換行，依賴的安裝腳本印的字會變成假的 gate 欄位
-  out="$(printf '%s\n' "$out" | tail -3 | tr '\r\n' '  ')"
+  out="$(printf '%s\n' "$out" | tail -10 | tr '\r\n' '  ')"
   say "dispatch: pnpm install 失敗，派出去後在卡上開 gate：$out"
   printf 'pnpm install --frozen-lockfile 失敗：%s\n' "$out" > "$mark"
 }

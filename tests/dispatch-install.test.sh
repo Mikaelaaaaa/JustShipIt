@@ -161,9 +161,19 @@ assert_eq "$rc" 0 "dispatch rc: $out"
 G="$R/openspec/changes/cr-card/gates.md"
 assert_eq "$(grep -c '^## ' "$G")" 1 "只能有一段 gate：$(cat -v "$G")"
 grep -q $'\r' "$G" && fail "gates.md 不能有 \\r：$(cat -v "$G")"
+
+# 失敗原因取 pnpm 輸出的最後 10 行
+: > "$OPSX_FAKE_LOG"
+printf '%s\n' 'line01\nline02\nline03\nline04\nline05\nline06\nline07\nline08\nline09\nline10\nline11\nline12' > "$FX/pnpm-msg"
+R="$(new_repo Inst-P long-card pnpm-lock.yaml)"
+out="$(cd "$R" && opsx dispatch long-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+G="$R/openspec/changes/long-card/gates.md"
+assert_grep '^證據: .*line03 .*line12' "$G"
+assert_not_grep 'line02' "$G"
 echo 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' > "$FX/pnpm-msg"
 
-# --feature 派工途中人停了 plan 第一張：gate 寫在第一句實際送到的那張
+# --feature 派工途中人停了 plan 第一張：寫進 dispatch.json 的卡才開 gate，被停的那張沒有
 : > "$OPSX_FAKE_LOG"
 R="$(new_repo Inst-J m1 pnpm-lock.yaml)"
 mkdir -p "$R/openspec/changes/m2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/m2/.openspec.yaml"
@@ -239,6 +249,7 @@ out="$(cd "$R" && opsx dispatch --feature gs --agent claude --mode interactive 2
 assert_eq "$rc" 0 "放回成員後重派：$out"
 assert_not_grep '^pnpm ' "$OPSX_FAKE_LOG"
 assert_grep '^## install-deps$' "$R/openspec/changes/n1/gates.md"
+assert_grep '^## install-deps$' "$R/openspec/changes/n2/gates.md"
 assert_no_file "$(git -C "$R/.claude/worktrees/gs" rev-parse --absolute-git-dir)/opsx-deps-pending"
 
 # install 失敗照樣派、開 needs: run gate：PATH 上找不到 pnpm
