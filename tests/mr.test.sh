@@ -110,6 +110,9 @@ GH_RUN='{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatu
 stuck_is "$GH_RUN" "$C2" null "GitHub check 還是 IN_PROGRESS"
 stuck_is "${GH_RUN/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"FAILURE\"}" "$C2" "CI 紅" "GitHub check 跑完是 FAILURE"
 stuck_is "${GH_RUN/\"MERGEABLE\"/\"CONFLICTING\"}" "$C2" "衝突" "GitHub CI 還在跑不遮住衝突"
+stuck_is "${GH_RUN/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"CANCELLED\"}" "$C2" canceled "GitHub check 被取消報 canceled"
+GH_CANCEL_FAIL='{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","headRefOid":"9c1f3a","reviewDecision":"","statusCheckRollup":[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"CANCELLED"},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]}'
+stuck_is "$GH_CANCEL_FAIL" "$C2" "CI 紅" "GitHub 一個取消一個失敗時報 CI 紅"
 
 # --- 快取：鍵是 URL；TTL 60 內第二次不打；兩個 repo 同 slug 不同 MR 不互串；TTL 0 一定打；讀不到時不寫 ---
 : > "$OPSX_FAKE_LOG"; export OPSX_MR_CACHE_TTL=60

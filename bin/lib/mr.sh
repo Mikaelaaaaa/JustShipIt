@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
 #   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","stuck","error","created_at","merged_at"}
-#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed），不受排在前面的條件遮住
+#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed、canceled），不受排在前面的條件遮住
 #            stuck 是 MR 合不了、要人處理的第一個原因：已關閉（GitLab 合併中的 locked 不算）、CI 紅、pipeline 原值 canceled／skipped／manual、
 #              衝突、draft、要求修改；沒卡住、或查不到時是 null。CI 還在跑或其他 pipeline 狀態不給原因，但不遮住後面的原因。
 #              Stop hook 的停住紀錄與 coordinate 的「MR 卡住」通知都讀它
@@ -116,11 +116,14 @@ except json.JSONDecodeError as e:
     out["error"] = "%s 回的不是 JSON：%s" % (tool, e)
     print(json.dumps(out)); sys.exit()
 if forge == "github":
-    checks_ok, checks_failed = True, False
+    # 被取消的 check 照 GitLab 的用詞報 canceled；同時有失敗的就報 failed
+    checks_ok, checks_failed, checks_canceled = True, False, False
     for c in d.get("statusCheckRollup") or []:
         if "conclusion" in c:   # CheckRun：要跑完而且過
             ok = c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
-            checks_failed = checks_failed or (c.get("status") == "COMPLETED" and not ok)
+            canceled = c.get("status") == "COMPLETED" and c.get("conclusion") == "CANCELLED"
+            checks_canceled = checks_canceled or canceled
+            checks_failed = checks_failed or (c.get("status") == "COMPLETED" and not ok and not canceled)
         else:                   # StatusContext：只有 state
             ok = c.get("state") == "SUCCESS"
             checks_failed = checks_failed or c.get("state") in ("FAILURE", "ERROR")
@@ -131,7 +134,7 @@ if forge == "github":
          "pipeline": checks_ok, "threads": decision != "CHANGES_REQUESTED"}
     sha, ps, n, state = d.get("headRefOid"), ("success" if checks_ok else "failed"), (1 if decision == "CHANGES_REQUESTED" else 0), d.get("state")
     out.update(created_at=d.get("createdAt"), merged_at=d.get("mergedAt"),
-               pipeline_status="success" if checks_ok else "failed" if checks_failed else "pending")
+               pipeline_status="success" if checks_ok else "failed" if checks_failed else "canceled" if checks_canceled else "pending")
 else:
     ps = (d.get("head_pipeline") or d.get("pipeline") or {}).get("status")
     n = d.get("unresolved_discussions_count")

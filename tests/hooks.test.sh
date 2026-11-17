@@ -1488,6 +1488,8 @@ assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做�
 GH_RED="${GH_PR/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"FAILURE\"}"
 printf '%s' "$GH_RED" > "$OPSX_TEST_GH_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 做完，MR 卡在 CI 紅" "stop: GitHub check 跑完 FAILURE 記 CI 紅"
+printf '%s' "${GH_PR/\"IN_PROGRESS\",\"conclusion\":null/\"COMPLETED\",\"conclusion\":\"CANCELLED\"}" > "$OPSX_TEST_GH_JSON"
+out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 做完，MR 卡在 canceled" "stop: GitHub check 被取消記 canceled"
 printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"; done_report
 # 沒有卡的 branch 不擋
 git -C "$R" checkout -q -b scratch-x; out="$(sg)"; assert_eq "$out" "" "stop: branch 對不到卡不擋"
