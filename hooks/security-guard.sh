@@ -18,7 +18,7 @@ deny() {
   exit 0
 }
 
-# 判斷「是不是 git push / add / commit」只看會執行的部分；引號與 heredoc 內的字樣不算。旗標與署名仍讀原始 COMMAND。
+# 判斷「是不是 git push / add / commit」只看會執行的部分；引號與 heredoc 內的字樣不算。push 的旗標讀正規化後的文字，其餘仍讀原始 COMMAND。
 SKELETON=$(printf '%s' "$COMMAND" | perl "$(dirname "${BASH_SOURCE[0]}")/cmd-skeleton.pl") || deny "perl failed, cannot read the command skeleton. Make sure perl works."
 # git 與子命令之間可以夾全域選項（-C、-c、--git-dir 等），樣式跟 hooks/opsx-grant-gate.sh 共用
 source "$(dirname "${BASH_SOURCE[0]}")/_git-re.sh"
@@ -30,13 +30,18 @@ if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PUSH}(\\s|\$)"; then
   if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
     deny "Do not push directly to main/master. Create a feature branch and open a PR."
   fi
+  # 照 shell 解析參數的方式去引號、併續行後再比對，引號與反斜線藏不住 push 的參數（跟 hooks/opsx-grant-gate.sh 的 cmd_l3norm 同一套）
+  HOOK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+  NORM_DEFAULT=$(printf '%s' "$COMMAND" | perl "$HOOK_DIR/cmd-containers.pl" | perl "$HOOK_DIR/cmd-normalize.pl") || deny "perl failed, cannot normalize the command. Make sure perl works."
+  NORM_KEEP=$(printf '%s' "$COMMAND" | perl "$HOOK_DIR/cmd-containers.pl" | perl "$HOOK_DIR/cmd-normalize.pl" --keep-space) || deny "perl failed, cannot normalize the command. Make sure perl works."
+  NORM="${NORM_DEFAULT}"$'\n'"${NORM_KEEP}"
   # 同一段 push 內，refspec 目標是 main / master 才算；分支名只含 main 片段、push 以外的 main 字樣不算（hooks/opsx-grant-gate.sh 同一條）
   push_main="${GIT_PUSH}"'\b[^;&|]*[[:space:]:+"'"'"'](refs/heads/)?(main|master)([^A-Za-z0-9._/:-]|$)'
-  if echo "$COMMAND" | tr '\n' ' ' | grep -qE "$push_main"; then
+  if printf '%s\n' "$NORM" | grep -qE "$push_main"; then
     deny "Do not push directly to main/master. Create a feature branch and open a PR."
   fi
   # Block force push：只看同一段 push 的參數，後面串的指令自己的 -f 不算
-  if echo "$COMMAND" | tr '\n' ' ' | grep -qE "${GIT_PUSH}([[:space:]][^;&|]*)?[[:space:]](--force|-f)\\b"; then
+  if printf '%s\n' "$NORM" | grep -qE "${GIT_PUSH}([[:space:]][^;&|]*)?[[:space:]](--force|-f)\\b"; then
     deny "Force push is blocked. Use --force-with-lease if you must overwrite remote history."
   fi
 fi
