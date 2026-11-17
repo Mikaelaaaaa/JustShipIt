@@ -7,12 +7,15 @@ export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"
 export OPSX_USER=mikaela OPSX_DISPATCH_RETRY_SLEEP=0
 mkdir -p "$OPSX_STATE_DIR"
 
-# 假 pnpm 跟假 herdr 寫同一個 log，才比得出誰先誰後；結束碼讀 $FX/pnpm-rc
+# 假 pnpm 跟假 herdr 寫同一個 log，才比得出誰先誰後；結束碼讀 $FX/pnpm-rc，輸出讀 $FX/pnpm-msg（printf %b，可放 \r）。
+# 跑的當下 git-dir 有沒有標記檔記成 pnpm-marker 一行
 echo 0 > "$FX/pnpm-rc"
+echo 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' > "$FX/pnpm-msg"
 cat > "$FX/fakebin/pnpm" <<EOF
 #!/usr/bin/env bash
 printf 'pnpm %s\n' "\$*" >> "$OPSX_FAKE_LOG"
-echo "ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile"
+if [ -f "\$(git -C "\$2" rev-parse --absolute-git-dir)/opsx-deps-pending" ]; then echo 'pnpm-marker yes' >> "$OPSX_FAKE_LOG"; fi
+printf '%b\n' "\$(cat "$FX/pnpm-msg")"
 exit "\$(cat "$FX/pnpm-rc")"
 EOF
 chmod +x "$FX/fakebin/pnpm"
@@ -40,6 +43,9 @@ assert_grep "^pnpm --dir $R/.claude/worktrees/ok-card install --frozen-lockfile\
 p="$(line_of '^pnpm ')"; a="$(line_of '^agent start ok-card')"
 [ -n "$a" ] && [ "$p" -lt "$a" ] || fail "pnpm 要在 agent start 之前：$(cat "$OPSX_FAKE_LOG")"
 assert_no_file "$R/openspec/changes/ok-card/gates.md"
+# install 跑的時候標記已經在（中途被殺也留得下來），裝好就刪
+assert_grep '^pnpm-marker yes$' "$OPSX_FAKE_LOG"
+assert_no_file "$(git -C "$R/.claude/worktrees/ok-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
 
 # 既有 worktree 不裝
 : > "$OPSX_FAKE_LOG"
@@ -72,6 +78,8 @@ assert_grep "$R/.claude/worktrees/bad-card" "$G"
 assert_grep 'ERR_PNPM_OUTDATED_LOCKFILE' "$G"
 assert_grep '^## install-deps$' "$G"
 assert_grep '^opened_at: ' "$G"
+assert_grep '^blocks-from: apply$' "$G"
+assert_no_file "$(git -C "$R/.claude/worktrees/bad-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
 echo "$out" | grep -q 'integer expression' && fail "卡上沒有 gates.md 時不能有 test 的錯誤：$out"
 echo "$out" | grep -q 'pnpm install' || fail "dispatch 輸出要說 install 失敗：$out"
 python3 -I -c 'import json,sys;assert "Inst-D/bad-card" in json.load(open(sys.argv[1]))' "$OPSX_STATE_DIR/dispatch.json" || fail "install 失敗也要寫 dispatch.json"
@@ -101,6 +109,37 @@ out="$(cd "$R" && OPSX_TEST_START_FAIL=agent_name_taken opsx dispatch nopane-car
 [ "$rc" -ne 0 ] || fail "開 pane 失敗 dispatch 要失敗：$out"
 assert_no_file "$R/openspec/changes/nopane-card/gates.md"
 echo "$out" | grep -q '依賴沒裝好' || fail "錯誤訊息要說依賴沒裝好：$out"
+# 重派：worktree 已在，不再裝，但標記還在，派出去後照樣開 gate、刪標記
+: > "$OPSX_FAKE_LOG"
+out="$(cd "$R" && opsx dispatch nopane-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "重派 rc: $out"
+assert_not_grep '^pnpm ' "$OPSX_FAKE_LOG"
+G="$R/openspec/changes/nopane-card/gates.md"
+assert_grep '^## install-deps$' "$G"
+assert_grep 'ERR_PNPM_OUTDATED_LOCKFILE' "$G"
+assert_no_file "$(git -C "$R/.claude/worktrees/nopane-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
+
+# install 途中 dispatch 被殺：留下的是開跑前寫的標記，重派也開 gate
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-L killed-card pnpm-lock.yaml)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/killed-card" -b feat/killed-card/mikaela
+printf 'pnpm install 沒跑完\n' > "$(git -C "$R/.claude/worktrees/killed-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
+out="$(cd "$R" && opsx dispatch killed-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "被殺後重派 rc: $out"
+assert_not_grep '^pnpm ' "$OPSX_FAKE_LOG"
+assert_grep '^## install-deps$' "$R/openspec/changes/killed-card/gates.md"
+assert_grep 'pnpm install 沒跑完' "$R/openspec/changes/killed-card/gates.md"
+
+# pnpm 輸出帶 \r：寫進 gate 時跟換行一樣換成空白，看板不會讀出第二段 gate
+: > "$OPSX_FAKE_LOG"
+printf '%s\n' 'x\r## fake\rstatus: answered' > "$FX/pnpm-msg"
+R="$(new_repo Inst-K cr-card pnpm-lock.yaml)"
+out="$(cd "$R" && opsx dispatch cr-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+G="$R/openspec/changes/cr-card/gates.md"
+assert_eq "$(grep -c '^## ' "$G")" 1 "只能有一段 gate：$(cat -v "$G")"
+grep -q $'\r' "$G" && fail "gates.md 不能有 \\r：$(cat -v "$G")"
+echo 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' > "$FX/pnpm-msg"
 
 # --feature 派工途中人停了 plan 第一張：gate 寫在第一句實際送到的那張
 : > "$OPSX_FAKE_LOG"

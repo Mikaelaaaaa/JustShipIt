@@ -132,10 +132,9 @@ PY
   fi
 
   # worktree：一卡一棵
-  local wt="$top/.claude/worktrees/$slug"
-  # install_deps 寫進來的失敗原因；卡真的派出去了才寫成 gate
-  local deps_fail=""
+  local wt="$top/.claude/worktrees/$slug" fresh=""
   if [ ! -d "$wt" ]; then
+    fresh=1
     local used; used="$(git -C "$top" worktree list --porcelain | awk -v b="branch refs/heads/$branch" '/^worktree /{w=substr($0, 10)} $0 == b {print w}')"
     [ -z "$used" ] || die "dispatch: 分支 $branch 已經 checkout 在 ${used}$(held_by "$used")，不另開 worktree。那張卡在做就不用派；沒人在做就先收掉那棵 worktree"
     ensure_dir "$top/.claude/worktrees"
@@ -150,9 +149,13 @@ PY
       fi
       git -C "$top" worktree add -q --no-track "$wt" -b "$branch" "$start"
     fi
-    # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
-    if [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt"; fi
   fi
+  # 依賴沒裝好的標記放在 worktree 的 git-dir，跟著樹走：上次派工裝失敗或被殺在半路、卡又沒派出去時，重派看得到。卡派出去、gate 開好才刪
+  local mark deps_fail=""
+  mark="$(git -C "$wt" rev-parse --absolute-git-dir)/opsx-deps-pending"
+  # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
+  if [ -n "$fresh" ] && [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt" "$mark"; fi
+  if [ -f "$mark" ]; then deps_fail="$(cat "$mark")"; fi
   warn_untrusted "$top"
   # codex 沒有 router hook：把同一批規則放進 worktree。worktree 已在也寫（重派可能換模式）
   if [ "$agent" = codex ]; then place_agents_md "$wt" "$mode" || die "dispatch: AGENTS.md 放不進 $wt"; fi
@@ -214,7 +217,7 @@ PY
     die "dispatch: feature「${feature}」能開工的主 change 在派工途中都被人停了，tab 已關"
   fi
   card="$(printf '%s\n' "$written" | head -1)"; d="$top/openspec/changes/$card"
-  if [ -n "$deps_fail" ]; then write_install_gate "$d" "$wt" "$deps_fail"; fi
+  if [ -n "$deps_fail" ]; then write_install_gate "$d" "$wt" "$deps_fail"; rm -f "$mark"; fi
 
   # 第一句：照狀態
   local first; first="$(stage_name "$top" "$card")"
@@ -241,19 +244,23 @@ PY
   fi
 }
 
-install_deps() { # <worktree>：裝不起來不擋派工，原因寫進呼叫端的 deps_fail，卡派出去後才開 gate
-  local wt="$1" out
+install_deps() { # <worktree> <標記檔>：裝不起來不擋派工，原因寫進標記檔，卡派出去後才開 gate
+  local wt="$1" mark="$2" out
   if ! command -v pnpm >/dev/null; then
     say "dispatch: PATH 上找不到 pnpm，$wt 沒裝依賴，派出去後在卡上開 gate"
-    deps_fail="PATH 上找不到 pnpm"
+    printf 'PATH 上找不到 pnpm\n' > "$mark"
     return 0
   fi
+  # 開跑前就留標記：dispatch 在 install 途中被殺（看板 120 秒逾時）時沒機會寫失敗原因
+  printf 'pnpm install 沒跑完（dispatch 在安裝途中被停）\n' > "$mark"
   say "dispatch: 在 $wt 跑 pnpm install --frozen-lockfile"
   # --frozen-lockfile：鎖檔對不上就失敗，不讓新分支一開就有改過的 pnpm-lock.yaml
-  if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then say "dispatch: 依賴裝好了"; return 0; fi
-  out="$(printf '%s\n' "$out" | tail -3 | tr '\n' ' ')"
+  # shortcut: 沒有時限，registry 卡住時 dispatch 跟著等、coordinate 那一輪也停住；量到 Agentory-AI 實際要裝幾秒，或 coordinate 真的被卡過一輪，就加 timeout，逾時照 install 失敗開 gate
+  if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then rm -f "$mark"; say "dispatch: 依賴裝好了"; return 0; fi
+  # \r 也換掉：看板用 Python 讀 gates.md 時把 \r 當換行，依賴的安裝腳本印的字會變成假的 gate 欄位
+  out="$(printf '%s\n' "$out" | tail -3 | tr '\r\n' '  ')"
   say "dispatch: pnpm install 失敗，派出去後在卡上開 gate：$out"
-  deps_fail="pnpm install --frozen-lockfile 失敗：$out"
+  printf 'pnpm install --frozen-lockfile 失敗：%s\n' "$out" > "$mark"
 }
 
 write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 id 加流水號，不跟舊的撞
@@ -267,14 +274,15 @@ write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 
   [ ! -d "$wt/node_modules" ] || cmd="cd $q && rm -rf node_modules && pnpm install --frozen-lockfile"
   {
     printf '\n## %s\n' "$id"
-    printf 'type: decision\nstatus: open\nneeds: run\nopened_at: %s\n' "$(now_iso)"
+    # blocks-from: apply：卡寫出 tasks.md 前 stop hook、drive、看板都不當它在等人（stage.sh st_gates_file_count）
+    printf 'type: decision\nstatus: open\nneeds: run\nblocks-from: apply\nopened_at: %s\n' "$(now_iso)"
     printf '問題: dispatch 沒裝好 %s 的依賴，你自己裝嗎？\n' "$wt"
     printf '已確認: 卡照樣派出去了；%s\n' "$why"
     printf '選項: 我在終端機裝好了 (Recommended) | 先不裝，照樣往下做\n'
     printf '建議: %s\n' "$cmd"
     printf '證據: %s\n' "$why"
     printf '風險: 不裝的話 apply 跑測試時缺依賴\n'
-    printf '預設: drive 不送下一站，等你回覆\n'
+    printf '預設: explore／grill／propose 照常往下；卡寫出 tasks.md 時還沒回，就停在 apply 等你\n'
   } >> "$d/gates.md"
 }
 
