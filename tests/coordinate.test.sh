@@ -1194,7 +1194,8 @@ MW="$OPSX_STATE_DIR/max-working"; rm -f "$MW"; rm -f "$MEMO"; printf '{}' > "$DI
 export OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json"
 # panes ['<JSON 陣列>']：照 collect.json 裡派出去的卡寫 dispatch.json 條目與 herdr agent list。條目的 worktree 是 $FX/wt/<pane>，
 # 同一個 pane 的條目共用它；卡的 agent_status 是 null 或 unknown 時 herdr 沒有這個 pane 的 agent，其他的 agent cwd 在 worktree 底下。
-# 陣列每一項 {"key","pane","status"} 照 key 蓋過或補上一筆：entry 的欄位併進條目（值 null 是拿掉那個欄位），cwd、fg 換掉 agent 的 cwd、foreground_cwd
+# 陣列每一項 {"key","pane","status"} 照 key 蓋過或補上一筆：entry 的欄位併進條目（值 null 是拿掉那個欄位），cwd、fg 換掉 agent 的 cwd、foreground_cwd，
+# listed 為 true 時 status 是 unknown 也把 agent 寫進 herdr agent list
 panes() {
   python3 -I - "$OPSX_TEST_COLLECT_JSON" "$FX/wt" "${1:-[]}" "$DISP" "$OPSX_TEST_HERDR_AGENTS" <<'PY'
 import json, os, sys
@@ -1214,7 +1215,7 @@ for key, i in items.items():
         else:
             e[k] = v
     entries[key] = e
-    if i["status"] not in (None, "unknown") and i["pane"] not in agents:
+    if (i["status"] not in (None, "unknown") or i.get("listed")) and i["pane"] not in agents:
         cwd = i.get("cwd", os.path.join(wt, "src"))
         agents[i["pane"]] = {"agent": "claude", "pane_id": i["pane"], "agent_status": i["status"], "cwd": cwd, "foreground_cwd": i.get("fg", cwd)}
 with open(disp, "w") as f:
@@ -1296,6 +1297,9 @@ full 8 8
 cards "[$(held_n 8 idle){\"slug\":\"q1\"}]"; panes '[{"key":"demo/h8","pane":"w1:h8","status":"idle","entry":{"worktree":null}}]'
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 1 "沒記 worktree 的條目不佔名額：$(cat "$OPSX_FAKE_LOG")"
+cards "[$(held_n 8 idle){\"slug\":\"q1\"}]"; panes '[{"key":"demo/h8","pane":"w1:h8","status":"unknown","listed":true}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q1 ')" 1 "herdr 列出的 agent 狀態不是 working、idle、blocked、done 時不佔名額：$(cat "$OPSX_FAKE_LOG")"
 # 死掉的 pane 不佔名額：10 分鐘內重派過，這輪不再重派
 printf '{"_redispatched":{"demo/dead1":"%s"}}' "$(ago 3)" > "$MEMO"
 cards "[$(held_n 7 idle)$(held dead1 unknown),{\"slug\":\"q1\"}]"; panes
