@@ -153,8 +153,6 @@ herdr_step() { # <slug> <runtime 函式> <參數…>
       say "drive: $slug 的 pane 沒了（herdr agent_not_found），結束"; coordinate_kick "$slug"; return 1 ;;
     agent_blocked)
       say "drive: $slug 在終端機等待輸入，等人在 pane 處理完"
-      local tail_text kind; tail_text="$(pane_tail "$DRIVE_REPO" "$slug")"; kind="$(dialog_kind "$tail_text")"
-      [ -z "$kind" ] || write_dialog_gate "$d" "$kind" "$tail_text" "$DRIVE_REPO" "$slug"
       coordinate_kick "$slug"
       runtime_wait "$DRIVE_REPO/$slug" --until working >/dev/null 2>&1 && runtime_wait "$DRIVE_REPO/$slug" >/dev/null 2>&1 || { sleep "$poll"; settled=0; }
       return 0 ;;
@@ -192,8 +190,11 @@ drive_args_lost() { # <repo> <slug>
   say "drive: $2 的 claude 啟動參數遺失（沒帶 --settings），階段不會動，不寫 gate、不 kick，結束；跑 opsx relaunch $2"
 }
 
+pane_lines() { # <repo> <slug>：pane 最後 20 行原文；pane 讀不到印空
+  runtime_read "$1/$2" 2>/dev/null | tail -20 || true
+}
 pane_tail() { # <repo> <slug>：pane 最後 20 行壓成一行；pane 讀不到印空
-  runtime_read "$1/$2" 2>/dev/null | tail -20 | tr '\n' ' ' || true
+  pane_lines "$1" "$2" | tr '\n' ' '
 }
 pane_state() { # <repo> <slug>：pane 尾巴是 API 錯誤（error）、有背景工作或 subagent 在跑（busy），或都不是（idle）
   # shortcut: [已評估] busy 只認 inbox 證據裡見過的兩種畫面，沒在真 pane 上校正過，漏掉的樣式會退回開 gate，有需要再補
@@ -211,10 +212,11 @@ gate_field() { # <card dir> <gate id> <欄位>：該 gate 的欄位值，沒有�
 }
 
 write_stuck_gate() { # <card dir> <stage> <repo> <slug>：gates.md 加一個 open 的 decision gate，id 不跟舊的 drive gate 撞
-  local d="$1" stage="$2" repo="$3" slug="$4" n tail_text kind
-  tail_text="$(pane_tail "$repo" "$slug")"
-  kind="$(dialog_kind "$tail_text")"
-  if [ -n "$kind" ]; then write_dialog_gate "$d" "$kind" "$tail_text" "$repo" "$slug"; return; fi
+  local d="$1" stage="$2" repo="$3" slug="$4" n lines tail_text kind
+  lines="$(pane_lines "$repo" "$slug")"
+  kind="$(dialog_kind "$lines")"
+  if [ -n "$kind" ]; then write_dialog_gate "$d" "$kind" "$lines" "$repo" "$slug"; return; fi
+  tail_text="$(printf '%s' "$lines" | tr '\n' ' ')"
   n=$(( $(grep -cE "^## drive-$stage-[0-9]+$" "$d/gates.md" 2>/dev/null || true) + 1 ))
   {
     printf '\n## drive-%s-%s\n' "$stage" "$n"
@@ -228,9 +230,14 @@ write_stuck_gate() { # <card dir> <stage> <repo> <slug>：gates.md 加一個 ope
   } >> "$d/gates.md"
 }
 
-# Claude Code 的對話框把 agent 卡住時，該做的是人到 pane 按 Yes，不是重做這一站。信任優先：兩種同時在畫面上時印信任
-# shortcut: [已評估] 只認這四句，信任那句來自 skill-retrieval 的真畫面、權限兩句沒在真 pane 上校正過；漏掉的畫面照舊寫 drive-<站>-<n>，遇到再補
-dialog_kind() { # <pane 尾巴>：信任、權限，或空
+# Claude Code 的對話框把 agent 卡住時，該做的是人到 pane 按 Yes，不是重做這一站。信任優先：兩種同時在畫面上時印信任。
+# 只有問句不算：agent 的文字、grep 輸出、已經按掉的舊對話框都可能留著問句；對話框開著時最後一個非空行是它的底列（Esc to …）
+# shortcut: [已評估] 只認這四句加底列，信任那句與底列來自 skill-retrieval 的真畫面、權限兩句沒在真 pane 上校正過；漏掉的畫面照舊寫 drive-<站>-<n>，遇到再補
+dialog_kind() { # <pane 最後 20 行原文>：信任、權限，或空
+  case "$(printf '%s\n' "$1" | awk 'NF {last = $0} END {print last}')" in
+    *"Esc to "*) ;;
+    *) return 0 ;;
+  esac
   case "$1" in
     *"one you trust"*|*"trust this folder"*) echo 信任 ;;
     *"Do you want to proceed?"*|*"Do you want to make this edit"*) echo 權限 ;;
@@ -238,25 +245,24 @@ dialog_kind() { # <pane 尾巴>：信任、權限，或空
 }
 
 # id 不能是 drive-<站>-<n>：gaterule 會判成卡住題，needs: run 不生效，drive 也會把人的答覆當成「不是重做」而結束。
-# 已有 open 的 dialog gate 就不再寫，agent_blocked 每輪都會走到這裡
-write_dialog_gate() { # <card dir> <信任|權限> <pane 尾巴> <repo> <slug>
-  local d="$1" kind="$2" tail_text="$3" pane n
-  if [ -f "$d/gates.md" ] && awk '/^## /{on = ($0 ~ /^## dialog-[0-9]+$/)} on && /^status:[ \t]*open[ \t]*$/{f = 1} END{exit !f}' "$d/gates.md"; then
-    say "drive: $5 已有 open 的 dialog gate，不再寫"; return 0
-  fi
-  runtime_target "$4/$5" || return
-  pane="${RT_PANE:-（dispatch.json 沒有 pane）}"
+# drive 不讀這題的答案，答完就回迴圈頂端照常送站，所以只給一個選項；要停整張卡用板上的「停止」。
+# herdr 自己認出 agent_blocked 時不走這裡，交給協調者的「在終端機等輸入」通知，人按完 Yes drive 就自己往下走。
+# 呼叫者都是先讀到 pane 畫面才判出對話框，所以 dispatch.json 一定有 pane
+write_dialog_gate() { # <card dir> <信任|權限> <pane 最後 20 行原文> <repo> <slug>
+  local d="$1" kind="$2" lines="$3" repo="$4" slug="$5" n
+  runtime_target "$repo/$slug" || return
   n=$(( $(grep -cE '^## dialog-[0-9]+$' "$d/gates.md" 2>/dev/null || true) + 1 ))
   {
     printf '\n## dialog-%s\n' "$n"
     printf 'type: decision\nneeds: run\nstatus: open\n'
-    printf '問題: pane %s 停在 Claude Code 的%s對話框，agent 在等人按，drive 送的指令進不去\n' "$pane" "$kind"
-    printf '選項: 已在 pane 按 Yes，繼續做原本那一步 (Recommended) | 停在這裡，把卡在哪寫進 gates.md 等人\n'
-    printf '建議: 到 pane %s 按 Yes 後回這題；opsx 不替你按信任或權限\n' "$pane"
-    printf '證據: pane 最後 20 行：%s\n' "$tail_text"
+    # 回這題時看板會把選項文字加 Enter 送進 pane；對話框還開著的話，這個 Enter 會選到對話框游標所在的項目
+    printf '問題: pane %s 停在 Claude Code 的%s對話框，agent 在等人按，drive 送的指令進不去。先到 pane 按 Yes，再回這題；順序反了，回題送進去的 Enter 會選到對話框游標所在的項目\n' "$RT_PANE" "$kind"
+    printf '選項: 已在 pane 按 Yes，繼續做原本那一步 (Recommended)\n'
+    printf '建議: 到 pane %s 按 Yes 後回這題；opsx 不替你按信任或權限。要整張卡停掉用板上的「停止」\n' "$RT_PANE"
+    printf '證據: pane 最後 20 行：%s\n' "$(printf '%s' "$lines" | tr '\n' ' ')"
     printf '預設: drive 停在這裡等\n'
   } >> "$d/gates.md"
-  say "drive: $5 的 pane $pane 停在${kind}對話框，寫了 dialog-$n 等人到 pane 按 Yes"
+  say "drive: $slug 的 pane $RT_PANE 停在${kind}對話框，寫了 dialog-$n 等人到 pane 按 Yes"
 }
 
 # 手動 `opsx drive` 也要讓板上的「停止」殺得到，所以 pid 由 drive 自己寫，不靠 dispatch。

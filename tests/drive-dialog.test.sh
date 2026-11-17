@@ -28,7 +28,8 @@ cat > "$FX/on_wait.sh" <<EOF
 case "\$*" in *"--until working"*) printf '{}' > "$OPSX_STATE_DIR/dispatch.json" ;; esac
 EOF
 export OPSX_TEST_ON_WAIT="$FX/on_wait.sh"
-TRUST='Adding a new directory: /Users/x/.local/state/opsx   This session hasn'"'"'t worked here before. Is this a directory you created or one you trust?   ❯ No, exit    Yes, add it'
+TRUST=$'Adding a new directory: /Users/x/.local/state/opsx\nThis session hasn\'t worked here before. Is this a directory you created or one you trust?\n❯ No, exit\n  Yes, add it\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)\n'
+PERM_FOOT=$'\n❯ 1. Yes\n  2. No\n\nEsc to cancel'
 
 gate_block() { awk -v id="## $1" '/^## /{on = ($0 == id)} on' "$C/gates.md"; }
 
@@ -46,18 +47,41 @@ row() { # <畫面文字> <gate id 或 無> <種類 或 無>
       gate_block "$2" | grep '^問題:' | grep -qF "w1:p7" || fail "問題要有 pane id: $(cat "$C/gates.md")"
       gate_block "$2" | grep '^問題:' | grep -qF "$3" || fail "問題要有種類 $3（$1）: $(cat "$C/gates.md")"
       gate_block "$2" | grep '^建議:' | grep -qF "到 pane w1:p7 按 Yes" || fail "建議要叫人到 pane 按 Yes: $(cat "$C/gates.md")"
+      gate_block "$2" | grep '^問題:' | grep -qF "先到 pane 按 Yes" || fail "問題要寫明先按 Yes 再回題: $(cat "$C/gates.md")"
+      gate_block "$2" | grep '^選項:' | grep -qF '|' && fail "dialog gate 只留一個選項（drive 不讀它的答案）: $(cat "$C/gates.md")"
       assert_grep 'opsx coordinate --kick' "$KL" ;;
     *) assert_not_grep '^## dialog-' "$C/gates.md" ;;
   esac
 }
 row "$TRUST" dialog-1 信任
-row "Do you trust this folder?" dialog-1 信任
-row "Do you want to proceed?   ❯ 1. Yes" dialog-1 權限
-row "Do you want to make this edit to tasks.md?" dialog-1 權限
-row "one you trust? ... Do you want to proceed?" dialog-1 信任
-row "I trust the tests now" drive-apply-1 無
+row "Do you trust this folder?${PERM_FOOT}" dialog-1 信任
+row "Do you want to proceed?${PERM_FOOT}" dialog-1 權限
+row "Do you want to make this edit to tasks.md?${PERM_FOOT}" dialog-1 權限
+row "one you trust? ... Do you want to proceed?${PERM_FOOT}" dialog-1 信任
+row "I trust the tests now${PERM_FOOT}" drive-apply-1 無
+row $'Do you want to proceed?\n\n> ' drive-apply-1 無
+row $'grep: drive.sh: *"Do you want to proceed?"*|*"Esc to"*\n\n> ' drive-apply-1 無
 row "pane 尾巴" drive-apply-1 無
 row "1 shell still running" 無 無
+
+# dispatch.json 沒有 pane：讀不到畫面就判不出對話框，照舊寫 drive-apply-1
+reset; export OPSX_TEST_PANE_TEXT="$TRUST"
+printf '{"Acmecorp-CS/retry-backoff":{"mode":"drive","grants":[]}}' > "$OPSX_STATE_DIR/dispatch.json"
+out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive 沒 pane rc: ${out}"
+assert_grep '^## drive-apply-1$' "$C/gates.md"
+assert_not_grep '^## dialog-' "$C/gates.md"
+
+# dialog-1 答完（人按了 Yes）：drive 不結束，照常送這一站的指令
+reset; export OPSX_TEST_PANE_TEXT="pane 尾巴"
+printf '## dialog-1\ntype: decision\nneeds: run\nstatus: open\n' > "$C/gates.md"
+cat > "$FX/on_wait_answer.sh" <<EOF
+case "\$*" in *"--until working"*) printf '## dialog-1\ntype: decision\nneeds: run\nstatus: answered\nanswer: 已在 pane 按 Yes\n' > "$C/gates.md" ;; esac
+EOF
+printf 'printf "{}" > "%s/dispatch.json"\n' "$OPSX_STATE_DIR" > "$FX/on_prompt_stop.sh"
+out="$(OPSX_TEST_ON_WAIT="$FX/on_wait_answer.sh" OPSX_TEST_ON_PROMPT="$FX/on_prompt_stop.sh" opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive 答完 rc: ${out}"
+assert_grep '^agent prompt retry-backoff /opsx-workflow:apply retry-backoff --wait$' "$OPSX_FAKE_LOG"
+# dialog-1 還開著的那輪只等 agent 開工，階段指令排在等待之後
+assert_eq "$(grep -m1 -nE '^agent (prompt|wait retry-backoff --until working)' "$OPSX_FAKE_LOG" | cut -d' ' -f2)" "wait" "gate 開著時先等、不送: $(cat "$OPSX_FAKE_LOG")"
 
 # 舊的 dialog-1 答過了：再遇到時寫 dialog-2
 reset; export OPSX_TEST_PANE_TEXT="$TRUST"
@@ -66,23 +90,18 @@ out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive rc: 
 assert_grep '^## dialog-2$' "$C/gates.md"
 gate_block dialog-2 | grep -q '^status: open$' || fail "dialog-2 要 open: $(cat "$C/gates.md")"
 
-# herdr 回 agent_blocked、畫面是對話框：寫 dialog-1 再等
-reset; export OPSX_TEST_PANE_TEXT="Do you want to proceed?"; printf 'agent_blocked\n' > "$FX/werr"
-out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive blocked rc: ${out}"
+# 答過的 drive-apply-1 不影響 dialog 編號
+reset; export OPSX_TEST_PANE_TEXT="$TRUST"
+printf '## drive-apply-1\ntype: decision\nstatus: answered\nanswer: 重做\n' > "$C/gates.md"
+out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive rc: ${out}"
 assert_grep '^## dialog-1$' "$C/gates.md"
-gate_block dialog-1 | grep -q '^needs: run$' || fail "blocked 的 dialog-1 要有 needs: run: $(cat "$C/gates.md")"
-assert_grep 'agent wait retry-backoff --until working' "$OPSX_FAKE_LOG"
 
-# agent_blocked 但不是對話框：不寫 gate
-reset; export OPSX_TEST_PANE_TEXT="pane 尾巴"; printf 'agent_blocked\n' > "$FX/werr"
+# herdr 對 prompt 回 agent_blocked、畫面是對話框：不寫 gate，交給協調者的通知，等 agent 回 working
+reset; export OPSX_TEST_PANE_TEXT="$TRUST"; printf 'agent_blocked\n' > "$FX/perr"
 out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive blocked rc: ${out}"
 assert_no_file "$C/gates.md"
-
-# 已有 open 的 dialog-1：agent_blocked 再來也不重寫
-reset; export OPSX_TEST_PANE_TEXT="$TRUST"; printf 'agent_blocked\n' > "$FX/werr"
-printf '## dialog-1\ntype: decision\nneeds: run\nstatus: open\n' > "$C/gates.md"
-out="$(opsx drive retry-backoff --repo "$R" 2>&1)"; assert_eq "$?" 0 "drive dup rc: ${out}"
-assert_eq "$(grep -c '^## dialog-' "$C/gates.md")" 1 "dialog gate 不重寫: $(cat "$C/gates.md")"
+assert_grep 'opsx coordinate --kick' "$KL"
+assert_grep 'agent wait retry-backoff --until working' "$OPSX_FAKE_LOG"
 
 # gaterule：dialog-1 是要人跑的題，drive-apply-1 仍是卡住題
 got="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import gaterule

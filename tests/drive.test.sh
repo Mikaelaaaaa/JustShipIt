@@ -79,9 +79,8 @@ reset_apply; printf 'agent_blocked\n' > "$FX/perr"; export OPSX_TEST_PROMPT_ERR=
 : > "$KL"
 out="$(opsx drive retry-backoff 2>&1)"; assert_eq "$?" 0 "drive blocked: $out"
 assert_eq "$(grep -c '^opsx coordinate --kick$' "$KL")" 2 "blocked 時 kick 一次（另一次是最後可以合併）: $(cat "$KL")"
-assert_eq "$(sed -n 3p "$OPSX_FAKE_LOG")" "pane read p42" "blocked 後先讀 pane 看是不是對話框: $(cat "$OPSX_FAKE_LOG")"
-assert_eq "$(sed -n 4p "$OPSX_FAKE_LOG")" "agent wait retry-backoff --until working" "blocked 後要等 working: $(cat "$OPSX_FAKE_LOG")"
-assert_eq "$(sed -n 5p "$OPSX_FAKE_LOG")" "agent wait retry-backoff" "blocked 後要等 settle"
+assert_eq "$(sed -n 3p "$OPSX_FAKE_LOG")" "agent wait retry-backoff --until working" "blocked 後要等 working: $(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(sed -n 4p "$OPSX_FAKE_LOG")" "agent wait retry-backoff" "blocked 後要等 settle"
 echo "$out" | grep -q "終端機等待輸入" || fail "blocked 要說明在等人: $out"
 
 # --- herdr agent_not_found → pane 沒了，結束，不再碰 herdr ---
