@@ -31,6 +31,11 @@ has 'cd <worktree root>' "$P"
 has 'When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh' "$P"
 has "use the repo's own test command" "$P"
 ! grep -qF 'Run tests only as `bash tests/run.sh' "$P" || fail "propose SKILL.md 不能無條件寫 bash tests/run.sh"
+# test-run-rule-edges Scenario：propose 在沒有 tests/run.sh 時給退路指令；退路排在 repo 自己的指令之後
+has '(CLAUDE.md first, then package.json / pyproject, then the usual `pnpm test`, `pytest`, `go test ./...`)' "$P"
+# Scenario：review 的 START 說明只在有 tests/run.sh 時適用；不再無條件說 tests/run.sh 會印 START
+has 'when the repo has `tests/run.sh`, it prints `START <name>`' "$S0"
+! grep -qF 'and `tests/run.sh` prints `START <name>`' "$RV" || fail "review SKILL.md 不能無條件說 tests/run.sh 會印 START"
 
 # 驗收：openspec/changes/propose-gherkin/subs/propose-specs-rewrite/specs/propose-spec-guidance/spec.md 五個 Scenario
 hasnt() { ! grep -qE -- "$1" "$2" || fail "'$1' should not be in $(basename "$2"): $(grep -nE -- "$1" "$2")"; }

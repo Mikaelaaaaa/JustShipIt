@@ -48,7 +48,7 @@ Do NOT proceed without understanding what the user wants to build.
 
 ### 2. Create the change directory (if it does not exist yet)
 
-A dispatch worktree has no `openspec/` (it is not in git). Run every `openspec` command here as `cd <主 checkout absolute path> && openspec …` and `cd <worktree root>` back in the next command (the `cd` stays for every later Bash call, and tests, `opsx`, git and the router all read the cwd), and read and write the card's files at the 主 checkout's `openspec/changes/<name>/`. When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh <file-name filter>`, with no `VAR=…` or `export` in front of the command; without it, use the repo's own test command (CLAUDE.md first, then package.json / pyproject).
+A dispatch worktree has no `openspec/` (it is not in git). Run every `openspec` command here as `cd <主 checkout absolute path> && openspec …` and `cd <worktree root>` back in the next command (the `cd` stays for every later Bash call, and tests, `opsx`, git and the router all read the cwd), and read and write the card's files at the 主 checkout's `openspec/changes/<name>/`. When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh <file-name filter>`, with no `VAR=…` or `export` in front of the command; without it, use the repo's own test command (CLAUDE.md first, then package.json / pyproject, then the usual `pnpm test`, `pytest`, `go test ./...`).
 
 ```bash
 openspec new change "<name>" --schema opsx
