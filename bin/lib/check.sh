@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # opsx check <slug>：檢查 openspec/changes/<slug>/subs/ 底下每個子殼齊不齊（openspec CLI 只管主殼，子殼靠這支），
-# explore.md 的 ## 步驟 九行齊不齊，agent 開的卡的事實欄位（本卡是 agent 開的，或本卡開出去的卡），併入項目有沒有去處，以及主殼與子殼 spec 的 Gherkin 寫法。
+# explore.md 的 ## 步驟 九行齊不齊，agent 開的卡的事實欄位（本卡是 agent 開的，或本卡開出去的卡），併入項目有沒有去處，workplan 所屬 PR 的 mr 值認不認得，以及主殼與子殼 spec 的 Gherkin 寫法。
 # 一個缺項一行「subs/<子>/<檔>: <缺什麼>」或「explore.md 步驟 <號> <名>: <缺什麼>」，有缺項退出 1。只用 bash 與 awk：Stop hook 直接 source 它，不能依賴 python。
 # 驗收：openspec/changes/split-plan/specs/subchange-propose/spec.md「opsx check 檢查子殼」；board-actions「agent 開的卡要帶事實欄位」。
 
@@ -10,7 +10,7 @@ opsx_check() {
   [ -n "$top" ] || die "check: 不在 git repo 裡"
   local dir="$top/openspec/changes/$1"
   [ -d "$dir" ] || die "check: 沒有這張卡：$dir"
-  local out cand gherkin; out="$(check_explore "$dir"; check_subs "$dir"; check_facts "$dir"; check_merged "$dir")"; cand="$(check_blast "$top" "$dir")"
+  local out cand gherkin; out="$(check_explore "$dir"; check_subs "$dir"; check_facts "$dir"; check_merged "$dir"; check_mr "$top" "$1")"; cand="$(check_blast "$top" "$dir")"
   gherkin="$(check_gherkin "$dir")" || exit 2
   [ -z "$cand" ] || printf '%s\n' "$cand"
   [ -z "$out$gherkin" ] && return 0
@@ -104,6 +104,11 @@ check_gherkin() { # <卡目錄，主殼或子殼>：一個問題一行「<相對
 # 併進這張卡的項目（inbox.md 的 ## 併入 段）要有去處：tasks.md 提到它的 id，或已經 opsx split-out。
 # 有 tasks.md（propose 寫完了）或 outcome: declined（archive 正要捨棄）才檢查；沒有 tasks.md 時一個 id 都不算提到。
 # 不給 Stop hook 用：explore 階段的卡本來就還沒處理併入項目。
+check_mr() { # <top> <slug>：workplan 所屬 PR 的 mr 有值又不是 none 時印一行
+  local mr; mr="$(wp_pr_field "$1" "$2" mr)"
+  [ -z "$mr" ] || [ "$mr" = none ] || printf 'workplan.yaml: mr: %s 不認得，只認 none\n' "$mr"
+}
+
 check_merged() { # <卡目錄>：一個沒去處的 id 印一行
   local d="$1" slug id; slug="$(basename "$1")"
   [ -f "$d/inbox.md" ] || return 0

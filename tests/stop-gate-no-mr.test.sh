@@ -37,4 +37,19 @@ rm -f "$C/gates.md"
 workplan merged ""; rm -rf "$STOP_STATE"
 assert_eq "$(sg)" "" "workplan merged 的 archive 站照舊放行"
 
+# 驗收 openspec/changes/agent-20261116-1640/specs/no-mr-archive/spec.md「worktree 快轉到新 main 後仍推去 archive」
+# worktree（已在 feat/docs/mikaela）快轉到 report 之後才有的 main commit：branch 與 origin/main 同一個 commit，沒有自己的 commit
+touch -t 202601010000 "$C/report.md"
+git -C "$R" commit -q --allow-empty -m newer-main
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+workplan pending "mr: none"; rm -rf "$STOP_STATE"
+out="$(sg)"
+case "$(reason "$out")" in */opsx-workflow:archive*) ;; *) fail "快轉到新 main 後要推去 archive：$out" ;; esac
+case "$(reason "$out")" in *"再跑一次 /opsx-workflow:review"*) fail "快轉到新 main 不該要求重審：$out" ;; esac
+
+# 反例：沒標 mr 的卡（下一站 pr）在 report 後有新 commit，照舊要求重審
+workplan pending ""; rm -rf "$STOP_STATE"
+out="$(sg)"
+case "$(reason "$out")" in *"再跑一次 /opsx-workflow:review"*) ;; *) fail "pr 站在 report 後有新 commit 要求重審：$out" ;; esac
+
 echo "stop-gate-no-mr ok"

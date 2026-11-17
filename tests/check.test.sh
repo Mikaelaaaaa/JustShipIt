@@ -486,4 +486,21 @@ printf '## 要不要接 /apply？\ntype: decision\nstatus: open\n問題: 要不�
 out="$(gstop)"
 printf '%s' "$out" | jq -r '.reason' | grep -q '沒有反例' || fail "stop: 不會擋的 gate 不關掉 Gherkin 檢查: $out"
 rm "$G/openspec/changes/g-br/gates.md"
+
+# --- mr 值：驗收 openspec/changes/agent-20261116-1640/specs/no-mr-archive/spec.md「mr 值不認得時 opsx check 報錯」「mr 是 none 或沒寫時不報」 ---
+M="$(mk_repo mr)"
+mkdir -p "$M/openspec/changes/c"; printf 'schema: opsx\nkind: dev\n' > "$M/openspec/changes/c/.openspec.yaml"
+mk_wp() { # <mr 欄位行，空字串就不寫>
+  { printf 'features:\n  - name: f\n    prs:\n      - name: c\n        branch: feat/c/mikaela\n        status: pending\n'
+    [ -z "$1" ] || printf '        %s\n' "$1"
+  } > "$M/openspec/workplan.yaml"
+}
+mk_wp "mr: None"
+rc=0; out="$(cd "$M" && opsx check c 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || fail "mr: None 要以非 0 結束: $out"
+case "$out" in *"mr: None 不認得，只認 none"*) ;; *) fail "mr: None 要報錯: $out" ;; esac
+mk_wp "mr: none"
+out="$(cd "$M" && opsx check c 2>&1)" || fail "mr: none 不報: $out"
+mk_wp ""
+out="$(cd "$M" && opsx check c 2>&1)" || fail "沒寫 mr 不報: $out"
 echo ok
