@@ -206,7 +206,7 @@ wait_reason() { # <dir> <站>
   fi
 }
 
-# coordinate 只在 MR ready 時送「可以合併」，MR 合不了時沒有別的通知，要推。只有 ready、CI 還在跑、查不到 MR 狀態不推
+# coordinate 只在卡標「可以合併」時送事件，MR 合不了、或 MR 全綠但卡沒過時沒有別的通知，要推。只有可以合併、CI 還在跑、查不到 MR 狀態不推
 babysit_reason() {
   local blocked=""
   [ "$mr_rc" -eq 0 ] && blocked="$(printf '%s' "$mr_out" | jq -r '

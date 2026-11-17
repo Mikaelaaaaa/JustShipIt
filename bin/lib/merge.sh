@@ -46,16 +46,14 @@ print("no\t"+m["state"]+"\t"+",".join(bad))')"
 import json, os, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import jsonfile, mergeready
 raw = sys.stdin.read()
-status = None   # herdr 叫不通或回的東西讀不懂：跟 collect 一樣當讀不到，不算 working
+agents = None   # herdr 叫不通或回的東西讀不懂：跟 collect 一樣當讀不到，不擋（design D11）
 if raw:
     try:
         agents = json.loads(raw)["result"]["agents"]
     except (json.JSONDecodeError, KeyError, TypeError):
         agents = None
-    if agents is not None:
-        card = jsonfile.load(os.path.join(os.environ["OPSX_M_SD"], "dispatch.json")).get(os.environ["OPSX_M_KEY"])
-        hit = [a for a in agents if card and str(a.get("pane_id")) == str(card.get("pane"))]
-        status = hit[0].get("agent_status") if hit else "unknown"
+card = jsonfile.load(os.path.join(os.environ["OPSX_M_SD"], "dispatch.json")).get(os.environ["OPSX_M_KEY"])
+status = mergeready.agent_status_of(agents, card.get("pane")) if card else None
 with open(os.environ["OPSX_M_REPORT"], encoding="utf-8") as f:
     report = f.read()
 has_map = os.path.isfile(os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "logic-map.md"))

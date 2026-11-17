@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# skills/babysit/SKILL.md：有 push 的輪次（threads-only 的 push wave、check 模式 merge main 之後的 push）照 review 的產表步重產邏輯表檔案（不發留言）；
-# merge 與沒 push 的輪次不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
+# skills/babysit/SKILL.md：threads-only 的 push wave 之後、回覆之前照 review 的產表步重產邏輯表檔案（不發留言）；
+# 每一輪最後照 `## 邏輯表` 的 sha 比對 MR head，不同就重產一次；merge 模式不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 SK="$OPSX_ROOT/skills/babysit/SKILL.md"
 assert_file "$SK"
@@ -43,22 +43,15 @@ assert_not_fixed 'post a new comment' "$STEP"
 assert_not_fixed 'no `## 邏輯表` line' "$STEP"
 assert_fixed 'overwrite' "$STEP"
 
-# --- 不重產的情況（Scenario「沒有 push 不重產」）---
-for k in '`merge <sha>`' 'did not push'; do
-  grep -F 'never regenerate it' "$STEP" | grep -qF -- "$k" || fail "不重產清單缺 $k"
-done
-
-# --- check 模式有 push 也重產（Scenario「check 模式 push 之後重產」）：merge main 之後 head 變了 ---
-assert_fixed 'Every run that pushed regenerates the map, `check` mode included' "$STEP"
-assert_not_fixed 'the `check` mode, the `merge <sha>` mode' "$STEP"
+# --- 照 sha 比對重產（design D7，跟 pr step 5c 一樣）：不看這輪有沒有 push，merge 模式不產，一輪只產一次 ---
+assert_fixed 'Every run except the `merge <sha>` mode checks the map once, after its last push' "$STEP"
+assert_fixed 'with the same check the pr skill makes before its reply' "$STEP"
+assert_fixed 'a `產表失敗：` line, or no `## 邏輯表` section' "$STEP"
+assert_fixed 'A run whose map already shows the MR head does not regenerate it, and the `merge <sha>` mode never does' "$STEP"
+assert_not_fixed 'Every run that pushed regenerates' "$STEP"
+assert_not_fixed 'did not push never regenerate' "$STEP"
+# 步 5 不另寫一次重產，免得同一輪產兩次
 STEP5="$FX/step5"
 awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
 [ -s "$STEP5" ] || fail "skills/babysit/SKILL.md 沒有步 5"
-python3 -I - "$STEP5" <<'PY' || fail "步 5 的 push 之後要照步 8 重產邏輯表"
-import sys
-text = open(sys.argv[1], encoding="utf-8").read()
-push = text.index("Push with `git push`")
-regen = text.index("regenerate the logic map the way step 8 says")
-if not push < regen:
-    sys.exit("順序：push=%d regen=%d" % (push, regen))
-PY
+assert_not_fixed 'regenerate the logic map' "$STEP5"

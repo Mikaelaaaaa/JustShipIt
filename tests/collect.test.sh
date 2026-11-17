@@ -755,10 +755,18 @@ mr21 consider "openspec/changes/consider/logic-map.md · abc1234" $'### 待修�
 mr21 pending "openspec/changes/pending/logic-map.md · abc1234" $'### 待修（範圍內）\n- a.ts:9 漏判 null · task R1.1\n### Consider\n' >/dev/null
 mr21 carded "openspec/changes/carded/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 開卡 me-20261117-1500\n### Noted\n- b.ts:1 命名\n' >/dev/null
 mr21 accepted "openspec/changes/accepted/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n以下留給人看。\n- a.ts:3 測試沒蓋到空字串 · 接受\n' >/dev/null
+# review 退回 R1：blocked、子殼 gate、描述含「接受」、縮排子項目、9 碼 sha、report.md 編碼壞掉
+mr21 blocked "openspec/changes/blocked/logic-map.md · abc1234" >/dev/null
+D=$(mr21 subgate "openspec/changes/subgate/logic-map.md · abc1234"); mkdir -p "$D/subs/a"
+printf '## needs-user-a\ntype: decision\nstatus: open\n問題: 子殼要你決定\n' > "$D/subs/a/gates.md"
+mr21 notaccept "openspec/changes/notaccept/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲 · D-id none · 來源 C\n' >/dev/null
+mr21 indented "openspec/changes/indented/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 開卡 me-20261117-1500\n  - 細節：空字串與 None 都要測\n' >/dev/null
+mr21 longsha "openspec/changes/longsha/logic-map.md · abc1234de" >/dev/null
+D=$(mr21 badreport "openspec/changes/badreport/logic-map.md · abc1234"); printf '\xe4\xb8\n' >> "$D/report.md"
 D=$(mr21 gate "openspec/changes/gate/logic-map.md · abc1234")
 printf '## logic-map-undecided-r4\ntype: decision\nstatus: open\n問題: 邏輯表有兩項沒經過決定\n選項: 照現在 (Recommended) | 改\n' > "$D/gates.md"
-printf '{"m/ok":{"pane":"m1","mode":"autopilot"},"m/working":{"pane":"m2","mode":"autopilot"},"m/stale":{"pane":"m1","mode":"autopilot"},"m/failed":{"pane":"m1","mode":"autopilot"},"m/nosec":{"pane":"m1","mode":"autopilot"},"m/short":{"pane":"m1","mode":"autopilot"},"m/unknown":{"pane":"m9","mode":"autopilot"},"m/done":{"pane":"m3","mode":"autopilot"},"m/gate":{"pane":"m1","mode":"autopilot"},"m/nomap":{"pane":"m1","mode":"autopilot"},"m/consider":{"pane":"m1","mode":"autopilot"},"m/pending":{"pane":"m1","mode":"autopilot"},"m/carded":{"pane":"m1","mode":"autopilot"},"m/accepted":{"pane":"m1","mode":"autopilot"}}' > "$SM/dispatch.json"
-printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"idle"},{"agent":"claude","pane_id":"m2","agent_status":"working"},{"agent":"claude","pane_id":"m3","agent_status":"done"}],"type":"agent_list"}}' > "$FX/agents-m.json"
+printf '{"m/ok":{"pane":"m1","mode":"autopilot"},"m/working":{"pane":"m2","mode":"autopilot"},"m/stale":{"pane":"m1","mode":"autopilot"},"m/failed":{"pane":"m1","mode":"autopilot"},"m/nosec":{"pane":"m1","mode":"autopilot"},"m/short":{"pane":"m1","mode":"autopilot"},"m/unknown":{"pane":"m9","mode":"autopilot"},"m/done":{"pane":"m3","mode":"autopilot"},"m/gate":{"pane":"m1","mode":"autopilot"},"m/nomap":{"pane":"m1","mode":"autopilot"},"m/consider":{"pane":"m1","mode":"autopilot"},"m/pending":{"pane":"m1","mode":"autopilot"},"m/carded":{"pane":"m1","mode":"autopilot"},"m/accepted":{"pane":"m1","mode":"autopilot"},"m/blocked":{"pane":"m4","mode":"autopilot"},"m/subgate":{"pane":"m1","mode":"autopilot"},"m/notaccept":{"pane":"m1","mode":"autopilot"},"m/indented":{"pane":"m1","mode":"autopilot"},"m/longsha":{"pane":"m1","mode":"autopilot"},"m/badreport":{"pane":"m1","mode":"autopilot"}}' > "$SM/dispatch.json"
+printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"idle"},{"agent":"claude","pane_id":"m2","agent_status":"working"},{"agent":"claude","pane_id":"m3","agent_status":"done"},{"agent":"claude","pane_id":"m4","agent_status":"blocked"}],"type":"agent_list"}}' > "$FX/agents-m.json"
 J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"; assert_eq "$?" 0 "可以合併 collect: $J"
 mwait() { q "$(card "$J" m "$1")" "$2"; }
 # 三個條件都成立
@@ -777,6 +785,13 @@ assert_eq "$(mwait gate waiting.type) $(mwait gate waiting.gate_id)" "等待決�
 # 邏輯表檔不在、review 留給人決定的項沒處理：不是可以合併；開卡或接受過的算處理了
 assert_eq "$(mwait nomap waiting) $(mwait consider waiting) $(mwait pending waiting)" "null null null"
 assert_eq "$(mwait carded waiting.type) $(mwait accepted waiting.type)" "可以合併 可以合併"
+# R1：pane blocked 是終端機等待輸入；子殼 open gate 擋；描述含「接受」不算處理過；縮排子項目跟著上一項；9 碼 sha 照認
+assert_eq "$(mwait blocked waiting.type)" "終端機等待輸入" "blocked 不標可以合併"
+assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting)" "null null"
+assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以合併 可以合併"
+# report.md 讀不了只壞這一張卡：不標可以合併、記一筆 errors，別張卡照常
+assert_eq "$(mwait badreport waiting)" null "report.md 讀不了不標可以合併"
+printf '%s' "$J" | python3 -I -c 'import json,sys;sys.exit(0 if any("badreport" in e["message"] for e in json.load(sys.stdin)["errors"]) else 1)' || fail "report.md 讀不了要記 errors：$(q "$J" errors)"
 
 # ---------- 進度與卡的分類（progress-collect，specs/board-collect「卡的進度分類」「每個 repo 的進度」） ----------
 R10="$FX/code10"; S10="$FX/state10"; mkdir -p "$R10/r/.git" "$R10/n/.git" "$S10" "$R10/r/openspec/changes/archive/2026-11-01-arch-x"

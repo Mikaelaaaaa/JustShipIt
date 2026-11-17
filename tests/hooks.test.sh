@@ -1464,8 +1464,18 @@ out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住�
 logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
 printf '\n## 四桶\n### Consider\n- a.ts:3 測試沒蓋到空字串\n' >> "$C/report.md"
 out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+printf '\n## 四桶\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲\n' >> "$C/report.md"
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
+# 待修有項目：既有的檢查先擋下、叫 /apply，輪不到這裡推
+printf '\n## 四桶\n### 待修（範圍內）\n- a.ts:9 漏判 null · task R1.1\n' >> "$C/report.md"
+out="$(sgc)"; assert_eq "$(decision "$out")" block "stop: 待修有項目擋"; reason "$out" | grep -q '/opsx-workflow:apply' || fail "stop: 待修有項目要叫 /apply: $(reason "$out")"
+# Consider 每項行尾都標了接受或開卡：不推
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+printf '\n## 四桶\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 接受\n- b.ts:1 不接受空 sha · 開卡 me-20261117-1500\n' >> "$C/report.md"
+out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: Consider 都處理過不推"
 rm -f "$C/logic-map.md"
-printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
 printf '' > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_eq "$out" "" "stop: 查不到 MR 時有 babysit: 行照樣放行"
 assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: 查不到 MR 不推"
