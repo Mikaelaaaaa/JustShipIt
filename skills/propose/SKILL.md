@@ -146,6 +146,12 @@ When this proposal produced more than one change and they do not depend on each 
 openspec status --change "<name>"
 ```
 
+### 6b. Dispatch gate for a card that stops at propose
+
+When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成就停」 and `opsx priority <name>` prints P2, write a `type: decision` gate `## dispatch-<name>` in gates.md that asks whether to dispatch apply, with the options 從看板派 apply，派的時候帶 --note「propose 已完成，可以 apply」 (Recommended) | 先不派, and stop instead of continuing to apply.
+
+A card without that note gets no such gate.
+
 ## Output
 
 After completing all artifacts, summarize:
