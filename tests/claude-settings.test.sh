@@ -104,13 +104,20 @@ wait
 assert_eq "$(jget "$FX/par/settings.json" permissions.additionalDirectories | python3 -I -c 'import json,sys; print(len(set(json.load(sys.stdin))))')" 12 "並行寫入丟了項目"
 assert_eq "$(ls -A "$FX/par" | grep -c 'tmp$' || true)" 0 "並行後留下暫存檔"
 
-# --- --render：把範本的 ${NAME} 展開後整份印出（給單一 session 用 --settings 帶的檔），不需要 --file、不寫任何檔 ---
-printf '%s' "$(run --render --template "$T")" > "$FX/rendered.json"
-assert_eq "$(jget "$FX/rendered.json" sandbox.network.allowUnixSockets)" '["/h/herdr.sock"]'
-assert_eq "$(jget "$FX/rendered.json" permissions.additionalDirectories)" '["/x/state"]'
-printf '{"permissions": {"additionalDirectories": ["${NO_SUCH_VAR}/x"]}}' > "$FX/bad1.json"
-out="$(run --render --template "$FX/bad1.json" 2>&1)"; rc=$?
-[ "$rc" -ne 0 ] || fail "--render 遇到未定義變數也要失敗"
+# --- 物件元素合併一次：物件裡的 ${NAME} 展開，整個相等才算已有，第二次 unchanged ---
+printf '%s' '{"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "${OPSX_STATE_DIR}/hook.sh"}]}]}}' > "$FX/obj.json"
+run --file "$FX/cfg/obj-settings.json" --template "$FX/obj.json" >/dev/null || fail "物件元素合併 rc"
+out="$(run --file "$FX/cfg/obj-settings.json" --template "$FX/obj.json" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "物件元素重跑 rc: $out"
+assert_eq "$out" unchanged "物件元素重跑應印 unchanged"
+assert_eq "$(jget "$FX/cfg/obj-settings.json" hooks.UserPromptSubmit)" '[{"hooks": [{"type": "command", "command": "/x/state/hook.sh"}]}]'
+
+# --- 陣列元素是數字：失敗，訊息點名鍵路徑 ---
+printf '%s' '{"hooks": {"UserPromptSubmit": [{"timeout": 5}]}}' > "$FX/bad3.json"
+out="$(run --file "$FX/cfg/new.json" --template "$FX/bad3.json" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "陣列元素含數字應該失敗"
+case "$out" in *hooks.UserPromptSubmit*) ;; *) fail "訊息要點名鍵路徑：$out" ;; esac
+assert_no_file "$FX/cfg/new.json"
 
 # --- 壞 JSON：非 0、訊息含檔名、位元組不變、不備份 ---
 rm -f "$S.opsx-bak"

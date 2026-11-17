@@ -58,6 +58,8 @@ for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 
   'sketch' 'cards' '沒裝' 'enabledPlugins' 'opsx init --global' 'user settings' 'card pane'; do
   case "$ASK" in *"$s"*) ;; *) fail "怎麼問 gate 段缺：$s" ;; esac
 done
+# init 合併 coordinator-settings.json，手加的 enabledPlugins 會留著（specs/opsx-lead「不再叫人重加 enabledPlugins」）
+case "$ASK" in *'add it again'*|*'drops'*) fail "怎麼問 gate 段不能再叫人重加 enabledPlugins" ;; esac
 # needs: run 的 gate 不進跳卡、給指令
 NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
 case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac

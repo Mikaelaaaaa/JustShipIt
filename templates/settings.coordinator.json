@@ -1,5 +1,8 @@
 {
   "sandbox": {
     "network": {"allowUnixSockets": ["${HOME}/.config/herdr/herdr.sock"]}
+  },
+  "hooks": {
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"${OPSX_ROOT}/hooks/lead-skill-reload.sh\""}]}]
   }
 }

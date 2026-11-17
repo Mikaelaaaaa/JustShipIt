@@ -38,7 +38,7 @@ When a gate event arrives, or the user asks what needs deciding, ask with AskUse
 
 sketch plugin (https://github.com/allen-hsu/claude-code-sketch): when its tools are available and a gate's options need weighing, draw a `cards` picture first, then ask in AskUserQuestion. 不用 `compare` to choose: it opens its own picker. 沒裝 the plugin: ask as usual.
 
-The user installs the plugin. Installed at user scope, it is on in every session, a card pane included, and an autopilot card pane that opens its picker blocks. So tell the user to turn it off in their user settings and turn it on only in `enabledPlugins` of `$OPSX_STATE_DIR/coordinator-settings.json`, the file `opsx lead` starts you with. Nobody has yet checked that this keeps it out of a card pane; after the first `opsx lead`, ask the user to confirm a card pane has no sketch tools. The next `opsx init --global` rewrites that file and drops a hand-added `enabledPlugins`; tell the user to add it again.
+The user installs the plugin. Installed at user scope, it is on in every session, a card pane included, and an autopilot card pane that opens its picker blocks. So tell the user to turn it off in their user settings and turn it on only in `enabledPlugins` of `$OPSX_STATE_DIR/coordinator-settings.json`, the file `opsx lead` starts you with. Nobody has yet checked that this keeps it out of a card pane; after the first `opsx lead`, ask the user to confirm a card pane has no sketch tools. A hand-added `enabledPlugins` in that file is kept by the next `opsx init --global`, which merges into it.
 
 ## Report format
 
