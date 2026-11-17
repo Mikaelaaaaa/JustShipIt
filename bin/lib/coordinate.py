@@ -27,8 +27,8 @@ import safefile  # noqa: E402
 MAX_DISPATCH = 6
 # 同時活著的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
-# herdr 回這三種 agent_status 的 pane 佔派工名額；找不到（unknown）就是死了
-LIVE_AGENT = ("working", "idle", "blocked")
+# herdr 回這幾種 agent_status 的 pane 佔派工名額（done 是 agent 還在、做完一段）；找不到（unknown）就是死了
+LIVE_AGENT = ("working", "idle", "blocked", "done")
 REDISPATCH_MINUTES = 10
 # relaunch 失敗後同一個 pane 不再試的時間；跟重派同一個節流，不會每輪對壞掉的 pane 送 Esc、/exit
 RELAUNCH_MINUTES = REDISPATCH_MINUTES

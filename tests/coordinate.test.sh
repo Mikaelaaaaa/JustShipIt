@@ -1201,6 +1201,10 @@ cards "[$(held_n 8 idle){\"slug\":\"q1\"}]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 0 "8 個 idle pane 佔滿：$(cat "$OPSX_FAKE_LOG")"
 full 8
+cards "[$(held_n 8 done){\"slug\":\"q1\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch')" 0 "herdr 的 done 也是活著的 pane：$(cat "$OPSX_FAKE_LOG")"
+full 8
 cards "[$(held_n 4 working)$(held b1 idle),$(held b2 idle),$(held b3 blocked),$(held b4 blocked),{\"slug\":\"q1\"}]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 0 "working、idle、blocked 都佔名額：$(cat "$OPSX_FAKE_LOG")"
