@@ -1309,7 +1309,7 @@ def one_round(state, dry):
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:
                 r.bad_dispatch(c, e)
-        if c["mr"] and c["mr"]["state"] == "ready":
+        if w and w["type"] == "可以合併":
             # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
     if not paused:

@@ -221,8 +221,27 @@ babysit_reason() {
     ] | .[0] // empty' 2>/dev/null)"
   # 原因前面的空白跟著原因走：英文前面空一格，中文直接接「卡在」
   if [ -n "$blocked" ]; then printf 'push|babysit 做完，MR 卡在%s' "$blocked"
-  else printf 'quiet|babysit 一輪做完，等 MR 合併'
+  else
+    local card=""
+    [ "$mr_rc" -eq 0 ] && card="$(ready_card_blocker)"
+    if [ -n "$card" ]; then printf 'push|babysit 做完，%s' "$card"
+    else printf 'quiet|babysit 一輪做完，等 MR 合併'
+    fi
   fi
+}
+
+# MR 全綠，但邏輯表不是 MR head 產的、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
+# 印 mergeready.card_blockers 的第一條；判斷跟 collect 共用。MR JSON 讀不懂或沒有 python 時印空字串，照原本不推（hook 不能以非 0 結束）
+ready_card_blocker() {
+  printf '%s' "$mr_out" | OPSX_SLUG="$slug" OPSX_DIR="$d" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
+import json, os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import mergeready
+mr = json.load(sys.stdin)
+d = os.environ["OPSX_DIR"]
+with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
+    report = f.read()
+got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, os.path.isfile(os.path.join(d, "logic-map.md")), mr.get("head_sha"))
+print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
 
 # 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉

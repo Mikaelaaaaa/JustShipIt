@@ -98,6 +98,7 @@ import chain
 import gaterule
 import gatetype
 import grantactions
+import mergeready
 
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib"))
 import inboxmerge
@@ -294,7 +295,9 @@ def waiting_of(card, gates, agent_status):
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
     mr = card["mr"]
-    if mr and mr.get("state") == "ready":
+    # 走到這裡卡上已經沒有 open gate
+    if mr and not mergeready.blockers(card["slug"], mr, False, agent_status, read(os.path.join(card["dir"], "report.md")),
+                                      os.path.isfile(os.path.join(card["dir"], "logic-map.md"))):
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": mr["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
     if agent_status == "blocked":
@@ -437,8 +440,8 @@ ARCHIVED_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)$")
 def progress_class(c, top, prs):
     """由上往下取第一個符合的；不看協調者在不在跑、不看 agent_status。dispatch 為 None 包含 stopped。"""
     w = c["waiting"]
-    # 看 mr.state 不看 waiting：有 open gate 時 waiting 是那個 gate，協調者仍照 mr.state 發「可以合併」
-    if c["mr"] and c["mr"].get("state") == "ready": return "mergeable"
+    # 協調者推「可以合併」也照 waiting.type，計數器跟事件一致
+    if w and w["type"] == "可以合併": return "mergeable"
     if w:
         # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)
