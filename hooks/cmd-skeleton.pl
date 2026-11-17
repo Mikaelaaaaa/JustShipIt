@@ -155,13 +155,22 @@ sub skeleton {
         }
         my $prev = $i ? substr($s, $i - 1, 1) : '';
         if ($c eq $SQ && $prev =~ /[\w]/) {
-            # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號
+            # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號；
+            # 其他的（don't … it's）整段原樣保留，片段裡的 " 不能被當成雙引號開頭
             my $end = index $s, $SQ, $i + 1;
-            my $body = $end < 0 ? '' : substr($s, $i + 1, $end - $i - 1);
-            if ($end >= 0 && $body =~ /^[^\s\\\$`"']*$/) { $out .= $body; $i = $end + 1; next }
+            if ($end >= 0) {
+                my $body = substr $s, $i + 1, $end - $i - 1;
+                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : substr($s, $i, $end - $i + 1);
+                $i = $end + 1;
+                next;
+            }
         }
-        if ($c eq $SQ && $prev !~ /[\w\\]/) {
-            my $end = index $s, $SQ, $i + 1;
+        # 迴圈走到的 ' 不會是被跳脫的（反斜線分支一次吃兩個字元），所以 \\' 的 ' 是真引號
+        if ($c eq $SQ && $prev !~ /\w/) {
+            my $end = $i + 1;
+            if ($prev eq '$') { $end += substr($s, $end, 1) eq '\\' ? 2 : 1 while $end < $n && substr($s, $end, 1) ne $SQ }
+            else { $end = index $s, $SQ, $end }
+            $end = -1 if $end >= $n;
             if ($end >= 0) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
                 if ($prev eq '$') { $out .= "$SQ$body$SQ" }

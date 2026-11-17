@@ -18,6 +18,13 @@ has_commit "$(printf 'git \\\ncommit -m x')" || fail "行尾續行的 git commit
 has_commit "echo 'git commit' x" && fail "單引號字串內的 git commit 不是指令：$(skel "echo 'git commit' x")"
 has_commit "echo don't commit it's" && fail "撇號不是引號：$(skel "echo don't commit it's")"
 
+# --- 緊貼字的單引號片段、$'…' 的 \'、跳脫反斜線後的真引號：片段裡的 " 不吞後一條指令 ---
+has_commit "echo a'b \"'; git commit -m x; echo \"'\"" || fail "緊貼字的單引號片段吞掉了 commit：$(skel "echo a'b \"'; git commit -m x; echo \"'\"")"
+has_commit "echo \$'\\' \"'; git commit -m x; echo \"'\"" || fail "\$'…' 的 \\' 吞掉了 commit：$(skel "echo \$'\\' \"'; git commit -m x; echo \"'\"")"
+has_commit "echo \\\\'a \"'; git commit -m x; echo \"'\"" || fail "\\\\' 之後的引號吞掉了 commit：$(skel "echo \\\\'a \"'; git commit -m x; echo \"'\"")"
+[ "$(skel "echo don't commit it's")" = "echo don't commit it's" ] || fail "撇號文字的骨架要原樣保留：$(skel "echo don't commit it's")"
+has_commit "echo \\\\'git commit -m x'" && fail "\\\\' 之後的單引號字串不是指令：$(skel "echo \\\\'git commit -m x'")"
+
 # --- heredoc 記號在引號、註解、跳脫內：後一行的 commit 仍在骨架裡 ---
 has_commit "$(printf 'echo "<<EOF"\ngit commit -m x\nEOF')" || fail "雙引號內的 <<EOF 吞掉了 commit"
 has_commit "$(printf "echo '<<EOF'\ngit commit -m x\nEOF")" || fail "單引號內的 <<EOF 吞掉了 commit"
