@@ -126,7 +126,7 @@ bad_mode() { # <stderr 要含的字> <模式參數…>
   local want="$1" err rc; shift
   reset; err="$(runtime_prompt r/card-a hi "$@" 2>&1 >/dev/null)"; rc=$?
   assert_eq "$rc" 2 "模式 [$*] 的 rc"
-  case "$err" in *"$want"*) ;; *) fail "模式 [$*] 的錯誤要含 $want：$err" ;; esac
+  case "$err" in *"$want"*) ;; *) fail "模式 [$*] 的錯誤要含 ${want}：$err" ;; esac
   assert_eq "$(calls)" "" "模式 [$*] 不叫 herdr"
 }
 bad_mode wait
@@ -237,10 +237,10 @@ open_missing() { # <runtime_open 的參數…>
   perl -e 'alarm 5; exec @ARGV' bash -c 'source "$OPSX_ROOT/bin/lib/common.sh"; runtime_open "$@"' _ "$@" 2>&1
 }
 reset; out="$(open_missing r/x --kind claude --workspace-id w1 --cwd /x --label)"; rc=$?
-[ "$rc" -ne 0 ] && [ "$rc" -ne 142 ] || fail "--label 缺值要非 0 且不卡住（rc $rc）：$out"
+[ "$rc" -ne 0 ] && [ "$rc" -ne 142 ] || fail "--label 缺值要非 0 且不卡住（rc ${rc}）：$out"
 case "$out" in *--label*) ;; *) fail "缺值訊息要有旗標名：$out" ;; esac
 reset; out="$(open_missing r/x --kind claude --cwd /x --label x --workspace-create scam-guard)"; rc=$?
-[ "$rc" -ne 0 ] && [ "$rc" -ne 142 ] || fail "--workspace-create 少一個值要非 0 且不卡住（rc $rc）：$out"
+[ "$rc" -ne 0 ] && [ "$rc" -ne 142 ] || fail "--workspace-create 少一個值要非 0 且不卡住（rc ${rc}）：$out"
 case "$out" in *--workspace-create*) ;; *) fail "缺值訊息要有 --workspace-create：$out" ;; esac
 assert_eq "$(calls)" "" "旗標缺值不叫 herdr"
 # tab create 沒回 tab id：非 0、不起 agent
