@@ -36,6 +36,10 @@ has_commit "$(printf 'cat <<EOF\ngit commit -m x\nEOF')" && fail "真 heredoc �
 has_commit "$(printf 'cat <<-EOF\n\tgit commit -m x\n\tEOF')" && fail "<<- 的 heredoc 本體要去掉"
 # 餵給直譯器的 heredoc 本體會被執行，整段保留
 has_commit "$(printf 'bash <<EOF\ngit commit -m x\nEOF')" || fail "餵給 bash 的 heredoc 本體要保留"
+# 算術裡的 << 是位移，不是 heredoc 開頭；同一行算術已閉合之後的真 heredoc 照樣去掉本體
+has_commit "$(printf 'echo $((1<<2))\ngit commit -m x\n2')" || fail "\$(( )) 裡的 << 吞掉了 commit：$(skel "$(printf 'echo $((1<<2))\ngit commit -m x\n2')")"
+has_commit "$(printf '(( y = 1<<2 ))\ngit commit -m x\n2')" || fail "(( )) 裡的 << 吞掉了 commit：$(skel "$(printf '(( y = 1<<2 ))\ngit commit -m x\n2')")"
+has_commit "$(printf 'x=$((1)); cat <<EOF\ngit commit -m x\nEOF')" && fail "算術之後的真 heredoc 本體要去掉：$(skel "$(printf 'x=$((1)); cat <<EOF\ngit commit -m x\nEOF')")"
 # 同一行有真 heredoc、前面還有被引號包住的 <<
 has_commit "$(printf 'echo "a <<b" ; cat <<EOF\ngit commit -m x\nEOF')" && fail "引號內的 << 之後的真 heredoc 本體要去掉"
 # --- R1.1：$'…\'…' 裡的 \' 是字面引號，<<EOF 還在字串裡，後一行的 commit 仍在骨架 ---

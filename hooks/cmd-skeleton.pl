@@ -118,6 +118,9 @@ sub strip_heredocs {
         my $nl = index $s, "\n", $opener_end;
         next if $nl < 0;
         next unless substr($mask, $start, 1) eq '1';
+        # $(( 1<<2 )) 與 (( y = 1<<2 )) 的 << 是位移：同一行前面有還沒閉合的 ((（中間最多一層括號）就不是 heredoc
+        my $ls = rindex($s, "\n", $start - 1) + 1;
+        next if substr($s, $ls, $start - $ls) =~ /\(\((?:[^()]|\([^()]*\))*\z/;
         # $'…\x41…' 的跳脫 bash 會展開，這裡不展開：算不準分隔字就不剝本體（fail-closed）
         next if $word =~ /\$['"]/ && $word =~ /\\/;
         my $delim = unquote_word($word);
