@@ -3,6 +3,7 @@
 跑法：python3 -I herdr-board/tests/test_tui.py
 """
 import curses
+import datetime
 import importlib.util
 import os
 import pathlib
@@ -90,6 +91,14 @@ class RowsTest(unittest.TestCase):
         line = tm._line(c)
         self.assertIn("停住：等 reviewer（review 站）", line)
         self.assertIn("10:05", line)
+
+    def test_card_line_stopped_date_when_not_today(self):
+        tz = datetime.timezone(datetime.timedelta(hours=8))
+        today = datetime.datetime.now(tz).replace(hour=9, minute=7, second=0, microsecond=0).isoformat()
+        base = dict(card("s5", "待指派"), agent_status=None)
+        self.assertIn("停住：等 reviewer 09:07", tm._line(dict(base, stopped={"reason": "等 reviewer", "at": today})), "今天的只有時:分")
+        old = {"reason": "等 reviewer", "at": "2026-11-10T14:03:00+08:00"}
+        self.assertIn("停住：等 reviewer 11/10 14:03", tm._line(dict(base, stopped=old)), "不是今天的加月/日")
 
     def test_card_line_working_hides_stopped(self):
         stopped = {"reason": "等 reviewer（review 站）", "at": "2026-11-16T10:05:00+08:00"}
