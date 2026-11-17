@@ -87,7 +87,7 @@ st_open_gates() {
   local f n=0
   for f in "$1/gates.md" "$1"/subs/*/gates.md; do
     [ -f "$f" ] || continue
-    n=$((n + $(grep -cE '^status:[[:space:]]*open[[:space:]]*$' "$f" || true)))
+    n=$((n + $(st_gates_file_count "$f" all)))
   done
   printf '%s' "$n"
 }
@@ -100,11 +100,17 @@ st_open_gates_blocking() {
   done
   printf '%s' "$n"
 }
-st_gates_file_blocking() { # <gates.md>
-  awk '
-    function flush() { if (open && (!ask || appr)) n++; open = 0; ask = 0; appr = 0 }
+st_gates_file_blocking() { st_gates_file_count "$1" blocking; } # <gates.md>
+# <gates.md> <all|blocking>：open gate 數，blocking 不算只問接站的。
+# 帶 blocks-from: apply 的（dispatch 開的 install-deps）在同目錄還沒有 tasks.md 時不算：explore／grill／propose 用不到依賴。collect.sh 的 gates_in_force 同一條
+st_gates_file_count() {
+  local early=0
+  [ -f "${1%/*}/tasks.md" ] || early=1
+  awk -v mode="$2" -v early="$early" '
+    function flush() { if (open && !(early && later) && (mode == "all" || !ask || appr)) n++; open = 0; ask = 0; appr = 0; later = 0 }
     /^## / { flush() }
     /^status:[ \t]*open[ \t]*$/ { open = 1 }
+    /^blocks-from:[ \t]*apply[ \t]*$/ { later = 1 }
     /^type:[ \t]*approval[ \t]*$/ { appr = 1 }   # 核准只有人能答，不管問法
     /^(## |問題:).*要不要(接|派|繼續)([ ]*\/|[ ]*下一|\?|？|：|$)/ { ask = 1 }
     END { flush(); print n + 0 }

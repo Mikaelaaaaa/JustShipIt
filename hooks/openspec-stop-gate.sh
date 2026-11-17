@@ -210,10 +210,11 @@ wait_reason() { # <dir> <站>
 }
 
 # coordinate 只在 MR ready 時送「可以合併」，MR 合不了時沒有別的通知，要推。只有 ready、CI 還在跑、查不到 MR 狀態不推
+# 升級前寫的快取沒有 pipeline_status：pipeline 不過時分不出 CI 在跑還是卡住，當查不到（GitLab 沒有 pipeline 時 pipeline 條件是過的）
 babysit_reason() {
-  local blocked=""
+  local blocked="?"
   [ "$mr_rc" -eq 0 ] && blocked="$(printf '%s' "$mr_out" | jq -r '
-    select(.error == null and .conditions != null) |
+    if .error != null or .conditions == null or (.pipeline_status == null and (.conditions.pipeline | not)) then "?" else
     [ (if .pipeline_status == "failed" then " CI 紅"
        elif (.conditions.pipeline | not) and ((.pipeline_status // "") | IN("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled") | not)
        then " " + (.pipeline_status // "CI") else empty end),
@@ -221,11 +222,13 @@ babysit_reason() {
       (if .conditions.not_draft then empty else " draft" end),
       (if .conditions.threads then empty else "要求修改" end),
       (if .conditions.opened then empty else "已關閉" end)
-    ] | .[0] // empty' 2>/dev/null)"
+    ] | .[0] // "" end' 2>/dev/null || printf '?')"
   # 原因前面的空白跟著原因走：英文前面空一格，中文直接接「卡在」
-  if [ -n "$blocked" ]; then printf 'push|babysit 做完，MR 卡在%s' "$blocked"
-  else printf 'quiet|babysit 一輪做完，等 MR 合併'
-  fi
+  case "$blocked" in
+    "?") printf 'quiet|babysit 一輪做完，查不到 MR 狀態' ;;
+    "") printf 'quiet|babysit 一輪做完，等 MR 合併' ;;
+    *) printf 'push|babysit 做完，MR 卡在%s' "$blocked" ;;
+  esac
 }
 
 # 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉

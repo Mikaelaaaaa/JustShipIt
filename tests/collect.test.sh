@@ -121,7 +121,7 @@ C="$(card "$J" a x7)"; assert_eq "$(q "$C" waiting.options)" '["拒絕"]' "merge
 C="$(card "$J" a x1)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" title)" 第一張
 assert_eq "$(q "$C" source)" me; assert_eq "$(q "$C" upstream)" null; assert_eq "$(q "$C" stale)" false
 assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" dispatch)" null; assert_eq "$(q "$C" agent_status)" null; assert_eq "$(q "$C" kind)" dev
-C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" propose; assert_eq "$(q "$C" section)" 待指派
+C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" grill; assert_eq "$(q "$C" section)" 待指派
 C="$(card "$J" a x9)"; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" upstream)" closed; assert_eq "$(q "$C" stale)" true; assert_eq "$(q "$C" source)" "gitlab:a#412"
 C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 進行中
 # 排序：待處理 · 進行中 · 待指派 · 收件匣 · 已完成
@@ -279,7 +279,7 @@ assert_eq "$(q "$(card "$J" r5 bad-ts)" open_gates)" "[{\"id\": \"g1\", \"opened
 E="$(q "$J" errors)"
 GE="$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(json.dumps([e for e in json.load(sys.stdin)["errors"] if e["source"].endswith("/r5/openspec/changes/bad-ts/gates.md")],ensure_ascii=False))')"
 assert_eq "$(printf '%s' "$GE" | python3 -I -c 'import json,sys;print(len(json.load(sys.stdin)))')" 3 "三個壞值各一筆 error：$E"
-for want in "g1.*$FUT" "g2.*2026-11-06 14:05" "g3.*昨天"; do printf '%s' "$GE" | grep -Eq "$want" || fail "errors 要有 gate id 與原值（$want）：$E"; done
+for want in "g1.*$FUT" "g2.*2026-11-06 14:05" "g3.*昨天"; do printf '%s' "$GE" | grep -Eq "$want" || fail "errors 要有 gate id 與原值（${want}）：$E"; done
 case "$E" in *g4*|*g5*) fail "寬限內與 answered 的 gate 不該進 errors：$E" ;; esac
 # ---------- 派工指示（specs/board-collect「卡帶派工指示」） ----------
 RN="$FX/code-notes"; mkdir -p "$RN/rn/.git"
