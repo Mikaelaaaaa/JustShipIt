@@ -21,8 +21,12 @@ if [ -n "$slug" ] && [ -n "${OPSX_PY:-}" ]; then
   case "$mode" in
     autopilot|drive)
       # 測試在 agent 所在的 worktree 跑，主 checkout 可能在別的分支，所以看 cwd 的 toplevel 不看 $top。
-      # cwd 在 git 目錄裡（例 .git/）時沒有 work tree，--show-toplevel 失敗，那時改看主 checkout
-      test_root="$(git -C "$(hook_cwd)" rev-parse --show-toplevel 2>/dev/null)" || test_root="$top"
+      # cwd 在 git 目錄裡時沒有 work tree，--show-toplevel 失敗。worktree 的 git 目錄（.git/worktrees/<名>/）有 gitdir 檔，
+      # 內容是那棵 worktree 的 .git 檔路徑，用它找回 worktree 根；主 checkout 的 .git/ 沒有這個檔，看主 checkout
+      if ! test_root="$(git -C "$(hook_cwd)" rev-parse --show-toplevel 2>/dev/null)"; then
+        gd="$(git -C "$(hook_cwd)" rev-parse --absolute-git-dir 2>/dev/null || true)"
+        if [ -n "$gd" ] && [ -f "$gd/gitdir" ]; then test_root="$(dirname "$(cat "$gd/gitdir")")"; else test_root="$top"; fi
+      fi
       rule=" · $(rule_autopilot "$test_root")"
       if [ "$ev" = SessionStart ]; then
         lost_rc=0; lost_why="$(args_lost_status "$(basename "$top")" "$slug" "$mode")" || lost_rc=$?

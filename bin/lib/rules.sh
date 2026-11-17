@@ -14,7 +14,7 @@ rule_autopilot() { # <repo 根目錄>：測試那段看它有沒有 tests/run.sh
 
 # 測試段兩種寫法分開放：router 依 repo 根挑一種，AGENTS.md 兩種都列（派工後分支可能增刪 tests/run.sh）
 rule_tests_runsh() {
-  printf '%s' '跑測試一律 bash tests/run.sh <檔名過濾>，指令前不加 `VAR=…` 或 `export`（前綴環境變數對不到 dontAsk 的 Bash(bash tests/:*)）'
+  printf '%s' '跑測試一律 bash tests/run.sh <檔名過濾>（只認 `tests/run.sh` 這個檔名，不看內容），指令前不加 `VAR=…` 或 `export`（前綴環境變數對不到 dontAsk 的 Bash(bash tests/:*)）'
 }
 
 # TEST_DATABASE_URL 例外對應 bin/lib/launch.sh 允許清單裡帶前綴的兩個形狀，清單改了這句跟著改

@@ -45,6 +45,9 @@ has "$n" 'needs: run gate'
 has "$n" '不換寫法重試'
 has "$n" 'pnpm vitest'
 case "$n" in *'TEST_DATABASE_URL='*'pnpm test / pnpm vitest 除外'*) ;; *) fail "TEST_DATABASE_URL 例外要點名 pnpm test 與 pnpm vitest: $n" ;; esac
+# test-run-rule-edges Scenario：有 run.sh 分支寫明只認檔名；否分支不提
+has "$r" '只認 `tests/run.sh` 這個檔名'
+gone "$n" '只認 `tests/run.sh` 這個檔名'
 # 反例：有 tests/run.sh 時不出現否分支的字句
 gone "$r" 'TEST_DATABASE_URL='
 gone "$r" '不換寫法重試'

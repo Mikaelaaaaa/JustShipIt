@@ -36,6 +36,20 @@ ctx_wt="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],t
 case "$ctx_wt" in *'opsx：'*'eval-wt'*) ;; *) fail "router 沒認出 worktree 的卡 eval-wt: $ctx_wt" ;; esac
 case "$ctx_wt" in *'bash tests/run.sh'*) ;; *) fail "worktree 有 tests/run.sh、主 checkout 沒有，router 要注入 bash tests/run.sh: $ctx_wt" ;; esac
 
+# test-run-rule-edges Scenario：cwd 在 worktree 的 git 目錄裡時看那棵 worktree（.git/worktrees/<name>/ 沒有 work tree）
+XG="$(git -C "$XW" rev-parse --absolute-git-dir)"
+case "$XG" in "$(cd "$R/.git" && pwd -P)/worktrees/"*) ;; *) fail "worktree 的 git 目錄應在主 checkout 的 .git/worktrees/ 下: $XG" ;; esac
+ctx_xg="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$XG" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+case "$ctx_xg" in *'opsx：'*'eval-wt'*' · autopilot：'*) ;; *) fail "cwd 在 worktree 的 git 目錄裡 router 要認出卡 eval-wt 並注入 autopilot 規則: $ctx_xg" ;; esac
+case "$ctx_xg" in *'bash tests/run.sh'*) ;; *) fail "cwd 在 worktree 的 git 目錄裡，router 要看那棵 worktree 的 tests/run.sh: $ctx_xg" ;; esac
+# 反例：cwd 在主 checkout 的 .git 裡時看主 checkout（此時主 checkout 沒有 tests/run.sh）；主 checkout 的分支對到卡 eval-core
+printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+ctx_mg="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$R/.git" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+case "$ctx_mg" in *' · autopilot：'*) ;; *) fail "cwd 在主 checkout 的 .git 裡 router 仍要注入 autopilot 規則: $ctx_mg" ;; esac
+case "$ctx_mg" in *'bash tests/run.sh'*) fail "cwd 在主 checkout 的 .git 裡要看主 checkout，主 checkout 沒有 tests/run.sh: $ctx_mg" ;; esac
+
 # 反方向：主 checkout 有 tests/run.sh、worktree 的分支沒有，router 不能注入 bash tests/run.sh
 mkdir -p "$R/openspec/changes/eval-nr"
 printf 'schema: opsx\ncreated: 2026-11-16\nkind: dev\n' > "$R/openspec/changes/eval-nr/.openspec.yaml"
