@@ -35,7 +35,14 @@ opsx_dispatch() {
   [ -z "$only" ] || [ -n "$feature" ] || die "dispatch: --only 只能跟 --feature 一起用"
   [ -n "$slug" ] || die "dispatch: 要給 slug"
   [ -z "$has_note" ] || [ -n "$note" ] || die "dispatch: --note 壓成一行後是空的"
-  [ -n "$top" ] || top="$(git_toplevel)"
+  if [ -z "$top" ]; then
+    top="$(git_toplevel)"
+    # 卡不在 cwd 的 repo（或 cwd 不在 repo 裡）時，到已登記 repo 找；--feature 的名字在 workplan，不是卡目錄
+    if [ -z "$feature" ] && [ ! -d "$top/openspec/changes/$slug" ]; then
+      top="$(find_card_repo "$slug")" || exit 2
+      say "dispatch: 卡在 $top"
+    fi
+  fi
   [ -n "$top" ] || die "dispatch: 不在 git repo 裡，或給 --repo"
   top="$(cd "$top" && pwd -P)"
   case "$agent" in claude|codex) ;; *) die "dispatch: --agent 只收 claude|codex" ;; esac
@@ -289,6 +296,23 @@ if n >= limit:
 PY
 }
 
+find_card_repo() { # <slug>：已登記 repo（跟 collect、sync 同一份清單）裡剛好一個有 openspec/changes/<slug>/ 就印它的路徑，否則說明原因、退出非 0
+  OPSX_SLUG="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "${OPSX_CODE_ROOT:-$HOME/code}" "$OPSX_STATE_DIR" <<'PY'
+import os, pathlib, sys, tomllib
+sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
+slug = os.environ["OPSX_SLUG"]
+try:
+    repos = sync.opsx_repos(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+except tomllib.TOMLDecodeError as e:
+    sys.exit("opsx: dispatch: sources.toml 壞了，找不了別的 repo：%s" % e)
+hits = sorted(str(p) for p in repos.values() if (p / "openspec" / "changes" / slug).is_dir())
+if not hits:
+    sys.exit("opsx: dispatch: 沒有這張卡：%s（cwd 的 repo 與 %d 個已登記 repo 的 openspec/changes/ 都沒有）" % (slug, len(repos)))
+if len(hits) > 1:
+    sys.exit("opsx: dispatch: %s 在 %d 個 repo 都有，給 --repo 指定一個：%s" % (slug, len(hits), "、".join(hits)))
+print(hits[0])
+PY
+}
 workplan_branch() { wp_pr_field "$1" "$2" branch; } # <top> <slug>：印 workplan 裡這張卡所屬 PR 的 branch，沒有就空
 held_by() { # <worktree>：印 dispatch.json 裡 worktree 指向它的條目（「（key · pane …）」），沒有就空。兩邊路徑先 realpath 再比
   [ -f "$OPSX_STATE_DIR/dispatch.json" ] || return 0
