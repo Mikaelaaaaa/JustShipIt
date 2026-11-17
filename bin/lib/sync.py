@@ -89,19 +89,6 @@ def append_to_section(text: str, heading: str, line: str) -> str:
     return text[:m.start(1)] + kept + "\n" + line + "\n" + ("\n" if m.end(1) < len(text) else "") + text[m.end(1):]
 
 
-def repos_under(root: pathlib.Path) -> dict[str, pathlib.Path]:
-    """root 下的 opsx repo：有 openspec/changes 而且 .git 是目錄（linked worktree 的 .git 是檔，不算）。
-    repo 名取解析後路徑的 basename，跟 collect 一樣；symlink 進 root 的 repo，debt.sh 在實體目錄掃，回報的也是實體名。"""
-    out = {}
-    if not root.is_dir():
-        return out
-    for d in sorted(root.iterdir()):
-        if (d / "openspec" / "changes").is_dir() and (d / ".git").is_dir():
-            real = d.resolve()
-            out[real.name] = real
-    return out
-
-
 def source_paths(state: pathlib.Path) -> list[pathlib.Path]:
     f = state / "sources.toml"
     if not f.exists():
@@ -120,14 +107,37 @@ def log_sync_row(opsx_root: pathlib.Path, state: pathlib.Path, source: str, crea
                           capture_output=True, text=True, env=dict(os.environ, OPSX_STATE_DIR=str(state)))
 
 
+def scan_repos(root: pathlib.Path, sources: list[pathlib.Path]) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]], list[str]]:
+    """已登記 repo 清單，collect、sync、dispatch 共用：root 下的子目錄，加上 sources（sources.toml 登記的 path）本身，不含它的兄弟目錄。
+    有 openspec/changes 而且 .git 是目錄才算；.git 是檔的是 linked worktree，只把名字放進 worktrees。以實體路徑去重。
+    repo 名取實體路徑的 basename（symlink 進來的 repo，debt.sh 回報的也是實體名）。兩個實體路徑同名時兩個都不收、放進 conflicts：
+    grants.toml、dispatch.json、workspaces.toml 都以名字為 key，收了其中一個或兩個都收，授權與派工就會落到另一個 repo 上。"""
+    candidates = sorted(root.iterdir()) if root.is_dir() else []
+    by_name: dict[str, list[pathlib.Path]] = {}
+    worktrees: list[str] = []
+    for d in candidates + sources:
+        if not (d / "openspec" / "changes").is_dir():
+            continue
+        real = d.resolve()
+        if (real / ".git").is_file():
+            if real.name not in worktrees:
+                worktrees.append(real.name)
+        elif (real / ".git").is_dir():
+            paths = by_name.setdefault(real.name, [])
+            if real not in paths:
+                paths.append(real)
+    repos = {name: paths[0] for name, paths in by_name.items() if len(paths) == 1}
+    conflicts = {name: paths for name, paths in by_name.items() if len(paths) > 1}
+    return repos, conflicts, worktrees
+
+
+def conflict_message(name: str, paths: list[pathlib.Path]) -> str:
+    return "repo 名 %s 重複：%s；兩個都不收，把其中一個資料夾改名" % (name, "、".join(str(p) for p in paths))
+
+
 def opsx_repos(root: pathlib.Path, state: pathlib.Path) -> dict[str, pathlib.Path]:
-    """跟 opsx collect 同一份 repo 清單：root 下的 repo，加上 sources.toml 登記的 path 本身（不含它的兄弟目錄）。"""
-    repos = repos_under(root)
-    for p in source_paths(state):
-        real = p.resolve()
-        if (real / "openspec" / "changes").is_dir() and (real / ".git").is_dir():
-            repos.setdefault(real.name, real)
-    return repos
+    """scan_repos 的 repo 名 → 實體路徑，同名的不在裡面。"""
+    return scan_repos(root, source_paths(state))[0]
 
 
 def demote_headings(body: str) -> str:
@@ -353,7 +363,9 @@ def main() -> int:
     now = datetime.datetime.now().astimezone()
     today = now.date().isoformat()
     tally = Tally()
-    repos = opsx_repos(a.root.resolve(), a.state)
+    repos, conflicts, _ = scan_repos(a.root.resolve(), source_paths(a.state))
+    for name, paths in conflicts.items():
+        tally.error("repos", conflict_message(name, paths))
     index = build_index(repos, a.state)
 
     wanted = (a.source,) if a.source else SOURCES

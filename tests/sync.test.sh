@@ -263,6 +263,7 @@ echo "# shortcut: z 自己的, 要建" > "$Z/z.py"
 opsx sync --root "$ROOT" --source debt >/dev/null 2>&1
 assert_eq "$(python3 -I -c 'import json,sys;print("sib" in json.load(open(sys.argv[1])))' "$SNAP")" False "沒登記的兄弟 repo 不進快照"
 assert_eq "$(debt_of z | python3 -I -c 'import json,sys;print([h["comment"] for h in json.load(sys.stdin)])')" "['z 自己的, 要建']"
+assert_eq "$(logcols | cut -f4)" 0 "不同名的 repo 都收，沒有錯：$(lastsync)"
 
 # --- symlink 進 root 的 repo：debt 照樣撈得到，既有的卡不會被標 stale ---
 REAL="$(mk_opsx_repo linked-real)"; ln -s "$REAL" "$ROOT/linked"
@@ -302,6 +303,29 @@ assert_eq "$(find "$WT/openspec/changes" -mindepth 1 -maxdepth 1 | wc -l | tr -d
 [ "$(logcols | cut -f4)" -ge 1 ] || fail "要記錯：$(lastsync)"
 lastsync | grep -qF "$WT 不是 opsx repo 的根目錄" || fail "錯誤要來自 path 不是 repo 根，不是 JSON 解析失敗：$(lastsync)"
 rm -f "$OPSX_TEST_ISSUES/wt.json"
+
+# --- 登記的 repo 跟 root 底下的 a 同名：兩個都不收、記一筆含兩個路徑的錯，其餘照跑（board-sync：已登記 repo 同名時兩個都不收）---
+mkdir -p "$FX/dup"; DUP="$(mk_opsx_repo dup-a)"; mv "$DUP" "$FX/dup/a"; DUP="$(cd "$FX/dup/a" && pwd -P)"
+cp "$OPSX_STATE_DIR/sources.toml" "$FX/sources.dup.bak"
+printf '\n[[source]]\nkind = "gitlab"\nrepo = "dup"\nproject = "g/dup"\nassignee = "mika"\npath = "%s"\n' "$DUP" >> "$OPSX_STATE_DIR/sources.toml"
+echo "# shortcut: 登記的同名 a, 不該進" > "$DUP/d.py"
+echo "# shortcut: root 的同名 a, 不該進" > "$A/dup.py"
+echo "# shortcut: b 的, 要進" > "$B/dup.py"
+out="$(opsx sync --root "$ROOT" --source debt 2>&1)"; assert_eq "$?" 0 "同名不改退出碼：$out"
+assert_eq "$(python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));print("a" in d, "b" in d)' "$SNAP")" "False True" "同名的 a 不進快照，b 照進"
+assert_eq "$(logcols | cut -f4)" 1 "同名記一筆錯：$(lastsync)"
+lastsync | grep -qF "$A" || fail "錯誤要有 root 底下 a 的路徑：$(lastsync)"
+lastsync | grep -qF "$DUP" || fail "錯誤要有登記的 a 的路徑：$(lastsync)"
+lastsync | grep -qF "改名" || fail "錯誤要叫人改資料夾名：$(lastsync)"
+# 同名的登記 repo 不撈 issue、不建殼；root 底下的 a 也不建
+printf '[%s]' "$(gl 7 同名的 2026-11-06T08:00:00Z)" > "$OPSX_TEST_ISSUES/dup.json"
+n_a="$(find "$CH" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d ' ')"
+opsx sync --root "$ROOT" --source gitlab >/dev/null 2>&1
+assert_eq "$(find "$DUP/openspec/changes" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d ' ')" 0 "同名的登記 repo 不建殼"
+assert_eq "$(find "$CH" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d ' ')" "$n_a" "root 底下同名的 a 也不建殼"
+logcols | cut -f5 | grep -qF "$DUP" || fail "第一個錯誤是同名，含登記的 a 的路徑：$(lastsync)"
+rm -f "$OPSX_TEST_ISSUES/dup.json" "$A/dup.py" "$B/dup.py"
+cp "$FX/sources.dup.bak" "$OPSX_STATE_DIR/sources.toml"
 
 # ========== 真實樣本（board-inbox 1.1，tests/fakes/gh-samples/，cli/cli 公開 issue 2026-11-06 實抓）==========
 GS="$OPSX_ROOT/tests/fakes/gh-samples"
