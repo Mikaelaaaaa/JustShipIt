@@ -18,7 +18,9 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
    - A card that conflicts in that order moves after the cards it conflicts with, or out of the list.
 5. **After a card merges,** stop its pane (`opsx stop <slug>`) and archive it.
 6. **De-duplicate the inbox.** Every round, read the one line and the evidence of each new inbox card. When two cards are about 同一件事 (the same problem, not only the same file), fold the newer one into the older with `opsx merge-card <newer> --into <older> --repo <top>`. This is not bound by 只併小事 (the small-items rule `opsx new` applies when it merges by shared file): a duplicate is merged whatever its type or priority. `opsx merge-card` carries the source's `kind_of_work`, `impact` and `evidence` into the older card (incident wins over planned, impact is the union), so the older card's level never drops below the newer one's. Log each fold in the older card's decisions.tsv with `opsx log`, and list it in 類型 5.
-7. **Never merge（絕不合併）.** Merging is always the user's call, from the board or the forge. Not with `glab mr merge`, not with `gh pr merge`, not with `opsx merge`.
+7. **Open the card yourself.** When a discussion with the user turns up something to change, open it with `opsx new` and write its explore.md right away. 不問「要不要開卡」.
+8. **Do what you can do yourself.** When you have the access, push and open the MR yourself. Only when you cannot (no permission, your sandbox blocks it) give the user the command, as 類型 4.
+9. **Never merge（絕不合併）.** Merging is always the user's call, from the board or the forge. Not with `glab mr merge`, not with `gh pr merge`, not with `opsx merge`.
 
 ## 怎麼問 gate
 

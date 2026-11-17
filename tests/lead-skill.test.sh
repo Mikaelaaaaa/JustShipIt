@@ -58,6 +58,19 @@ for s in '同一件事' '只併小事' 'decisions.tsv' '類型 5' 'kind_of_work'
   case "$DEDUP" in *"$s"*) ;; *) fail "去重職責缺：$s — $DEDUP" ;; esac
 done
 
+# 討論出要改的直接開卡、做得到的自己做（specs/opsx-lead「協調者討論出要改的直接開卡、做得到的自己做」）
+NEWCARD="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx new' | grep -vF 'opsx merge-card')"
+[ -n "$NEWCARD" ] || fail "Duties 缺 opsx new 開卡的職責"
+for s in 'explore' '不問' '要不要開卡'; do
+  case "$NEWCARD" in *"$s"*) ;; *) fail "開卡職責缺：$s — $NEWCARD" ;; esac
+done
+SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F '類型 4')"
+[ -n "$SELFDO" ] || fail "Duties 缺「做得到的自己做，做不到照類型 4 給指令」的職責"
+case "$SELFDO" in *MR*) ;; *) fail "自己做的職責缺 MR — $SELFDO" ;; esac
+# 絕不合併留在最後一條
+LAST="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | tail -1)"
+case "$LAST" in *'絕不合併'*) ;; *) fail "最後一條職責要是絕不合併 — $LAST" ;; esac
+
 # 怎麼問 gate（specs/opsx-lead「協調者用跳卡問 gate」「跳卡不代答」「有 sketch 外掛時先畫 cards」）：
 # 只讀「## 怎麼問 gate」到下一個 ## 標題，別段的字不算；標題要夾在 ## Duties 與 ## Report format 之間
 ASK="$(awk '/^## 怎麼問 gate/{f=1;next} f&&/^## /{exit} f' "$F")"
