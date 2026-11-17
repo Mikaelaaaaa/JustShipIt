@@ -23,7 +23,7 @@ herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 
 
 - `gh pr view <任一 PR>` 能跑：`--settings` 沒蓋掉使用者層的排除清單。
 - `opsx dispatch <測試卡> …` 真的建出 `.claude/worktrees/<測試卡>`：主控 session 自己的排除規則有生效。
-- `opsx dispatch x; echo hi`：看 `echo` 是不是在沙盒外跑。如果是，排除規則不會拆開串接的指令，串接的整串都在沙盒外。結果：未實測。
+- `opsx dispatch x; touch <repo>/.git/worktrees/opsx-probe && echo OUTSIDE`：`.git/worktrees` 在沙盒內唯讀，只有沙盒外寫得進去。印出 `OUTSIDE` 表示 `;` 後面那段也在沙盒外跑：排除規則不會拆開串接的指令，串接的整串都在沙盒外。驗完刪掉探針檔 `<repo>/.git/worktrees/opsx-probe`。結果：未實測。
 
 裝了 Orca（PATH 上有 `orca`）時，`opsx init` 會用 `orca repo add --path <repo 根目錄>` 把 repo 登記進 Orca，已登記就說已有。卡的 worktree 放在 `.claude/worktrees/<slug>`，Orca 把它算成內建來源 `.claude/worktrees/*`，這個來源預設隱藏、CLI 改不到：要在 Orca 側欄把它設成顯示一次（也可以設成全域預設），之後卡的 worktree 才會出現在側欄、點了就開。opsx 不設 `--external-worktree-visibility`，免得別的 session 的暫存 worktree 也出現。沒有 `orca` 就略過；Orca 沒開、或在 Claude 沙盒內跑 init（orca 會 EPERM）時只警告一行，init 照樣成功，Orca 開著時在一般 terminal 重跑 `opsx init` 就好。
 
