@@ -566,6 +566,11 @@ printf 'not json\n' > "$FX/cap-bad.json"
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-bad.json" opsx dispatch cap-w --agent claude --mode interactive 2>/dev/null)"; rc=$?
 assert_eq "$rc" 0 "agent list 讀不懂照派: $out"
 echo "$out" | grep -qF 'herdr agent list 讀不懂' || fail "讀不懂要說原因: $out"
+mkdir -p "$R/openspec/changes/cap-n"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-n/.openspec.yaml"
+printf '{"result":{"agents":null}}\n' > "$FX/cap-bad.json"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-bad.json" opsx dispatch cap-n --agent claude --mode interactive 2>/dev/null)"; rc=$?
+assert_eq "$rc" 0 "agents 是 null 照派: $out"
+echo "$out" | grep -F 'herdr agent list 讀不懂' | grep -qF 'None' || fail "agents 是 null 要說讀不懂與 None: $out"
 # cap_add '<條目 JSON 物件>' '<agent JSON 陣列>'：dispatch.json 併進這些條目，cap_state 寫的 herdr agent list 加上這些 agent
 cap_add() {
   python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" "$2" <<'PY'
@@ -579,6 +584,14 @@ a["result"]["agents"] += json.loads(sys.argv[4])
 json.dump(a, open(agents_path, "w"))
 PY
 }
+# 名額沒滿：7 個單卡 pane，加一筆有 reaped_at 的條目與一筆 agent cwd 只在同前綴隔壁目錄的條目，兩個 pane 都有活 agent，都不佔名額
+mkdir -p "$R/openspec/changes/cap-v" "$FX/capwt/rp" "$FX/capwt/ow"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-v/.openspec.yaml"
+cap_state 7
+cap_add "{\"Acmecorp-CS/cap-rp\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:rp\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/rp\",\"reaped_at\":\"2026-11-17T09:00:00+08:00\"},\"Acmecorp-CS/cap-ow\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:ow\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/ow\"}}" \
+  "[{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:rp\",\"cwd\":\"$FX/capwt/rp\",\"foreground_cwd\":\"$FX/capwt/rp\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:ow\",\"cwd\":\"$FX/capwt/ow-other\",\"foreground_cwd\":\"$FX/capwt/ow-other\"}]"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-v --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "opsx 關過的與 cwd 對不上的 pane 手動派照派: $out"
+echo "$out" | grep -qF '已有' && fail "opsx 關過的與 cwd 對不上的 pane 不佔名額，不警告: $out"
 # session pane 在手動派時佔名額：7 個單卡 pane，加 1 個成員全停、session 條目沒停、agent working 的 session pane
 mkdir -p "$R/openspec/changes/cap-s" "$FX/capwt/sess"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-s/.openspec.yaml"
 cap_state 7
@@ -600,7 +613,7 @@ cap_add "{\"Acmecorp-CS/same-ar\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\
   "[{\"agent\":\"claude\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:sa\",\"cwd\":\"$FX/capwt/sa\",\"foreground_cwd\":\"$FX/capwt/sa\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sf\",\"cwd\":\"$FX/capwt/sf\",\"foreground_cwd\":\"$FX/capwt/sf\"},{\"agent\":\"claude\",\"agent_status\":\"idle\",\"pane_id\":\"w9:sl\",\"cwd\":\"$FX/capwt/sl\",\"foreground_cwd\":\"$FX/capwt/sl\"}]"
 PATH="$FX/coordbin:$PATH" OPSX_FAKE_LOG="$FX/cc.log" OPSX_TEST_COLLECT_JSON="$FX/cc-collect.json" OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" \
   bash "$OPSX_ROOT/bin/opsx" coordinate > "$FX/cc-out" 2>&1 || fail "coordinate 要跑完: $(cat "$FX/cc-out")"
-grep '同時' "$OPSX_STATE_DIR/coordinator.log" | grep -q '達上限 3' || fail "協調者要記達上限 3: $(cat "$OPSX_STATE_DIR/coordinator.log")"
+grep -qF '同時在跑 3 個 pane，達上限 3' "$OPSX_STATE_DIR/coordinator.log" || fail "協調者要記同時在跑 3 個 pane，達上限 3: $(cat "$OPSX_STATE_DIR/coordinator.log")"
 assert_not_grep '^opsx dispatch' "$FX/cc.log"
 mkdir -p "$R/openspec/changes/card-x"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/card-x/.openspec.yaml"
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch card-x --agent claude --mode interactive 2>&1)"; rc=$?

@@ -135,10 +135,7 @@ class Round:
         rc, out, err = self.run(runtime.list_agents())
         if rc != 0:
             raise CoordinateError("herdr agent list 失敗（rc %d），數不出名額：%s" % (rc, err[:300]))
-        try:
-            self.agents = json.loads(out)["result"]["agents"]
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            raise CoordinateError("herdr agent list 的輸出讀不懂，數不出名額：%s" % e) from e
+        self.agents = parse_agents(out)
         self.memo = read_json(self.memo_path, "coordinator memo")
         for k in ("_parked", "_redispatched", "_notified", "_relaunched"):
             self.memo.setdefault(k, {})   # 沒有這個 key 就是還沒記過任何一張
@@ -738,8 +735,9 @@ class Round:
         self.count_reopened(c)
 
     def count_reopened(self, c):
-        """重派成功開了新 pane。舊 pane 還活著（drive 死了）時它已在 busy_panes 裡，stop 關掉它再開一個，不多佔名額。"""
-        if c["agent_status"] not in LIVE_AGENT:
+        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還活著）時 stop 關掉它再開一個，不多佔名額；
+        不在 busy_panes 裡的（agent 死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
+        if c["dispatch"].get("pane") not in self.busy_panes:
             self.opened += 1
 
     def check_args(self, c, top):
@@ -1027,6 +1025,20 @@ class Round:
         if not entry or entry.get("via") == "@" + feature:
             return False
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
+
+
+def parse_agents(out):
+    """herdr agent list 輸出裡的 result.agents。讀不懂（不是 JSON、沒有 result.agents、不是物件的 list）丟 CoordinateError。"""
+    try:
+        agents = json.loads(out)["result"]["agents"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：%s" % e) from e
+    if not isinstance(agents, list):
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 要是 list，拿到 %r" % (agents,))
+    for a in agents:
+        if not isinstance(a, dict):
+            raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 的元素要是物件，拿到 %r" % (a,))
+    return agents
 
 
 def live_panes(entries, agents):
