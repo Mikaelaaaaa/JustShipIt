@@ -146,10 +146,10 @@ sub skeleton {
         if ($c eq '\\') {
             my $next = substr $s, $i + 1, 1;
             # c\ommit、g\it：bash 把 \o 當 o。參數位置含 / 的字是路徑，保留跳脫，commit 閘門靠它認出讀不出來的目錄；
-            # 指令位置（行首或 ; & | ( 之後）的字一律還原，絕對路徑的 /usr/bin/g\it 也是
+            # 指令位置（行首、; & | ( { ! 之後，或 time env command if 之後）的字一律還原，絕對路徑的 /usr/bin/g\it 也是
             # 只看 $out 最後 256 字：每個反斜線都掃整串 $out 會變成二次方
             my $tail = substr $out, -256;
-            my $cmdpos = (length($out) <= 256 && $tail =~ /\A\s*[^\s;&|()]*\z/) || $tail =~ /[;&|(\n]\s*[^\s;&|()]*\z/;
+            my $cmdpos = (length($out) <= 256 && $tail =~ /\A\s*[^\s;&|()]*\z/) || $tail =~ /(?:[;&|(\n{!]\s*|(?<![^\s;&|(])(?:time|env|command|if)\s+)[^\s;&|()]*\z/;
             if ($next =~ /^\w$/ && ($cmdpos || $tail !~ m{[^\s]*/[^\s]*\z})) { $out .= $next }
             elsif ($next eq "\n") { }                     # 行尾續行：bash 把反斜線與換行整個拿掉
             else { $out .= "\\$next" }

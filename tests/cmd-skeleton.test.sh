@@ -60,5 +60,12 @@ has_commit 'echo "git commit -m x"' && fail "有結尾的雙引號字串要換�
 has_commit 'cd /tmp;g\it commit -m x' || fail '; 之後的 g\it：'"$(skel 'cd /tmp;g\it commit -m x')"
 has_commit 'cd /tmp&&g\it commit -m x' || fail '&& 之後的 g\it：'"$(skel 'cd /tmp&&g\it commit -m x')"
 has_commit '/usr/bin/g\it commit -m x' || fail '絕對路徑的 g\it：'"$(skel '/usr/bin/g\it commit -m x')"
+has_commit '{ /usr/bin/g\it commit -m x; }' || fail '{ 之後的 g\it：'"$(skel '{ /usr/bin/g\it commit -m x; }')"
+has_commit 'if /usr/bin/g\it commit -m x; then :; fi' || fail 'if 之後的 g\it：'"$(skel 'if /usr/bin/g\it commit -m x; then :; fi')"
+has_commit '! /usr/bin/g\it commit -m x' || fail '! 之後的 g\it：'"$(skel '! /usr/bin/g\it commit -m x')"
+has_commit 'time /usr/bin/g\it commit -m x' || fail 'time 之後的 g\it：'"$(skel 'time /usr/bin/g\it commit -m x')"
+has_commit 'env /usr/bin/g\it commit -m x' || fail 'env 之後的 g\it：'"$(skel 'env /usr/bin/g\it commit -m x')"
+has_commit 'command /usr/bin/g\it commit -m x' || fail 'command 之後的 g\it：'"$(skel 'command /usr/bin/g\it commit -m x')"
+case "$(skel 'git -C /tmp/env\b commit -m x')" in *'/tmp/env\b'*) ;; *) fail "路徑裡的 env 不算前綴，跳脫要保留：$(skel 'git -C /tmp/env\b commit -m x')" ;; esac
 case "$(skel 'git -C /tmp/a\b commit -m x')" in *'/tmp/a\b'*) ;; *) fail "參數位置的路徑字要保留跳脫：$(skel 'git -C /tmp/a\b commit -m x')" ;; esac
 echo "cmd-skeleton ok"
