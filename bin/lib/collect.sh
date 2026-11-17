@@ -261,6 +261,10 @@ def stopped_of(path):
         return None
     if len(lines) < 2 or not lines[0] or not lines[1]:
         return None
+    try:
+        datetime.datetime.fromisoformat(lines[1])
+    except ValueError:
+        return None
     return {"reason": lines[0], "at": lines[1]}
 
 def kind_of(d):

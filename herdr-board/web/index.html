@@ -517,7 +517,7 @@ function rowRunning(c){
 /* 停住（collect 的 stopped，Stop hook 最後一次放行的原因）：tests/board-stop-reason-web.test.sh 從 start 切到 end 執行 */
 /* 停住 start */
 function stoppedNote(c){
-  if(c.waiting||!c.stopped)return '';
+  if(c.waiting||!c.stopped||c.agent_status==='working')return '';
   return `<span class="sep">·</span><span class="faint">停住：${esc(c.stopped.reason)} ${esc(String(c.stopped.at).slice(11,16))}</span>`;
 }
 /* 停住 end */

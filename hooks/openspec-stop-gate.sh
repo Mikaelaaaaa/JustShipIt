@@ -193,15 +193,25 @@ write_auto_gate() { # <dir> <slug> <站>；站是 facts 時問的是事實欄位
 }
 
 # 放行不等於這一站做完（真做完時 hook 會擋，導向下一站）：只報停在哪、為什麼。
-# 印「push|原因」或「quiet|原因」。等待類不推：gate 由 coordinate 的 gate 事件送，babysit 做完由「可以合併」送，其餘只是狀態，看板看得到。
+# 印「push|原因」或「quiet|原因」。等待類不推：gate 由 coordinate 的 gate 事件送，MR 能合併由「可以合併」送，其餘只是狀態，看板看得到。
 # 站放行而沒有要擋的條件要推：autopilot 下沒有別的通知蓋得到它
 wait_reason() { # <dir> <站>
   if [ "$(st_open_gates_blocking "$1")" -gt 0 ]; then printf 'quiet|等人答 gate（%s 站）' "$2"
   elif st_subagent_running "$1"; then printf 'quiet|等背景 subagent（%s 站）' "$2"
   elif st_review_running "$1"; then printf 'quiet|等 reviewer（%s 站）' "$2"
   elif [ -n "$bg_wait" ]; then printf 'quiet|等背景工作（%s 站）' "$2"
-  elif [ "$2" = babysit ]; then printf 'quiet|babysit 一輪做完，等 MR 合併'
+  elif [ "$2" = babysit ]; then babysit_reason "$1"
   else printf 'push|%s 站放行，沒有要擋的條件' "$2"
+  fi
+}
+
+# coordinate 只在 MR ready 時送「可以合併」，MR 卡在衝突或 CI 紅時沒有別的通知，要推；查不到 MR 狀態當沒卡住
+babysit_reason() { # <dir>
+  local mr
+  mr="$(mr_json "$1" 2>/dev/null)" || mr='{}'
+  if [ "$(printf '%s' "$mr" | jq -r '.conditions.no_conflicts' 2>/dev/null)" = false ]; then printf 'push|babysit 做完，MR 卡在衝突'
+  elif [ "$(printf '%s' "$mr" | jq -r '.state' 2>/dev/null)" = pipeline:failed ]; then printf 'push|babysit 做完，MR 卡在 CI 紅'
+  else printf 'quiet|babysit 一輪做完，等 MR 合併'
   fi
 }
 
@@ -252,6 +262,7 @@ if [ -z "$out" ]; then
   stop_record "${why#*|}"
   case "${why%%|*}" in
     push) say_once "[$slug] 停住：${why#*|}" ;;
+    *) rm -f "$said.sent" ;;   # 中間換過原因就不算連續，之後再停成同一行要再推
   esac
   exit 0
 fi

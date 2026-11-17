@@ -45,7 +45,7 @@ def _line(card: dict) -> str:
     else:
         detail = "階段 %s" % card.get("stage", "")
     stopped = card.get("stopped")
-    if not w and stopped:
+    if not w and stopped and card.get("agent_status") != "working":
         detail += " · 停住：%s %s" % (stopped["reason"], datetime.fromisoformat(stopped["at"]).strftime("%H:%M"))
     return "%s  %s  %s  %s" % (card.get("repo", ""), card.get("title") or card.get("slug"), detail, card.get("since") or "")
 

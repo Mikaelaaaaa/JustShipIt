@@ -30,6 +30,11 @@ printf '等 reviewer（review 站）' > "$REC"
 J="$(opsx collect --root "$RS")"; assert_eq "$?" 0 "collect rc（只有一行）: $J"
 assert_eq "$(st "$J")" 'null' "紀錄只有一行是 null"
 
+# 反例：第二行不是 ISO 時間（看板拿它做 fromisoformat，壞紀錄不能讓 TUI 掛掉）
+printf '等 reviewer（review 站）\nnot-a-time\n' > "$REC"
+J="$(opsx collect --root "$RS")"; assert_eq "$?" 0 "collect rc（時間壞掉）: $J"
+assert_eq "$(st "$J")" 'null' "第二行不是時間是 null"
+
 # 反例：讀不了（路徑是目錄）
 rm -f "$REC"; mkdir -p "$REC"
 J="$(opsx collect --root "$RS")"; assert_eq "$?" 0 "collect rc（讀不了）: $J"

@@ -1207,6 +1207,12 @@ assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：explore 站�
 assert_eq "$(said 1)" "explore 站放行，沒有要擋的條件" "stop: explore 站放行記下原因"; said_fresh
 # 同一行不重送
 out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 同一行放行（去重）"; assert_eq "$(cat "$CL")" "" "stop: 同一行不重送"
+# 中間有一次不推的放行就不算連續：之後再停成同一行要再推
+printf '## real-herdr\nstatus: open\n' > "$C/gates.md"
+out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: 開 gate 放行"; assert_not_grep '^agent prompt' "$CL"
+rm -f "$C/gates.md"
+out="$(KEEP_SAID=1 sgc)"; assert_eq "$out" "" "stop: gate 答覆後再放行"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：explore 站放行，沒有要擋的條件' "$CL"
 # 協調者不在：照常放行，coordinator.log 記一行；送失敗不算送過，下一次放行再試
 rm -rf "$OPSX_STATE_DIR/stop-said"; : > "$OPSX_STATE_DIR/coordinator.log"; : > "$CL"
 out="$(PATH="$FX/cbin:$PATH" OPSX_FAKE_LOG="$CL" sg)"; assert_eq "$out" "" "stop: 協調者不在照常放行"
@@ -1426,6 +1432,23 @@ t0="$(date +%s)"; out="$(unset OPSX_MR_TIMEOUT; OPSX_TEST_GLAB_SLEEP=9 sg)"; ela
 assert_eq "$(decision "$out")" block "stop: 預設時限逾時 → 擋"
 reason "$out" | grep -q '逾時' || fail "stop: 要說逾時: $(reason "$out")"
 printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"; done_report
+# babysit 做完、MR 卡住：coordinate 只在 ready 時送「可以合併」，卡住要由這裡推
+printf '%s' "${OPEN_MR/\"has_conflicts\":false/\"has_conflicts\":true}" > "$OPSX_TEST_GLAB_JSON"
+out="$(sgc)"; assert_eq "$out" "" "stop: babysit 做完 MR 衝突放行"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，MR 卡在衝突' "$CL"
+assert_eq "$(said 1)" "babysit 做完，MR 卡在衝突" "stop: MR 衝突記下原因"
+printf '%s' "${OPEN_MR/\"success\"/\"failed\"}" > "$OPSX_TEST_GLAB_JSON"
+out="$(sgc)"; assert_eq "$out" "" "stop: babysit 做完 CI 紅放行"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，MR 卡在 CI 紅' "$CL"
+# CI 還在跑、MR ready、查不到：都不推
+printf '%s' "${OPEN_MR/\"success\"/\"running\"}" > "$OPSX_TEST_GLAB_JSON"
+out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: CI 在跑不推"
+printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
+out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: MR ready 不推"
+printf '' > "$OPSX_TEST_GLAB_JSON"
+out="$(sgc)"; assert_eq "$out" "" "stop: 查不到 MR 時有 babysit: 行照樣放行"
+assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: 查不到 MR 不推"
+printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
 # 沒有卡的 branch 不擋
 git -C "$R" checkout -q -b scratch-x; out="$(sg)"; assert_eq "$out" "" "stop: branch 對不到卡不擋"
 git -C "$R" checkout -q "feat/eval-core/mikaela"

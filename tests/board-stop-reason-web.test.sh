@@ -25,6 +25,11 @@ assert.strictEqual(stoppedNote({waiting: {type: '等待決定', question: 'q'}, 
 // stopped 是 null 或沒有這個鍵：不顯示
 assert.strictEqual(stoppedNote({waiting: null, stopped: null}), '', 'stopped null 不顯示');
 assert.strictEqual(stoppedNote({waiting: null}), '', '舊資料沒有 stopped 不顯示');
+// agent 在跑：舊的停住原因不顯示；idle 或 herdr 查不到（null）照舊顯示
+const stopped = {reason: '等 reviewer（review 站）', at};
+assert.strictEqual(stoppedNote({waiting: null, agent_status: 'working', stopped}), '', 'working 不顯示');
+assert.ok(stoppedNote({waiting: null, agent_status: 'idle', stopped}).includes('停住：'), 'idle 要顯示');
+assert.ok(stoppedNote({waiting: null, agent_status: null, stopped}).includes('停住：'), 'agent_status null 要顯示');
 
 // 進行中那一列接在進度後面
 assert.ok(html.includes('${prog}${mrNote}${stoppedNote(c)}'), '進行中列放進停住原因');
