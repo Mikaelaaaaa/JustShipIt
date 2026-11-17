@@ -80,6 +80,12 @@ a="$(render_agents_md autopilot "$OPSX_ROOT")"
 # 規則的每一段（以 ' · ' 切開）都在檔裡：同源
 while IFS= read -r seg; do has "$a" "$seg" "autopilot 規則段"; done < <(rule_autopilot "$OPSX_ROOT" | awk -F' · ' '{ for (i = 1; i <= NF; i++) print $i }')
 for s in '主 checkout' 'bash tests/run.sh' 'gates.md' '一個 Bash 呼叫做一件事' 'waiting for merge' '直接做' '要授權' '永遠要人' 'merge' "$OPSX_ROOT/skills" '`/opsx-workflow:<stage> <slug>`'; do has "$a" "$s" autopilot; done
+# test-run-rule-edges Scenario Outline：AGENTS.md 測試段兩種都列，不依派工時 worktree 有沒有 tests/run.sh（有、沒有兩列）
+NR="$(mk_repo NoRunnerAgents)"
+for root in "$OPSX_ROOT" "$NR"; do
+  m="$(render_agents_md autopilot "$root")"
+  for s in '- worktree 根有 `tests/run.sh` 時：跑測試一律 bash tests/run.sh' '- 沒有時：跑測試用這個 repo 的指令' 'package.json / pyproject'; do has "$m" "$s" "AGENTS.md($root)"; done
+done
 i="$(render_agents_md interactive "$OPSX_ROOT")"
 has "$i" "$(rule_interactive)" interactive
 gone "$i" '要問人的事寫 gates.md' interactive
@@ -120,9 +126,9 @@ wait_drive Acmecorp-CS cx
 WT="$D/.claude/worktrees/cx"
 assert_file "$WT/AGENTS.md"
 has "$(cat "$WT/AGENTS.md")" "$(rule_autopilot "$WT" | awk -F' · ' '{ print $1 }')" "worktree 的 AGENTS.md"
-# D 沒有 tests/run.sh：AGENTS.md 拿到 repo 自己測試指令那段，與 router 同源（agent-20261116-1405）
-gone "$(cat "$WT/AGENTS.md")" 'bash tests/run.sh' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
-has "$(cat "$WT/AGENTS.md")" 'package.json / pyproject' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
+# D 沒有 tests/run.sh：派工後分支可能加上它，所以 AGENTS.md 兩段都列、各帶條件（test-run-rule-edges D5）
+has "$(cat "$WT/AGENTS.md")" '- 沒有時：跑測試用這個 repo 的指令' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
+has "$(cat "$WT/AGENTS.md")" '- worktree 根有 `tests/run.sh` 時：跑測試一律 bash tests/run.sh' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
 assert_eq "$(git -C "$WT" status --porcelain)" "" "AGENTS.md 不進 git"
 assert_grep "^agent start cx --kind codex --pane w1:pE -- -a never -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR\$" "$OPSX_FAKE_LOG"
 
