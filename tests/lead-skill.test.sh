@@ -1,28 +1,44 @@
 #!/usr/bin/env bash
-# skills/lead/SKILL.md：協調者的職責與五塊回報格式。specs/opsx-lead/spec.md「協調者 skill 寫明職責與五塊回報格式」。
+# skills/lead/SKILL.md：協調者的職責與六種回報類型。specs/opsx-lead/spec.md「協調者 skill 寫明職責與六種回報類型」。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 F="$OPSX_ROOT/skills/lead/SKILL.md"
 assert_file "$F"
 
-# 五塊依序出現
+# 類型 1 到 6 依序出現在 ## Report format 之後
 line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
-prev=0
-for h in '① 要你處理' '② 可合併（依序）' '③ 進度' '④ 我處理掉的' '⑤ 最後一行'; do
-  n="$(line_of "$h")"; [ -n "$n" ] || fail "缺區塊標題：$h"
-  [ "$n" -gt "$prev" ] || fail "區塊順序錯：$h 在第 $n 行，前一塊在第 $prev 行"
+prev="$(line_of '## Report format')"; [ -n "$prev" ] || fail "缺 ## Report format"
+for h in '### 類型 1：進度' '### 類型 2：可以合併' '### 類型 3：要你決定' '### 類型 4：要你在終端機跑' '### 類型 5：我處理掉的' '### 類型 6：事件回應'; do
+  n="$(line_of "$h")"; [ -n "$n" ] || fail "缺回報類型：$h"
+  [ "$n" -gt "$prev" ] || fail "回報類型順序錯：$h 在第 $n 行，前一個在第 $prev 行"
   prev="$n"
 done
 
-# 每塊的欄名
+# 各類型的欄名與固定字（spec 的 Examples 表每一列），只看 ## Report format 段
+REPORT="$(sed -n '/^## Report format/,$p' "$F")"
 for s in \
-  '| # | 卡 | 問什麼 | 我的建議 | 詳情 |' \
-  '→ 回『1 照建議』即可' \
-  '| # | 功能 | PR | 卡 | 測試 | 邏輯表 | PR 連結 |' \
-  '進度 HH:MM · <current_milestone>：剩 N 張 · 可合併 a · 測試中 b · 開發中 c · 等你 d · 還沒派 e' \
-  '| 功能（session） | 卡 | 優先度 | 階段 | 卡在 |' \
+  '| 區塊 | 待處理 | 進行中 | 待指派 | 收件匣 |' \
+  '| 功能 | 卡 | 階段 | 卡在 |' \
+  '| 程式名 | 誰設定 | 業務上是什麼 | 被擋時記成 |' \
+  '| 你是誰 | 結果 |' \
+  '| 節點 | 白話 |' \
+  '建議合併順序' \
+  '| # | 卡 | 問什麼 | 你的回答 |' \
+  '| 卡 | 為什麼我做不到 | 指令 |' \
   '| 卡 | 發生什麼 | 我怎麼處理 | 開卡 |' \
-  '絕對路徑' 'path:line' '絕不合併' 'me-20261111-1315' 'logic-map.md' 'report.md'; do
+  '一到三行' '最後一行' 'logic-map.md' 'report.md' \
+  '表格外' '一行一條' '絕對路徑' 'path:line'; do
+  case "$REPORT" in *"$s"*) ;; *) fail "Report format 缺：$s" ;; esac
+done
+for s in '絕不合併' 'me-20261111-1315'; do
   grep -qF -- "$s" "$F" || fail "skill 缺：$s"
+done
+# 例子是虛構的：沒有內部網域、沒有家目錄路徑
+for s in 'tsg-navigator' '/Users/'; do
+  grep -qF -- "$s" "$F" && fail "skill 不能帶真實資料：$s"
+done
+# 舊的五塊區塊名不再出現
+for s in 'block ①' 'block ④' 'Block ①' '① 要你處理' '⑤ 最後一行'; do
+  grep -qF -- "$s" "$F" && fail "skill 還提到舊區塊名：$s"
 done
 
 # 可合併只看 agent 的回報（review 完、相關測試綠、跟 main 無衝突）；多張一起合時只用 git merge-tree 查依序疊起來無衝突，不重跑全套
@@ -38,7 +54,7 @@ case "$D4" in *"run the full suite"*|*"rerun the suite against"*) fail "職責 4
 DUTIES="$(sed -n '/^## Duties/,/^## Report format/p' "$F")"
 DEDUP="$(printf '%s\n' "$DUTIES" | grep -F 'opsx merge-card')"
 [ -n "$DEDUP" ] || fail "Duties 缺 opsx merge-card 的去重職責"
-for s in '同一件事' '只併小事' 'decisions.tsv' '④' 'kind_of_work' 'impact'; do
+for s in '同一件事' '只併小事' 'decisions.tsv' '類型 5' 'kind_of_work' 'impact'; do
   case "$DEDUP" in *"$s"*) ;; *) fail "去重職責缺：$s — $DEDUP" ;; esac
 done
 
@@ -74,6 +90,7 @@ assert_eq "$(printf '%s\n' "$ASK" | grep -o 'compare' | wc -l | tr -d ' ')" 1 "�
 case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要寫「不用 \`compare\` to choose」" ;; esac
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
+printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '類型 3' || fail "職責 2 要指向類型 3"
 
 # 回報資料從哪來（specs/opsx-lead「協調者回報的資料來自 opsx collect」）：只讀「## 回報資料從哪來」到下一個 ## 標題，
 # 段要夾在 ## 怎麼問 gate 與 ## Report format 之間
