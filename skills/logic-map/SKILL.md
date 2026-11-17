@@ -1,6 +1,6 @@
 ---
 name: logic-map
-description: Turn the code one PR changed into a logic map the user can judge the work by — a numbered feature list, a flowchart whose decision nodes are numbered D1…Dn, and a condition table that gives each node its exact condition in FEEL with the file:line it came from. When producing a map, it reads only the code in the PR's diff range, never the spec, the chat, or the commit messages, so the map shows what the code does rather than what anyone meant it to do; only after the condition tables are final does it read the change's design.md, to sort each ⚠ mark against its decisions. Use when a PR is finished and the user wants to check the development work, when the opsx pr stage asks for a logic map, or when someone says "logic map", "邏輯表", "程式邏輯", "畫這支 PR 的邏輯", "他用了哪些邏輯", or "讓我判斷他的開發工作". Also use when the user quotes a line of an existing logic map (a D node, a condition-table row, or a ⚠ item) and asks what a line means, e.g. 「這是啥意思」「邏輯表的 D3 是什麼」.
+description: Turn the code one PR changed into a logic map the user can judge the work by — a numbered feature list, a flowchart whose decision nodes are numbered D1…Dn, and a condition table that gives each node its exact condition in FEEL with the file:line it came from. When producing a map, it reads only the code in the PR's diff range, never the spec, the chat, or the commit messages, so the map shows what the code does rather than what anyone meant it to do; only after the condition tables are final does it read the change's design.md, to sort each ⚠ mark against its decisions. Use when a PR is finished and the user wants to check the development work, when the opsx pr stage asks for a logic map, or when someone says "logic map", "邏輯表", "程式邏輯", "畫這支 PR 的邏輯", "他用了哪些邏輯", or "讓我判斷他的開發工作". Also use when the user quotes a line of an existing logic map (a D node, a condition-table row, a ⚠ item, or a sentence of its business summary) and asks what a line means, e.g. 「這是啥意思」「邏輯表的 D3 是什麼」.
 ---
 
 # Logic map
@@ -113,13 +113,15 @@ With no `design:` line, or a file that does not exist, the items keep no label a
 
 ## Answering questions about a map
 
-When the prompt gives you a repo, a diff range, and an output path, you are producing a map, with or without a `design:` line (review's map step adds one): skip this section and follow Steps. Use this section when the user quotes a D node, a condition-table row, or a ⚠ item of an existing map and asks what it means.
+When the prompt gives you a repo, a diff range, and an output path, you are producing a map, with or without a `design:` line (review's map step adds one): skip this section and follow Steps. Use this section when the user quotes a D node, a condition-table row, a ⚠ item, or a sentence of a business section of an existing map and asks what it means.
 
 In this mode, answer in the reply. Do not write or change any file. The map is the version the user judges, and `openspec/` is not in git, so an overwritten map is lost.
 
 Find maps at `openspec/changes/*/logic-map.md` in the checkout that holds `openspec/`. In a dispatch worktree that is the main checkout, not the current directory; `git worktree list` prints it first. If the question names no map path or card and the search does not find exactly one map, ask which card before reading any map. If the map the question is about no longer exists, say so, quote the `## 邏輯表` line of that card's `report.md`, and stop. Do not answer from `design.md` or the code.
 
 Read the logic map, then the `design.md`, `explore.md`, and `grill.md` in the same change directory as the map. Do not read the code. The map is the version the user judges by, and conditions re-derived from code make a second account that can disagree with it. When a file is missing, or none of them says something, such as who sets a value, write 「沒寫」 in the table cell. Do not guess.
+
+When the quoted line is a sentence of `## 這支 PR 在做什麼（業務說明）` or of a feature's `### 業務上在做什麼`, find the D nodes it summarizes from that feature's 做了什麼, 流程圖, and 條件表, and open the reply with one line 「這句對到 D2、D4」 before the four parts. Parts 1 and 2 cover only those nodes. For a sentence of the top summary, write each node as 「功能 n Dm」 and answer only the situations the sentence names, across features when it spans them. When the sentence does not match the condition of a node it maps to, write 「這句跟 Dn 的條件不一致」 right after that line, quote the condition-table row, and list it in part 3 as a decision for the user.
 
 Answer in 繁體中文, in four parts, in this order:
 
