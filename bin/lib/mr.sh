@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # MR 五條件，drive / collect / merge / grant-gate 共用（herdr-board D5、specs/board-collect）。
 #   mr_json  <card dir>  印 {"url","state","head_sha","conditions":{opened,not_draft,no_conflicts,pipeline,threads},"blocked_on","pipeline_status","stuck","error","created_at","merged_at"}
-#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed、canceled、manual），不受排在前面的條件遮住
-#            stuck 是 MR 合不了、要人處理的第一個原因：已關閉（GitLab 合併中的 locked 不算）、CI 紅、pipeline 原值 canceled／skipped／manual、
+#            pipeline_status 是 CI 本身的狀態（GitLab 原值；GitHub 是 success、pending、failed、canceled、timed_out、manual），不受排在前面的條件遮住
+#            stuck 是 MR 合不了、要人處理的第一個原因：已關閉（GitLab 合併中的 locked 不算）、CI 紅、pipeline 原值 canceled／skipped／manual／timed_out、
 #              衝突、draft、要求修改；沒卡住、或查不到時是 null。CI 還在跑或其他 pipeline 狀態不給原因，但不遮住後面的原因。
 #              Stop hook 的停住紀錄與 coordinate 的「MR 卡住」通知都讀它
 #   mr_state <card dir>  印 ready | draft | conflicts | pipeline:<status> | threads:<n> | state:<s> | none（drive 用的短字串）
@@ -116,19 +116,21 @@ except json.JSONDecodeError as e:
     out["error"] = "%s 回的不是 JSON：%s" % (tool, e)
     print(json.dumps(out)); sys.exit()
 if forge == "github":
-    # 跑完沒過的 check 照 GitLab 的用詞歸類：取消報 canceled、要人核准報 manual，其他都是 failed；有 failed 就報 failed
-    checks_ok, ended = True, set()
+    # 跟 GitLab 的 pipeline 一樣：還有 check 沒跑完就是 pending；全部跑完才依 GitLab 的用詞歸類，取消、逾時、要人核准各自報，其他都是 failed，有 failed 就報 failed
+    checks_ok, ended, running = True, set(), False
     for c in d.get("statusCheckRollup") or []:
         if "conclusion" in c:   # CheckRun：要跑完而且過
             ok = c.get("status") == "COMPLETED" and c.get("conclusion") in ("SUCCESS", "NEUTRAL", "SKIPPED")
+            running = running or c.get("status") != "COMPLETED"
             if c.get("status") == "COMPLETED" and not ok:
-                ended.add({"CANCELLED": "canceled", "ACTION_REQUIRED": "manual"}.get(c.get("conclusion"), "failed"))
+                ended.add({"CANCELLED": "canceled", "TIMED_OUT": "timed_out", "ACTION_REQUIRED": "manual"}.get(c.get("conclusion"), "failed"))
         else:                   # StatusContext：只有 state
             ok = c.get("state") == "SUCCESS"
+            running = running or c.get("state") in ("PENDING", "EXPECTED")
             if c.get("state") in ("FAILURE", "ERROR"):
                 ended.add("failed")
         checks_ok = checks_ok and ok
-    checks_ended = next((s for s in ("failed", "canceled", "manual") if s in ended), None)
+    checks_ended = None if running else next((s for s in ("failed", "timed_out", "canceled", "manual") if s in ended), None)
     decision = d.get("reviewDecision") or ""
     c = {"opened": d.get("state") == "OPEN", "not_draft": not d.get("isDraft"),
          "no_conflicts": d.get("mergeable") != "CONFLICTING" and d.get("mergeStateStatus") != "DIRTY",
@@ -150,7 +152,7 @@ short = {"opened": "state:%s" % state, "not_draft": "draft", "no_conflicts": "co
          "pipeline": "pipeline:%s" % ps, "threads": "threads:%d" % n, None: "ready"}[first]
 pst = out["pipeline_status"]
 # CI 紅不被 draft 等排在前面的條件遮住；其他 pipeline 狀態（還在跑、不認得的）不算卡住，但不遮住後面的原因
-ci = "CI 紅" if pst == "failed" else pst if pst in ("canceled", "skipped", "manual") else None
+ci = "CI 紅" if pst == "failed" else pst if pst in ("canceled", "skipped", "manual", "timed_out") else None
 # GitLab 的 locked 是合併進行中，馬上會變 merged，不算已關閉
 closed = not c["opened"] and not (forge == "gitlab" and state == "locked")
 reasons = ("已關閉" if closed else None, ci, None if c["no_conflicts"] else "衝突",
