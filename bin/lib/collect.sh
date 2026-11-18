@@ -310,8 +310,9 @@ def waiting_of(card, gates, agent_status):
     return None
 
 # 全部 open gate 都是「等別張卡合進 main」就不用人現在處理（跟 progress_class、coordinate 的 handle_gate 同一條判斷）；
-# 沒有 open gate 的 waiting（MR 可合併、終端機等輸入）一律要人
+# MR 可合併、沒有 open gate 的終端機等輸入，一律要人
 def needs_human(card, gates, agent_status, top, prs):
+    if card["mr"] and card["mr"].get("state") == "ready": return True
     open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
     if not open_gates: return True
     for g in open_gates:

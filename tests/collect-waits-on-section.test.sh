@@ -28,6 +28,10 @@ gcard wait-then-ask "$WAIT$ASK"
 gcard ghost-wait '## g1\ntype: decision\nstatus: open\nwaits-on: ghost\nopened_at: 2026-11-10T10:00:00+08:00\n問題: 等 ghost\n選項: 等 (Recommended) | 不等\n'
 gcard plain-ask "$ASK"
 gcard other-done '## g1\ntype: decision\nstatus: open\nwaits-on: merged-card\nopened_at: 2026-11-10T10:00:00+08:00\n問題: 等\n選項: 等 (Recommended) | 不等\n'
+gcard ready-wait "$WAIT"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n' > "$ROOT/r/openspec/changes/ready-wait/report.md"
+export OPSX_TEST_GLAB_JSON="$FX/mr.json" OPSX_TEST_GLAB_JSON_BY_IID="$FX/mr-"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa111","head_pipeline":{"status":"success"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}' > "$FX/mr-7.json"
 cat > "$ROOT/r/openspec/workplan.yaml" <<'EOF'
 features:
   - name: fo
@@ -62,5 +66,8 @@ assert_eq "$(q "$C" open_gates.0.id)" g1
 assert_eq "$(q "$(card "$J" r wait-then-ask)" section)" 待處理 "未合 waits-on 後面還有要人答的題：待處理"
 assert_eq "$(q "$(card "$J" r other-done)" section)" 待處理 "等的卡已合進 main：待處理"
 assert_eq "$(q "$(card "$J" r ghost-wait)" section)" 進行中 "waits-on 對不到任何卡：照沒合算，不是待處理"
+C="$(card "$J" r ready-wait)"
+assert_eq "$(q "$C" mr.state)" ready "fixture 的 MR 要是 ready：$C"
+assert_eq "$(q "$C" section)" 待處理 "MR 可合併、gate 只等別張卡：仍是待處理"
 assert_eq "$(q "$(card "$J" r plain-ask)" section)" 待處理 "沒寫 waits-on 的 gate：待處理"
 echo "collect-waits-on-section ok"
