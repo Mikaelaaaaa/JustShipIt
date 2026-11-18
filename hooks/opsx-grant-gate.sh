@@ -96,7 +96,7 @@ level2() { # <action> <label>
 
 # 第二級的樣式：整串逐條查授權與逐段查涵蓋共用同一組
 CMD_START='(^|[[:space:];&|(`]|\$\()'   # 命令可以緊接在 ; & | ( ` $( 後面，不一定隔著空白
-# GIT_TOK、GIT_GOPT、GIT_PUSH 在 hooks/_git-re.sh（hooks/openspec-commit-gate.sh 同一份寫法）
+# GIT_TOK、GIT_GOPT、GIT_PUSH 在 hooks/_git-re.sh；hooks/openspec-commit-gate.sh 沒 source 它，自己留一份
 source "$(dirname "${BASH_SOURCE[0]}")/_git-re.sh"
 RE_PUSH="${CMD_START}${GIT_PUSH}(\\s|;|&|\\||\$)"
 RE_MR='(glab mr (create|update)|gh pr (create|edit)|glab issue (note|comment)|gh issue comment)'

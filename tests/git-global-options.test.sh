@@ -9,10 +9,10 @@ for c in 'git -C /tmp/r push origin main' 'git -c a=b push --force origin feat' 
   out="$(sd "$c")"; assert_eq "$(decision "$out")" deny "guard 要擋（${c}）"
 done
 # 引號、反斜線、引號內的 & 都照 shell 解析完的樣子認
-for c in "git -C '/tmp/a b' push -f origin feat" 'git -C "/tmp/a b" push origin main' 'git push -o "merge_request.title=A & B" --force origin feat' '"git" push --force origin feat' 'g\it push -f origin feat'; do
+for c in "git -C '/tmp/a b' push -f origin feat" 'git -C "/tmp/a b" push origin main' 'git push -o "merge_request.title=A & B" --force origin feat' '"git" push --force origin feat' 'g\it push -f origin feat' 'git push origin feat 2>&1 --force' 'git push 2>&1 --force origin feat' 'git push origin feat >/dev/null 2>&1 -f' 'bash -c "git push -f origin feat"'; do
   out="$(sd "$c")"; assert_eq "$(decision "$out")" deny "guard 要擋（${c}）"
 done
-for c in 'git -C /tmp/r push origin feat/x' 'git -C claude-wt commit -m "fix: clean"' 'git -C /tmp/r log --oneline' 'echo "git -C x push origin main"' 'git push gitlab feat/x-main' 'git push origin feat && rm -f x'; do
+for c in 'git -C /tmp/r push origin feat/x' 'git -C claude-wt commit -m "fix: clean"' 'git -C /tmp/r log --oneline' 'echo "git -C x push origin main"' 'git push gitlab feat/x-main' 'git push origin feat && rm -f x' 'git commit -m "git push -f origin main" && git push origin feat'; do
   out="$(sd "$c")"; assert_eq "$(decision "$out")" allow "guard 要放行（${c}）: $(reason "$out")"
 done
 

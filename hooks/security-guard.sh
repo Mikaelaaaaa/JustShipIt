@@ -40,8 +40,8 @@ if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PUSH}(\\s|\$)"; then
   if printf '%s\n' "$NORM" | grep -qE "$push_main"; then
     deny "Do not push directly to main/master. Create a feature branch and open a PR."
   fi
-  # Block force push：只看同一段 push 的參數，後面串的指令自己的 -f 不算
-  if printf '%s\n' "$NORM" | grep -qE "${GIT_PUSH}([[:space:]][^;&|]*)?[[:space:]](--force|-f)\\b"; then
+  # Block force push：只看同一段 push 的參數，後面串的指令自己的 -f 不算；2>&1、&>file 這類重導向裡的 & 不是分段
+  if printf '%s\n' "$NORM" | grep -qE "${GIT_PUSH}([[:space:]]([^;&|]|>&|&>)*)?[[:space:]](--force|-f)\\b"; then
     deny "Force push is blocked. Use --force-with-lease if you must overwrite remote history."
   fi
 fi
