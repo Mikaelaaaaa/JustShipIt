@@ -284,7 +284,7 @@ def mergeable(card, agent_status):
         errors.append({"source": report_path, "message": "%s 的 report.md 讀不了，不標可以合併：%s" % (card["slug"], e)})
         return False
     sub_open = any(g.get("status", "").strip() == "open"
-                   for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in parse_gates(read(p)))
+                   for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
     return not mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
 
 # 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人

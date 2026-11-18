@@ -759,13 +759,15 @@ mr21 accepted "openspec/changes/accepted/logic-map.md · abc1234" $'### 待修�
 mr21 blocked "openspec/changes/blocked/logic-map.md · abc1234" >/dev/null
 D=$(mr21 subgate "openspec/changes/subgate/logic-map.md · abc1234"); mkdir -p "$D/subs/a"
 printf '## needs-user-a\ntype: decision\nstatus: open\n問題: 子殼要你決定\n' > "$D/subs/a/gates.md"
+D=$(mr21 subdeps "openspec/changes/subdeps/logic-map.md · abc1234"); mkdir -p "$D/subs/a"
+printf '## install-deps\ntype: approval\naction: install\nstatus: open\nblocks-from: apply\n問題: 裝依賴\n' > "$D/subs/a/gates.md"
 mr21 notaccept "openspec/changes/notaccept/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲 · D-id none · 來源 C\n' >/dev/null
 mr21 indented "openspec/changes/indented/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 開卡 me-20261117-1500\n  - 細節：空字串與 None 都要測\n' >/dev/null
 mr21 longsha "openspec/changes/longsha/logic-map.md · abc1234de" >/dev/null
 D=$(mr21 badreport "openspec/changes/badreport/logic-map.md · abc1234"); printf '\xe4\xb8\n' >> "$D/report.md"
 D=$(mr21 gate "openspec/changes/gate/logic-map.md · abc1234")
 printf '## logic-map-undecided-r4\ntype: decision\nstatus: open\n問題: 邏輯表有兩項沒經過決定\n選項: 照現在 (Recommended) | 改\n' > "$D/gates.md"
-printf '{"m/ok":{"pane":"m1","mode":"autopilot"},"m/working":{"pane":"m2","mode":"autopilot"},"m/stale":{"pane":"m1","mode":"autopilot"},"m/failed":{"pane":"m1","mode":"autopilot"},"m/nosec":{"pane":"m1","mode":"autopilot"},"m/short":{"pane":"m1","mode":"autopilot"},"m/unknown":{"pane":"m9","mode":"autopilot"},"m/done":{"pane":"m3","mode":"autopilot"},"m/gate":{"pane":"m1","mode":"autopilot"},"m/nomap":{"pane":"m1","mode":"autopilot"},"m/consider":{"pane":"m1","mode":"autopilot"},"m/pending":{"pane":"m1","mode":"autopilot"},"m/carded":{"pane":"m1","mode":"autopilot"},"m/accepted":{"pane":"m1","mode":"autopilot"},"m/blocked":{"pane":"m4","mode":"autopilot"},"m/subgate":{"pane":"m1","mode":"autopilot"},"m/notaccept":{"pane":"m1","mode":"autopilot"},"m/indented":{"pane":"m1","mode":"autopilot"},"m/longsha":{"pane":"m1","mode":"autopilot"},"m/badreport":{"pane":"m1","mode":"autopilot"}}' > "$SM/dispatch.json"
+printf '{"m/ok":{"pane":"m1","mode":"autopilot"},"m/working":{"pane":"m2","mode":"autopilot"},"m/stale":{"pane":"m1","mode":"autopilot"},"m/failed":{"pane":"m1","mode":"autopilot"},"m/nosec":{"pane":"m1","mode":"autopilot"},"m/short":{"pane":"m1","mode":"autopilot"},"m/unknown":{"pane":"m9","mode":"autopilot"},"m/done":{"pane":"m3","mode":"autopilot"},"m/gate":{"pane":"m1","mode":"autopilot"},"m/nomap":{"pane":"m1","mode":"autopilot"},"m/consider":{"pane":"m1","mode":"autopilot"},"m/pending":{"pane":"m1","mode":"autopilot"},"m/carded":{"pane":"m1","mode":"autopilot"},"m/accepted":{"pane":"m1","mode":"autopilot"},"m/blocked":{"pane":"m4","mode":"autopilot"},"m/subgate":{"pane":"m1","mode":"autopilot"},"m/subdeps":{"pane":"m1","mode":"autopilot"},"m/notaccept":{"pane":"m1","mode":"autopilot"},"m/indented":{"pane":"m1","mode":"autopilot"},"m/longsha":{"pane":"m1","mode":"autopilot"},"m/badreport":{"pane":"m1","mode":"autopilot"}}' > "$SM/dispatch.json"
 printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"idle"},{"agent":"claude","pane_id":"m2","agent_status":"working"},{"agent":"claude","pane_id":"m3","agent_status":"done"},{"agent":"claude","pane_id":"m4","agent_status":"blocked"}],"type":"agent_list"}}' > "$FX/agents-m.json"
 J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"; assert_eq "$?" 0 "可以合併 collect: $J"
 mwait() { q "$(card "$J" m "$1")" "$2"; }
@@ -792,6 +794,8 @@ printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"
 JU="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m-unknown.json" opsx collect --root "$RM" --state "$SM")"
 assert_eq "$(q "$JU" unmatched_agents)" '[]' "對到 pane、狀態 unknown 不算沒對到卡"
 assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting)" "null null"
+# 子殼的 blocks-from: apply gate 在子殼沒有 tasks.md 時不算等人，跟 opsx merge 的 st_open_gates 一致（D16）
+assert_eq "$(mwait subdeps waiting.type)" "可以合併" "子殼 blocks-from: apply 的 gate 不擋"
 assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以合併 可以合併"
 # report.md 讀不了只壞這一張卡：不標可以合併、記一筆 errors，別張卡照常
 assert_eq "$(mwait badreport waiting)" null "report.md 讀不了不標可以合併"
