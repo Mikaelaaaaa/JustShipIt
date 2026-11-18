@@ -32,6 +32,14 @@ done
 # 沒有邏輯表的卡：那幾欄寫「還沒有邏輯表」（design D6）
 T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T2" in *'還沒有邏輯表'*) ;; *) fail "類型 2 要寫沒有邏輯表時那幾欄寫「還沒有邏輯表」" ;; esac
+# 沒有 pipeline 寫「沒有 CI」（design D11）；邏輯表的 head 取自 report.md「## 邏輯表」那行（design D13）
+for s in '沒有 CI' '`pipeline_status`' '`## 邏輯表`' '`mr.head_sha`'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
+# 類型 1 的區塊欄只寫 repo，milestone 另寫（design D12）
+T1="$(awk '/^### 類型 1：/{f=1;next} f&&/^### /{exit} f' "$F")"
+case "$T1" in *'區塊 is the repo only'*) ;; *) fail "類型 1 要寫區塊欄只寫 repo" ;; esac
+printf '%s\n' "$T1" | grep -E '^\| [^|]* · [^|]* \| [0-9]' && fail "類型 1 計數表的區塊欄不能寫 repo · milestone"
 # 最後一行是每份回覆的共用規則，不只類型 1（design D7）
 RULES="$(sed -n '/^## Report format/,/^### 類型 1：/p' "$F")"
 case "$RULES" in *'最後一行'*) ;; *) fail "Report format 共用規則要有最後一行的規則" ;; esac
@@ -55,6 +63,10 @@ for s in 'reports review done' 'Do not rerun the suite yourself' 'git merge-tree
   case "$D4" in *"$s"*) ;; *) fail "職責 4 缺：$s" ;; esac
 done
 case "$D4" in *"run the full suite"*|*"rerun the suite against"*) fail "職責 4 不能叫協調者自己重跑全套：$D4" ;; esac
+# 可以合併以 mr.state ready 為準，agent 回報是附加條件（design D10）
+for s in '`mr.state` is `ready`' 'agent 還在改'; do
+  case "$D4" in *"$s"*) ;; *) fail "職責 4 缺：$s" ;; esac
+done
 
 # 去重是協調者的職責（specs/card-auto-merge「協調者 skill 寫明去重」）：Duties 裡有一條含 opsx merge-card 與同一件事，不受只併小事限制
 DUTIES="$(sed -n '/^## Duties/,/^## Report format/p' "$F")"
@@ -72,7 +84,7 @@ for s in 'explore' '不問「要不要開卡」'; do
 done
 SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F '類型 4')"
 [ -n "$SELFDO" ] || fail "Duties 缺「做得到的自己做，做不到照類型 4 給指令」的職責"
-for s in 'MR' 'approval gate'; do
+for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first'; do
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
 # 絕不合併留在最後一條
@@ -120,26 +132,49 @@ SRC="$(awk '/^## 回報資料從哪來/{f=1;next} f&&/^## /{exit} f' "$F")"
 n_src="$(heading_of '## 回報資料從哪來')"
 [ "$n_src" -gt "$n_ask" ] && [ "$n_src" -lt "$n_report" ] \
   || fail "「## 回報資料從哪來」要在 ## 怎麼問 gate（${n_ask}）與 ## Report format（${n_report}）之間，現在在 ${n_src}"
-for s in 'opsx collect' 'jq' 'logic_map' 'dispatched' '每收到一則事件' '類型 6' '類型 2' \
+# jq 程式碼區塊與散文分開斷言：欄位要在程式碼裡，散文裡的同名字不算
+JQ="$(printf '%s\n' "$SRC" | awk '/^```/{f=!f;next} f')"
+PROSE="$(printf '%s\n' "$SRC" | awk '/^```/{f=!f;next} !f')"
+[ -n "$JQ" ] || fail "回報資料從哪來段缺 jq 程式碼區塊"
+for s in 'opsx collect > "$TMPDIR/opsx-collect.json"' 'select(.archived | not)' 'dispatched: (.dispatch != null)' \
+  'open_gates' 'gate_id' 'waits_on' 'needs' 'action' 'agent_status' 'path' 'head_sha' 'pipeline_status' \
+  "jq -c '.progress'" "jq -c '.errors'"; do
+  case "$JQ" in *"$s"*) ;; *) fail "jq 程式碼區塊缺：$s" ;; esac
+done
+for s in 'logic_map' '每收到一則事件' '類型 6' '類型 2' \
   '沒派出去' '類型 3' 'design.md' 'explore.md' 'grill.md' '「沒寫」' \
-  'waits_on' 'agent_status' 'path' '.errors' 'type 不明' 'subs/' '一輪' 'since your last report'; do
-  case "$SRC" in *"$s"*) ;; *) fail "回報資料從哪來段缺：$s" ;; esac
+  'type 不明' 'subs/' '一輪' 'since your last report'; do
+  case "$PROSE" in *"$s"*) ;; *) fail "回報資料從哪來段缺：$s" ;; esac
 done
-# 反向規則比對整句，換成別的「不」的句子不算
-for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate'; do
-  case "$SRC" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
+# 反向規則與關鍵規則比對整句，換成別的句子不算
+for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate' \
+  'A card can merge when `mr.state` is `ready`' \
+  '類型 2 covers only the cards whose 可以合併 event is in this round'"'"'s input'; do
+  case "$PROSE" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
 done
-# 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class（milestone 外的卡是 null）
-LM="$(printf '%s\n' "$SRC" | grep -F '.logic_map')"
+# 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class；同名卡重開時只取活的那張
+LM="$(printf '%s\n' "$PROSE" | grep -F '.logic_map')"
 case "$LM" in *'mr.state'*'ready'*) ;; *) fail "取 logic_map 那行要以 mr.state ready 判斷 — $LM" ;; esac
 case "$LM" in *progress_class*) fail "取 logic_map 那行不能用 progress_class 判斷 — $LM" ;; esac
+case "$LM" in *'(.archived | not)'*) ;; *) fail "取 logic_map 那行要排除已歸檔的同名卡 — $LM" ;; esac
 # 計數：.progress 只取 milestone，四個數依 section 數
-printf '%s\n' "$SRC" | grep -F '.progress' | grep -qF 'milestone' || fail "取 .progress 那行要寫只取 milestone"
-printf '%s\n' "$SRC" | grep -F '.progress' | grep -qF 'section' || fail "計數要寫依 section 數"
-# 沒派出去的卡的 gate：等別張卡的不列、needs: run 進類型 4
-GATES="$(printf '%s\n' "$SRC" | grep -F '沒派出去')"
-for s in 'waits_on' 'needs' '類型 4' 'type 不明'; do
+printf '%s\n' "$PROSE" | grep -F '.progress' | grep -qF 'milestone' || fail "取 .progress 那行要寫只取 milestone"
+printf '%s\n' "$PROSE" | grep -F '.progress' | grep -qF 'section' || fail "計數要寫依 section 數"
+# 沒派出去的卡的 gate：每個 open gate 都看，等的卡合了沒看 workplan，needs: run 進類型 4
+GATES="$(printf '%s\n' "$PROSE" | grep -F '沒派出去')"
+for s in 'open_gates' 'gates.md' 'waits_on' 'workplan' 'archived' 'needs' '類型 4' 'type 不明'; do
   case "$GATES" in *"$s"*) ;; *) fail "沒派出去的卡的 gate 那行缺：$s — $GATES" ;; esac
+done
+case "$GATES" in *'live list'*) fail "等的卡合了沒不能看活卡清單 — $GATES" ;; esac
+# .errors 的 glab/gh 是讀不到，不是快取；寫類型 2 前用 opsx mr 重讀
+ERR="$(printf '%s\n' "$PROSE" | grep -F '.errors')"
+case "$ERR" in *'讀不到'*'opsx mr'*) ;; *) fail ".errors 那行要寫讀不到並用 opsx mr 重讀 — $ERR" ;; esac
+case "$ERR" in *cache*|*快取*) fail ".errors 那行不能說成快取 — $ERR" ;; esac
+case "$ERR" in *'MR 狀態讀不到'*) ;; *) fail ".errors 那行要寫讀不到時填「MR 狀態讀不到」— $ERR" ;; esac
+# agent_status 每個值的意思
+AS="$(printf '%s\n' "$PROSE" | grep -F 'agent_status')"
+for s in '`idle` 已停' '`working` 還在改' '`blocked` 等輸入' '`unknown` pane 不在' '`null` 讀不到'; do
+  case "$AS" in *"$s"*) ;; *) fail "agent_status 那行缺：$s — $AS" ;; esac
 done
 # 職責 1 指向這段
 printf '%s\n' "$DUTIES" | grep '^1\. ' | grep -qF '回報資料從哪來' || fail "職責 1 要指向「回報資料從哪來」段"
