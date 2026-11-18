@@ -49,7 +49,7 @@ ASK="$(awk '/^## 怎麼問 gate/{f=1;next} f&&/^## /{exit} f' "$F")"
 heading_of() { grep -n "^$1\$" "$F" | head -1 | cut -d: -f1; }
 n_duties="$(heading_of '## Duties')"; n_ask="$(heading_of '## 怎麼問 gate')"; n_report="$(heading_of '## Report format')"
 [ -n "$n_ask" ] && [ "$n_ask" -gt "$n_duties" ] && [ "$n_ask" -lt "$n_report" ] \
-  || fail "「## 怎麼問 gate」要在 ## Duties（$n_duties）與 ## Report format（$n_report）之間，現在在 ${n_ask:-沒有}"
+  || fail "「## 怎麼問 gate」要在 ## Duties（${n_duties}）與 ## Report format（${n_report}）之間，現在在 ${n_ask:-沒有}"
 for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 題' '卡名' '例子' \
   'opsx answer' '原文' 'Other' '重講' '不代答' \
   'without the `(Recommended)`' 'at most 12 characters' \

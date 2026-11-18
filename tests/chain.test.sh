@@ -471,7 +471,7 @@ assert_eq "$(jq -r '."split/m1" // "none"' "$J")" none
 for v in '[]' '""' '~' 'null' ''; do
   printf -- '---\nsplit_into: %s\n---\n' "$v" > "$R6/openspec/changes/c/inbox.md"; split_reset
   out="$(opsx chain c 2>&1)"; assert_eq "$?" 0 "split_into 空值 $v: $out"
-  echo "$out" | grep -q 'workplan 裡沒有 c' || fail "split_into「$v」算沒拆: $out"
+  echo "$out" | grep -q 'workplan 裡沒有 c' || fail "split_into「${v}」算沒拆: $out"
 done
 
 # split_into 寫成 [m1, m2] 也認得

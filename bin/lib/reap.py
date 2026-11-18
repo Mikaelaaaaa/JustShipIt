@@ -111,6 +111,11 @@ class Reaper:
 
     def close(self, o):
         key = "%s/%s" % (o["repo"], o["slug"])
+        # collect 之後被 stop 或另一次 reap 關過：pane id 沒變，但 herdr 可能已把它發給新的 pane
+        entry = jsonfile.load(self.dispatch_path).get(key) or {}
+        if entry.get("pane_closed_at") or entry.get("reaped_at"):
+            self.skip(o, "條目已關過（%s 有 pane_closed_at 或 reaped_at），不關" % key)
+            return
         # runtime 從 dispatch.json 讀 pane；collect 之後重派過的話那是新 pane，關下去會關掉剛派出的 agent
         try:
             argv = runtime.close("pane", card=key, dispatch=self.dispatch_path)

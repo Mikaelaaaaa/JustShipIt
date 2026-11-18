@@ -16,6 +16,22 @@ assertion_has() { # assertion_has <evals.json> <text>：只看 assertions 陣列
     || fail "no assertion in $1 contains: $2"
 }
 
+# 卡寫 schema: opsx，repo 就要帶 schema，不然 candidate 會跑出 repo 外找模板；沒宣告的卡（logic-map 題目）不讀模板
+declares_opsx() { # declares_opsx <repo>
+  grep -qsx 'schema: opsx' "$1"/openspec/changes/*/.openspec.yaml
+}
+require_schema() { # require_schema <repo>
+  ! declares_opsx "$1" || assert_file "$1/openspec/schemas/opsx/schema.yaml"
+}
+mkdir -p "$FX/declared/openspec/changes/c" "$FX/undeclared/openspec/changes/c"
+printf 'schema: opsx\n' > "$FX/declared/openspec/changes/c/.openspec.yaml"
+declares_opsx "$FX/declared" || fail "a card declaring schema: opsx must require the schema"
+! declares_opsx "$FX/undeclared" || fail "a card without .openspec.yaml must not require the schema"
+( require_schema "$FX/declared" ) 2>&1 | grep -q 'ASSERT FAIL: missing file' || fail "a declared card without the schema must fail the check"
+mkdir -p "$FX/declared/openspec/schemas/opsx"
+touch "$FX/declared/openspec/schemas/opsx/schema.yaml"
+require_schema "$FX/declared" || fail "a declared card with the schema must pass the check"
+
 n=0
 for s in "$OPSX_ROOT"/skills/*/evals/fixtures/*/setup.sh; do
   [ -f "$s" ] || continue
@@ -30,8 +46,7 @@ for s in "$OPSX_ROOT"/skills/*/evals/fixtures/*/setup.sh; do
     || fail "$name branch [$branch] does not match {action}/<slug>/<user>"
   leaks="$( { git -C "$d" ls-files; ls "$d/openspec/changes" 2>/dev/null; } | grep -Ev "$own_tests" | grep -Ei "$banned" || true)"
   [ -z "$leaks" ] || fail "$name leaks a banned word in: $leaks"
-  # 卡寫 schema: opsx，repo 就要帶 schema，不然 candidate 會跑出 repo 外找模板
-  [ ! -d "$d/openspec/changes" ] || assert_file "$d/openspec/schemas/opsx/schema.yaml"
+  require_schema "$d"
   n=$((n+1))
 done
 [ "$n" -ge 2 ] || fail "expected at least 2 fixtures, found $n"

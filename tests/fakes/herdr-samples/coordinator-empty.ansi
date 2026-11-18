@@ -10,7 +10,7 @@
 
   [0m[1mThe two commands still waiting on you[0m
 
-  [0m[38;2;177;185;249mcd /Users/mikaela_lin/code/Agentory-AI/.claude/worktrees && (cd [0m
+  [0m[38;2;177;185;249mcd /Users/me/code/app/.claude/worktrees && (cd [0m
   [0m[38;2;177;185;249mme-20261113-1402-2 && pnpm docs:api 2>&1 | tail -1) && (cd me-20261113-1451 [0m
   [0m[38;2;177;185;249m&& pnpm docs:api 2>&1 | tail -1 && pnpm build 2>&1 | tail -3)[0m
 
@@ -18,7 +18,7 @@
 
   Main keeps moving, so the longer it waits, the more likely it conflicts
   again:
-  [0m[38;5;12mhttps://gitlab.tsg-navigator.com/agentory/agentory-ai/-/merge_requests/1948[0m
+  [0m[38;5;12mhttps://gitlab.example.com/acmecorp/app/-/merge_requests/1948[0m
 
 [0m[38;2;138;144;149m✻ Baked for 3m 34s · done 2:11 PM · 1 shell still running[0m
 
@@ -32,15 +32,15 @@
 [0m[38;2;138;144;149m  [0mCapturing the coordinator pane's empty-input sample
 [0m[38;2;138;144;149m  ⎿  $ P=$(herdr agent get opsx-coordinator 2>/dev/null | jq -r [0m
      [0m[38;2;138;144;149m'.result.agent.pane_id // .result.pane_id // empty'); echo "pane=$P"; [0m
-     [0m[38;2;138;144;149mD=/Users/mikaela_lin/code/sandbox/opsx-workflow/.claude/worktrees/me-2026[0m
+     [0m[38;2;138;144;149mD=/Users/me/code/sandbox/opsx-workflow/.claude/worktrees/me-2026[0m
      [0m[38;2;138;144;149m1116-1130/tests/fakes/herdr-samples; mkdir -p $D && herdr agent read $P [0m
      [0m[38;2;138;144;149m--source visible --format…[0m
 
-[0m[38;2;210;168;255m[48;2;15;18;23m! [0m[38;2;230;237;243m[48;2;15;18;23mcd /Users/mikaela_lin/code/Agentory-AI/.claude/worktrees && (cd [0m[48;2;15;18;23m            [0m
+[0m[38;2;210;168;255m[48;2;15;18;23m! [0m[38;2;230;237;243m[48;2;15;18;23mcd /Users/me/code/app/.claude/worktrees && (cd [0m[48;2;15;18;23m            [0m
 [0m[48;2;15;18;23m  [0m[38;2;230;237;243m[48;2;15;18;23mme-20261113-1402-2 && pnpm docs:api 2>&1 | tail -1) && (cd me-20261113-1451[0m[48;2;15;18;23m [0m
 [0m[48;2;15;18;23m  [0m[38;2;230;237;243m[48;2;15;18;23m&& pnpm docs:api 2>&1 | tail -1 && pnpm build 2>&1 | tail -3)[0m[48;2;15;18;23m               [0m
 
-[0m[38;2;138;144;149m[48;2;15;18;23m❯ [Agentory-AI/me-20261113-1402-3] gate personal-switch-overlap-wording [0m[48;2;15;18;23m      [0m
+[0m[38;2;138;144;149m[48;2;15;18;23m❯ [app/me-20261113-1402-3] gate personal-switch-overlap-wording [0m[48;2;15;18;23m      [0m
 [0m[48;2;15;18;23m  [0m[38;2;138;144;149m[48;2;15;18;23m要你動手：看板：D2 要寫「其他技能還提供的能力」，但 D1 [0m[48;2;15;18;23m                     [0m
 [0m[48;2;15;18;23m  [0m[38;2;138;144;149m[48;2;15;18;23m不寫每個技能各自的文案。重疊那一行要怎麼寫？[0m[48;2;15;18;23m                                [0m
 
