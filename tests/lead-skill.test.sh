@@ -89,6 +89,22 @@ SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F
 for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval' 'before you give the command'; do
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
+# 派工指示 P0（design D36）：清待處理、代答 opsx-workflow 的題、needs: run 自己跑；掃 pane；四欄流量控管
+CLEAR="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F '待處理' | grep -F 'opsx answer')"
+[ -n "$CLEAR" ] || fail "Duties 缺清待處理的職責"
+for s in 'opsx-workflow' 'Recommended' '自動採用' 'needs: run' '怎麼問 gate'; do
+  case "$CLEAR" in *"$s"*) ;; *) fail "清待處理職責缺：$s — $CLEAR" ;; esac
+done
+PANES="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx relaunch')"
+for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續'; do
+  case "$PANES" in *"$s"*) ;; *) fail "掃 pane 職責缺：$s — $PANES" ;; esac
+done
+FLOW="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx dispatch')"
+for s in '待處理' '進行中' '待指派' '收件匣' 'propose' 'depends-on'; do
+  case "$FLOW" in *"$s"*) ;; *) fail "流量控管職責缺：$s — $FLOW" ;; esac
+done
+# 職責 2 只轉其他 repo 的題，不再寫「Every gate is the user's」
+printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF "Every gate is the user's" && fail "職責 2 要改成只轉 opsx-workflow 以外的題"
 # 絕不合併留在最後一條
 LAST="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | tail -1)"
 case "$LAST" in *'絕不合併'*) ;; *) fail "最後一條職責要是絕不合併 — $LAST" ;; esac
@@ -139,7 +155,7 @@ JQ="$(printf '%s\n' "$SRC" | awk '/^```/{f=!f;next} f')"
 PROSE="$(printf '%s\n' "$SRC" | awk '/^```/{f=!f;next} !f')"
 [ -n "$JQ" ] || fail "回報資料從哪來段缺 jq 程式碼區塊"
 for s in 'opsx collect > "$TMPDIR/opsx-collect.json"' 'select(.archived | not)' 'dispatched: (.dispatch != null)' \
-  'open_gates' 'gate_id' 'waits_on' 'needs' 'action' 'agent_status' 'path' 'head_sha' 'pipeline_status' \
+  'pane: .dispatch.pane' 'open_gates' 'gate_id' 'waits_on' 'needs' 'action' 'agent_status' 'path' 'head_sha' 'pipeline_status' \
   "jq -c '.progress'" "jq -c '.errors'"; do
   case "$JQ" in *"$s"*) ;; *) fail "jq 程式碼區塊缺：$s" ;; esac
 done
@@ -151,7 +167,8 @@ done
 # 反向規則與關鍵規則比對整句，換成別的句子不算
 for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate' \
   'A card can merge when `mr.state` is `ready`' \
-  '類型 2 covers only the cards whose 可以合併 event is in this round'"'"'s input'; do
+  '類型 2 covers only the cards whose 可以合併 event is in this round'"'"'s input' \
+  '沒事不回報'; do
   case "$PROSE" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
 done
 # 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class；同名卡重開時只取活的那張
