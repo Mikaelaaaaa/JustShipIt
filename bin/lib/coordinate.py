@@ -522,18 +522,41 @@ class Round:
             for key in [k for k in self.memo["_notified"] if k.startswith(scope + "/blocked/") and k not in still]:
                 del self.memo["_notified"][key]
 
-    def notify_sub_gates(self, sessions):
-        """session 裡子 change 的 open gate。子 change 由主 change 的 session 轉給 subagent，協調者不答；
-        記 ?? 並通知，人才看得到（卡本身的 waiting 只帶主 change 的 gate）。"""
+    def notify_sub_gates(self, sessions, repo_paths):
+        """session 裡子 change 的 open gate（卡本身的 waiting 只帶主 change 的 gate）。gaterule 回 answer 的照建議答，
+        送話由主 change 的 session 轉給 subagent；其餘記 ?? 並通知，人才看得到。"""
         for s in sessions:
             for m in s.get("mains") or []:
                 for sub in m.get("subs") or []:
                     w = sub.get("waiting")
                     if not w:
                         continue
+                    verdict = gaterule.decide(w, s["repo"])
+                    if verdict[0] == "answer":
+                        main = {"repo": s["repo"], "slug": m["slug"], "dispatch": None}
+                        self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"])
+                        continue
                     c = {"repo": s["repo"], "slug": "%s/%s" % (m["slug"], sub["slug"])}
                     self.log("?? %s 子 change 的 gate %s 要人看：%s" % (card_key(c), w["gate_id"], one_line(w.get("question") or "")[:100]))
                     self.notify_gate(c, w, "要人看（子 change）")
+
+    def answer_gate(self, c, top, w, pick, sub=None):
+        """照建議答 gaterule 回 answer 的 gate（opsx-workflow 的 decision）。sub 是子 change 名，這時 c 是它的主 change。
+        送不到 agent 就重派；其他失敗記 ?? 並通知人。"""
+        target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
+        text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
+        args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--repo", top, "--", text]
+        rc, out, err = self.act(args)
+        if rc == 0:
+            self.log("ok   %s gate %s 照建議答：%s" % (card_key(target), w["gate_id"], one_line(pick)[:100]))
+            if c["dispatch"]:
+                self.args_checked.add(self.pane_chain(c)[-1])   # 答案剛送進 pane，這輪不再看它的啟動參數
+            return
+        if c["dispatch"] and "agent_not_found" in out + err:
+            self.redispatch(c, top, "answer 送不到")
+            return
+        self.log("?? %s gate %s 照建議答不了：%s" % (card_key(target), w["gate_id"], one_line(err)[:200]))
+        self.notify_gate(target, w, "照建議答不了，要你回")
 
     def notify_gate(self, c, w, why):
         self.notify(c, "gate", w["gate_id"], "gate %s %s" % (w["gate_id"], why), "看板：" + one_line(w.get("question") or ""))
@@ -597,10 +620,13 @@ class Round:
         return False
 
     def handle_gate(self, c, top):
-        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
+        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置照建議答、停 pane 或通知人。"""
         w, key = c["waiting"], card_key(c)
-        verdict = gaterule.decide(w)
+        verdict = gaterule.decide(w, c["repo"])
         q = w.get("question") or ""
+        if verdict[0] == "answer":
+            self.answer_gate(c, top, w, verdict[1])
+            return
         if verdict[0] == "park" and chain.merged_into_main(top, self.workplan(top), verdict[1]):
             self.log("?? %s gate %s 等的 %s 已合進 main，不停 pane，要你回 gate：%s" % (key, w["gate_id"], verdict[1], q[:100]))
             self.notify_gate(c, w, "等的 %s 已合進 main，要你回" % verdict[1])
@@ -1309,11 +1335,16 @@ def one_round(state, dry):
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:
                 r.bad_dispatch(c, e)
+        elif w and w["type"] != "可以合併" and not paused:
+            # 沒派出的卡只處理照建議答的題：留給人的看板上就看得到，也沒有 pane 可停
+            verdict = gaterule.decide(w, c["repo"])
+            if verdict[0] == "answer":
+                r.answer_gate(c, repo_paths[c["repo"]], w, verdict[1])
         if c["mr"] and c["mr"]["state"] == "ready":
             # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
     if not paused:
-        r.notify_sub_gates(data.get("sessions") or [])
+        r.notify_sub_gates(data.get("sessions") or [], repo_paths)
     for c in live:
         if paused or not c["dispatch"] or card_key(c) in r.memo["_parked"]:
             continue

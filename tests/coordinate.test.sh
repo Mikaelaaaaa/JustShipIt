@@ -2477,4 +2477,84 @@ round || fail "rc: $(cat "$FX/out")"
 assert_not_grep '?? demo/a' "$LOG"
 assert_eq "$(ecount '^opsx (stop|dispatch)')" 0 "超前 30 秒仍是 relaunch 中，不重派：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"; printf '{}' > "$DISP"
+
+# --- opsx-workflow 的決定題由協調者照建議答（gate-rule：協調者照純函式的處置做副作用） ---
+OW="$FX/opsx-workflow"; mkdir -p "$OW/openspec/changes/oa" "$OW/openspec/changes/ob" "$OW/openspec/changes/om/subs/os"
+OW="$(cd "$OW" && pwd -P)"
+PONY='（套用 ponytail 原則：最小改動、不加沒人要的東西）'
+OWQ='"type":"等待決定","needs":null,"waits_on":null,"question":"範圍要不要收窄？","recommended":"A。收窄","options":["A。收窄","B"]'
+# owcards '<opsx-workflow 的卡 JSON 陣列>' ['<sessions JSON 陣列>']
+owcards() {
+  python3 -I - "$R" "$OW" "$1" "${2:-[]}" > "$OPSX_TEST_COLLECT_JSON" <<'PY'
+import json, sys
+demo, ow, given, sessions = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4])
+base = {"repo": "opsx-workflow", "kind": "dev", "stage": "apply", "section": "待處理", "archived": False,
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None}
+out = [{**base, **c, "path": "%s/openspec/changes/%s" % ({"opsx-workflow": ow, "demo": demo}[c.get("repo", "opsx-workflow")], c["slug"])} for c in given]
+print(json.dumps({"repo_paths": {"demo": demo, "opsx-workflow": ow}, "cards": out, "errors": [], "sessions": sessions}, ensure_ascii=False))
+PY
+}
+# 協調者照建議答 opsx 的決定題（Scenario Outline）：派出去的卡、沒派出的卡、子 change 各答一次
+owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
+  '[{"repo":"opsx-workflow","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
+round || fail "opsx 代答 rc: $(cat "$FX/out")"
+assert_grep "^opsx answer oa --gate g1 --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer ob --gate g1 --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer om --sub os --gate g1 --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_eq "$(count '^opsx answer')" 3 "三張各答一次：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^notification show')" 0 "照建議答掉的題不通知：$(cat "$OPSX_FAKE_LOG")"
+grep -q 'opsx-workflow/oa.*g1' "$LOG" || fail "代答要記 log 含卡與 gate：$(cat "$LOG")"
+grep -q 'opsx-workflow/om/os.*g1' "$LOG" || fail "子 change 代答要記 log：$(cat "$LOG")"
+grep '??' "$LOG" | grep -q 'gate g1' && fail "照建議答掉的題不記 ??：$(cat "$LOG")"
+rm -f "$MEMO"
+
+# 沒有建議時帶第一個選項
+owcards '[{"slug":"ob","waiting":{"gate_id":"g2","type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":["B","C"]}}]'
+round || fail "第一個選項 rc: $(cat "$FX/out")"
+assert_grep "^opsx answer ob --gate g2 --repo $OW -- 照建議：B$PONY\$" "$OPSX_FAKE_LOG"
+rm -f "$MEMO"
+
+# 答不出去就通知人（反例）
+OPSX_TEST_FAIL_answer='answer: gates.md 寫不進去'; export OPSX_TEST_FAIL_answer
+owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}}]'
+round || fail "答不出去 rc: $(cat "$FX/out")"
+grep '??' "$LOG" | grep oa | grep -q g1 || fail "答不出去要記 ?? 含 gate id：$(cat "$LOG")"
+assert_eq "$(count '^notification show')" 1 "答不出去通知一次：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx (stop|dispatch)')" 0 "一般失敗不重派：$(cat "$OPSX_FAKE_LOG")"
+# 送不到 agent 就重派
+OPSX_TEST_FAIL_answer='agent_not_found'
+rm -f "$MEMO"
+round || fail "送不到 rc: $(cat "$FX/out")"
+assert_grep '^opsx stop oa ' "$OPSX_FAKE_LOG"
+assert_grep '^opsx dispatch oa ' "$OPSX_FAKE_LOG"
+unset OPSX_TEST_FAIL_answer
+rm -f "$MEMO"; printf '{}' > "$DISP"
+
+# 不該代答的 gate 不代答（Scenario Outline，反例）
+owsweep() { # <repo> <gate id> <waiting 的其餘欄位 JSON 片段>
+  : > "$OPSX_FAKE_LOG"; : > "$LOG"; rm -f "$MEMO"
+  owcards '[{"repo":"'"$1"'","slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"'"$2"'",'"$3"'}}]'
+  round || fail "$1 $2 rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx answer')" 0 "$1 $2 不代答：$(cat "$OPSX_FAKE_LOG")"
+}
+mkdir -p "$R/openspec/changes/oa"
+owsweep demo g3 "$OWQ"
+grep '??' "$LOG" | grep -q g3 || fail "其他 repo 的決定題要記 ??：$(cat "$LOG")"
+assert_eq "$(count '^notification show')" 1 "其他 repo 的決定題通知一次：$(cat "$OPSX_FAKE_LOG")"
+owsweep demo split '"type":"等待決定","needs":null,"waits_on":null,"question":"照這個拆法建殼？","recommended":"照這個拆法","options":["照這個拆法"]'
+owsweep opsx-workflow ga '"type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":null,"options":["這次"]'
+owsweep opsx-workflow gr '"type":"等待決定","needs":"run","waits_on":null,"question":"要跑嗎","recommended":"用 A","options":["用 A"]'
+owsweep opsx-workflow gh '"type":"等待決定","needs":null,"waits_on":null,"question":"這段怎麼驗","recommended":"你在 sandbox 外跑","options":["你在 sandbox 外跑"]'
+# 沒派出的卡留給人的題照舊不處理
+: > "$OPSX_FAKE_LOG"; rm -f "$MEMO"
+owcards '[{"slug":"ob","waiting":{"gate_id":"ga","type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":null,"options":["這次"]}}]'
+round || fail "沒派出的授權題 rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx (answer|stop)')" 0 "沒派出的授權題不答不停：$(cat "$OPSX_FAKE_LOG")"
+# 用量上限暫停中不答（邊界）
+printf '{"_usage_limit":{"seen_at":"%s","resets_at":"2099-01-01T00:00:00+08:00"}}' "$(ago 1)" > "$MEMO"
+owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
+  '[{"repo":"opsx-workflow","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
+round || fail "暫停中 rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 0 "用量上限暫停中不答：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$MEMO"; printf '{}' > "$DISP"
 echo "coordinate: ok"
