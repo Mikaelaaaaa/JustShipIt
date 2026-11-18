@@ -148,7 +148,7 @@ openspec status --change "<name>"
 
 ### 6b. Dispatch gate for a card that stops at propose
 
-When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成就停」 and `opsx priority <name>` prints P2, write a `type: decision` gate `## dispatch-<name>` in gates.md and use exactly this line as its 問題 line: 問題: <name> 已 propose 完，要派 apply 嗎？ Do not word the question as 要不要派: the Stop hook (`st_gates_file_blocking` in `bin/lib/stage.sh`) does not count such a gate as open. Give it the options 從看板派 apply，派的時候帶 --note「propose 已完成，可以 apply」 (Recommended) | 先不派, and stop instead of continuing to apply.
+When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成就停」 and `opsx priority <name>` prints P2, write a `type: decision` gate `## dispatch-<name>` in gates.md and use exactly this line as its 問題 line: 問題: <name> 已 propose 完，要派 apply 嗎？ When `opsx priority <name>` fails (exit 1, no level printed), treat the card as P2 and put its stderr in the gate's 證據. Write the gate only when gates.md has no `## dispatch-<name>` yet, so re-running /propose does not open a second one. Write it in grill's gate format (`../grill/SKILL.md`, "In autopilot") with `status: open`, because the Stop hook only counts a gate with `status: open`. Do not word the question as 要不要派: the Stop hook (`st_gates_file_blocking` in `bin/lib/stage.sh`) does not count such a gate as open. Give it the options 在這個 pane 接著 apply (Recommended) | 先不派：跑 opsx stop <name> 停 pane，卡留在待指派, and stop instead of continuing to apply. When the answer arrives, do what the chosen option says: continue to `/opsx-workflow:apply <name>` in this pane, or run `opsx stop <name>`.
 
 A P0 or P1 card with that note continues to apply as usual and opens no gate. A card without that note gets no such gate.
 

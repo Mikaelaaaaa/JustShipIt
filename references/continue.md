@@ -20,7 +20,7 @@ How:
 2. The condition in the table is not met → stop, say which condition failed and what fixes it.
 3. Otherwise invoke the next skill with the Skill tool (`opsx-workflow:<next>`, args `<slug>`) in this turn. Do not ask "shall I continue", do not just name the next step.
 
-The 派工指示 「做到 propose 完成就停」 binds only the work before propose: only once the card has tasks.md, whoever invokes apply (propose handing over, review sending tasks back, a manual /apply), treat it as done, do not stop for it, and open no gate.
+The 派工指示 「做到 propose 完成就停」 binds only the work before propose: only once the card has tasks.md, whoever invokes apply (propose handing over, review sending tasks back, a manual /apply), treat it as done, do not stop for it, and open no gate, except that propose step 6b still opens its gate for a P2 card and stops.
 
 Merging is never part of this chain. The flow stops at "waiting for merge".
 
