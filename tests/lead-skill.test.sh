@@ -66,7 +66,7 @@ for s in 'reports review done' 'Do not rerun the suite yourself' 'git merge-tree
 done
 case "$D4" in *"run the full suite"*|*"rerun the suite against"*) fail "職責 4 不能叫協調者自己重跑全套：$D4" ;; esac
 # 可以合併以 mr.state ready 為準，agent 回報是附加條件（design D10）
-for s in '`mr.state` is `ready`' 'agent 還在改' 'agent 已停，還沒回報 review 完'; do
+for s in '`mr.state` is `ready`' 'agent 還在改' 'agent 已停，還沒回報 review 完' '`## 測試`' 'Ledger'; do
   case "$D4" in *"$s"*) ;; *) fail "職責 4 缺：$s" ;; esac
 done
 
@@ -86,7 +86,7 @@ for s in 'explore' '不問「要不要開卡」'; do
 done
 SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F '類型 4')"
 [ -n "$SELFDO" ] || fail "Duties 缺「做得到的自己做，做不到照類型 4 給指令」的職責"
-for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval'; do
+for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval' 'before you give the command'; do
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
 # 絕不合併留在最後一條
@@ -172,7 +172,10 @@ case "$GATES" in *'live list'*) fail "等的卡合了沒不能看活卡清單 �
 ERR="$(printf '%s\n' "$PROSE" | grep -F '.errors')"
 case "$ERR" in *'讀不到'*'opsx mr'*) ;; *) fail ".errors 那行要寫讀不到並用 opsx mr 重讀 — $ERR" ;; esac
 case "$ERR" in *cache*|*快取*) fail ".errors 那行不能說成快取 — $ERR" ;; esac
-case "$ERR" in *'MR 狀態讀不到'*) ;; *) fail ".errors 那行要寫讀不到時填「MR 狀態讀不到」— $ERR" ;; esac
+# 重讀也讀不到的卡不進類型 2，只在最後一行寫（design D32）；state none 的卡只在要回報時重讀（design D33）
+case "$ERR" in *'leave the card out of 類型 2'*'最後一行'*) ;; *) fail ".errors 那行要寫讀不到的卡不進類型 2、寫在最後一行 — $ERR" ;; esac
+case "$ERR" in *"in 類型 2's 狀態"*) fail ".errors 那行不能把讀不到寫進類型 2 的狀態 — $ERR" ;; esac
+case "$ERR" in *'asks for a report'*) ;; *) fail ".errors 那行要寫 state none 的卡只在使用者要回報時重讀 — $ERR" ;; esac
 case "$ERR" in *'`mr.url`'*'`none`'*) ;; *) fail ".errors 那行要寫有 mr.url 但 state none 的卡也重讀（design D27）— $ERR" ;; esac
 case "$ERR" in *'類型 6'*) ;; *) fail ".errors 那行要寫重讀後不是 ready 的卡移出類型 2、用類型 6 報（design D19）— $ERR" ;; esac
 case "$GATES" in *'blocks-from:'*) ;; *) fail "沒派出去的卡的 gate 那行要跳過 blocks-from 還沒到站的題（design D21）— $GATES" ;; esac
