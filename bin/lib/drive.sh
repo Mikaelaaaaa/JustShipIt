@@ -151,7 +151,10 @@ herdr_step() { # <slug> <runtime 函式> <參數…>
       HERDR_STEP_TIMEOUT=1; return 0 ;;
     agent_prompt_stalled)
       # herdr 收下了，只是 5 秒內沒看到 agent 動（指令馬上出錯、hook 擋掉）。算送過，送出後的驗證才跑得到
-      say "drive: $slug 的 prompt 送進去了但 agent 沒動（agent_prompt_stalled）"; HERDR_STEP_OK=1; return 0 ;;
+      say "drive: $slug 的 prompt 送進去了但 agent 沒動（agent_prompt_stalled）"; HERDR_STEP_OK=1
+      # wait 模式只有這個結果字可能還留在輸入框
+      [ "$1" != runtime_prompt ] || runtime_submit_check "$2" "$3"
+      return 0 ;;
     agent_not_found)
       say "drive: $slug 的 pane 沒了（herdr agent_not_found），結束"; coordinate_kick "$slug"; return 1 ;;
     agent_blocked)

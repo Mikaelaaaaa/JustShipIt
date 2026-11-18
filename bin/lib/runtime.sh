@@ -38,14 +38,21 @@ runtime_need() { # <pane|tab> <值>
   return 2
 }
 
-# 模式必填：漏寫時看不出呼叫者要不要等 agent 做完
+# 模式必填：漏寫時看不出呼叫者要不要等 agent 做完。
+# nowait 送給有 pane 的卡之後看輸入框（runtime_submit_check）；wait 等 agent 做完才回，字不會留在框裡
 runtime_prompt() { # <對象> <一行> <wait|nowait>
   runtime_target "$@" || return; shift "$RT_ARGC"
   case "$#:${2:-}" in
     2:wait) herdr agent prompt "$RT_NAME" "$1" --wait ;;
-    2:nowait) herdr agent prompt "$RT_NAME" "$1" ;;
+    2:nowait) herdr agent prompt "$RT_NAME" "$1" || return
+      [ -z "$RT_PANE" ] || runtime_submit_check "$RT_WHO" "$1" ;;
     *) warn "runtime_prompt: ${RT_WHO} 的模式只有 wait、nowait，收到：${2-（漏寫）}"; return 2 ;;
   esac
+}
+
+# 剛送給卡的一行還留在輸入框就補按一次 Enter（bin/lib/submit.py）；補了仍在時 stderr 印一行含 pane id
+runtime_submit_check() { # <卡片身分> <剛送的一行>
+  "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/submit.py" check "$OPSX_STATE_DIR" "$1" "$2" >/dev/null
 }
 
 # 不給 --lines 讀 pane 原文（bash 呼叫者自己 tail）；給了讀 agent 的文字畫面（python 呼叫者的形式）

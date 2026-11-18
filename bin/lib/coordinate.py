@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argslost import args_lost, claude_argv  # noqa: E402
@@ -25,6 +26,7 @@ import late  # noqa: E402
 import priority  # noqa: E402
 import runtime  # noqa: E402
 import safefile  # noqa: E402
+import submit  # noqa: E402
 
 MAX_DISPATCH = 6
 # 同時活著的 pane 數上限預設值；<state>/max-working 可改
@@ -40,6 +42,8 @@ CLOCK_SKEW_MINUTES = 1
 PID_MAX = 2**31 - 1
 # 真實訊息是 `Usage limit reached[ again] · …`，前面只有 Claude Code 畫的 ⎿ │ 與空白；引用、清單、diff 行都不算
 USAGE_LIMIT_LINE = re.compile(r"[\s⎿│]*Usage limit reached(?: again)?\s*·")
+# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話
+AUTO_CONTINUE_LINE = re.compile(r"[\s⎿│]*Automatic continue stopped")
 USAGE_LIMIT_STALE_MINUTES = 30
 USAGE_LIMIT_WARNING = "grace allowance"   # 「還有一小段寬限」是警告，agent 還在跑，不算停下
 USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.IGNORECASE)
@@ -104,6 +108,8 @@ class Round:
         self.opened = 0
         self.worktrees = {}
         self.coordinator_up = None
+        # 這輪畫面停在 Automatic continue stopped 的卡，一個 pane 一張（usage_limit_seen 讀畫面時收集）
+        self.auto_stopped = []
 
     def log(self, msg):
         line = "%s %s" % (self.now.strftime("%Y-%m-%d %H:%M:%S"), msg)
@@ -137,7 +143,7 @@ class Round:
         if herdr:
             raise CoordinateError("herdr 讀不到，agent 狀態不可得，這輪不動：%s" % "；".join(herdr))
         self.memo = read_json(self.memo_path, "coordinator memo")
-        for k in ("_parked", "_redispatched", "_notified", "_relaunched"):
+        for k in ("_parked", "_redispatched", "_notified", "_relaunched", "_continued"):
             self.memo.setdefault(k, {})   # 沒有這個 key 就是還沒記過任何一張
         self.dispatch_file = read_json(os.path.join(self.state, "dispatch.json"), "dispatch.json")
         check_dispatch_entries(self.dispatch_file)
@@ -357,11 +363,15 @@ class Round:
             self.dispatch_file[child] = new
             self.woken_cards.add(child)
             # 用 session 條目找名字：dry-run 不寫子卡條目，用子卡 key 會退回子卡 slug
-            rc, out, err = self.act(runtime.prompt("[%s] /opsx-workflow:%s %s" % (slug, self.stages[child], slug), "nowait", card="%s/@%s" % (c["repo"], feature), dispatch=path))
+            session_key = "%s/@%s" % (c["repo"], feature)
+            text = "[%s] /opsx-workflow:%s %s" % (slug, self.stages[child], slug)
+            rc, out, err = self.act(runtime.prompt(text, "nowait", card=session_key, dispatch=path))
             if rc != 0:
                 self.log("?? %s 送不到 session %s，條目已寫，下一輪由 session 重派接手：%s" % (child, feature, (err or out)[:200]))
             else:
-                self.args_checked.add("%s/@%s" % (c["repo"], feature))
+                self.args_checked.add(session_key)
+                if not self.dry:
+                    submit.check(self.state, session_key, text, self.run, self.act, time.sleep)
 
     def close_session(self, top, repo, feature):
         """同 feature 沒有活成員了：停 session、移 worktree、刪已合併成員的分支、拿掉 session 條目。哪一步失敗就停在那一步，留給人。"""
@@ -545,7 +555,8 @@ class Round:
 
     def usage_limit_seen(self, live):
         """派出去、沒在 working 也不是 unknown 的 agent，畫面最後 10 行有沒有用量上限訊息。
-        working 的不讀：它在跑，代表已經續上。回 (顯示訊息的 pane 清單, 最晚的重置時刻或 None)。"""
+        working 的不讀：它在跑，代表已經續上。回 (顯示訊息的 pane 清單, 最晚的重置時刻或 None)。
+        同一次讀畫面也收集停在 Automatic continue stopped 的卡到 self.auto_stopped。"""
         hits, times, panes = [], [], set()
         for c in live:
             if not c["dispatch"] or c["agent_status"] in ("working", "unknown"):
@@ -563,6 +574,8 @@ class Round:
             if rc != 0:
                 self.log("?? %s 的畫面讀不到，用量上限看不了：%s" % (card_key(c), err[:200]))
                 continue
+            if any(AUTO_CONTINUE_LINE.match(line) for line in out.splitlines()):
+                self.auto_stopped.append(c)
             hit, resets_at = parse_usage_limit(out, self.now)
             if hit:
                 hits.append(pane)
@@ -600,6 +613,40 @@ class Round:
             self.send_notification("usage-limit/resumed/" + held["seen_at"], "[usage-limit] 用量已重置", "恢復派卡與重派")
             del self.memo["_usage_limit"]
         return False
+
+    def send_continue(self):
+        """停在 Automatic continue stopped 的 pane 送「繼續」，暫停中也送：這行只在換帳號或按 esc 後出現，等重置時刻不會自己續跑。
+        同一個 pane 不滿 REDISPATCH_MINUTES 不再送；_continued 只留還在 dispatch.json 裡的 pane。"""
+        continued = self.memo["_continued"]
+        known = {e.get("pane") for e in self.dispatch_file.values()}
+        for pane in [p for p in continued if p not in known]:
+            del continued[pane]
+        path = os.path.join(self.state, "dispatch.json")
+        for c in self.auto_stopped:
+            key, pane = card_key(c), c["dispatch"]["pane"]
+            if not continue_due(continued.get(pane), self.now):
+                self.log("-- %s 的 pane %s 停在 Automatic continue stopped，%s 才送過「繼續」，不再送" % (key, pane, continued[pane]))
+                continue
+            rc, out, err = self.act(runtime.prompt("繼續", "nowait", card=key, dispatch=path))
+            if rc != 0:
+                self.log("?? %s 的 pane %s 停在 Automatic continue stopped，送「繼續」失敗：%s" % (key, pane, (err or out)[:200]))
+                continue
+            continued[pane] = self.now.isoformat(timespec="seconds")
+            self.log("ok   %s 的 pane %s 停在 Automatic continue stopped，送了「繼續」" % (key, pane))
+            if not self.dry:
+                submit.check(self.state, key, "繼續", self.run, self.act, time.sleep)
+
+    def submit_sweep(self, live):
+        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter。一個 pane 一輪讀一次。
+        session 條目（<repo>/@<feature>）不是卡，pane 的狀態取自派在同一個 pane 的卡。"""
+        status = {c["dispatch"]["pane"]: c["agent_status"] for c in live if c["dispatch"] and c["dispatch"].get("pane")}
+        seen = set()
+        for entry in self.dispatch_file.values():
+            pane, text = entry.get("pane"), entry.get("last_prompt")
+            if not pane or not text or pane in seen or status.get(pane) not in ("idle", "done"):
+                continue
+            seen.add(pane)
+            submit.nudge(pane, text, self.run, self.act)
 
     def handle_gate(self, c, top):
         """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
@@ -1076,8 +1123,12 @@ def read_max_working(path):
 
 def parse_usage_limit(text, now):
     """畫面文字裡有沒有用量上限訊息，以及它說的重置時刻：(有沒有, 時刻或 None)。
-    訊息只寫時刻（7pm），沒有日期：取 now 之後的下一個該時刻。多個時刻取最晚的。"""
-    if not any(USAGE_LIMIT_LINE.match(line) and USAGE_LIMIT_WARNING not in line for line in text.splitlines()):
+    訊息只寫時刻（7pm），沒有日期：取 now 之後的下一個該時刻。多個時刻取最晚的。
+    Automatic continue stopped 在最後一個上限訊息之後：那個 pane 已經不在等重置，不算。"""
+    lines = text.splitlines()
+    limits = [i for i, line in enumerate(lines) if USAGE_LIMIT_LINE.match(line) and USAGE_LIMIT_WARNING not in line]
+    stops = [i for i, line in enumerate(lines) if AUTO_CONTINUE_LINE.match(line)]
+    if not limits or (stops and stops[-1] > limits[-1]):
         return False, None
     times = []
     for hour, minute, ampm in USAGE_LIMIT_RESET.findall(text):
@@ -1086,6 +1137,11 @@ def parse_usage_limit(text, now):
         at = now.replace(hour=int(hour) % 12 + (12 if ampm.lower() == "pm" else 0), minute=int(minute or 0), second=0, microsecond=0)
         times.append(at if at > now else at + datetime.timedelta(days=1))
     return True, max(times) if times else None
+
+
+def continue_due(last, now):
+    """上次送「繼續」的時刻（memo 的 ISO 字串，沒送過是 None）距 now 滿 REDISPATCH_MINUTES 才再送。"""
+    return last is None or now - datetime.datetime.fromisoformat(last) >= datetime.timedelta(minutes=REDISPATCH_MINUTES)
 
 
 def mark_stopped(d, key, at):
@@ -1373,6 +1429,9 @@ def one_round(state, dry):
     live = [c for c in cards if c not in merged]
     r.settle_parked(live)
     paused = r.usage_limit_paused(live)
+    r.send_continue()
+    if not paused:
+        r.submit_sweep(live)
 
     for c in live:
         w = c["waiting"]

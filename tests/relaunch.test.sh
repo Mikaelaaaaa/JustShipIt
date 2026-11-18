@@ -96,7 +96,8 @@ pane send-keys w1:pE esc
 pane send-text w1:pE /exit
 pane send-keys w1:pE enter
 $START
-agent prompt retry-backoff /opsx-workflow:apply retry-backoff" "送鍵順序"
+agent prompt retry-backoff /opsx-workflow:apply retry-backoff
+agent read w1:pE --source visible --format ansi" "送鍵順序"
 assert_not_grep 'enter.*esc\|esc.*enter' "$OPSX_FAKE_LOG"
 assert_file "$FX/at-esc.json"
 python3 -I -c 'import json,sys;e=json.load(open(sys.argv[1]))["Acmecorp-CS/retry-backoff"];assert e.get("relaunching_at","").startswith("20"),e' "$FX/at-esc.json" || fail "送 esc 時條目要有 relaunching_at"
