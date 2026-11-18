@@ -28,11 +28,14 @@ has 'bash tests/run.sh' "$P"
 has 'cd <worktree root>' "$P"
 ! grep -qE '^[[:space:]]*(`)?OPSX_ROOT=' "$P" || fail "propose SKILL.md 不能有 OPSX_ROOT= 開頭的測試指令範例"
 # agent-20261116-1405 Scenario：skill 的測試步驟依 repo；skill 不再無條件規定 bash tests/run.sh
-has 'When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh' "$P"
+has 'When the repo has `tests/run.sh` (only the file name counts, not its content), run tests only as `bash tests/run.sh' "$P"
 has "use the repo's own test command" "$P"
 ! grep -qF 'Run tests only as `bash tests/run.sh' "$P" || fail "propose SKILL.md 不能無條件寫 bash tests/run.sh"
 # test-run-rule-edges Scenario：propose 在沒有 tests/run.sh 時給退路指令；退路排在 repo 自己的指令之後
 has '(CLAUDE.md first, then package.json / pyproject, then the usual `pnpm test`, `pytest`, `go test ./...`)' "$P"
+# D1：skill 文字也寫明只認 tests/run.sh 這個檔名
+has 'only the file name counts, not its content' "$P"
+has 'only the file name counts, not its content' "$OPSX_ROOT/skills/apply/SKILL.md"
 # Scenario：review 的 START 說明只在有 tests/run.sh 時適用；不再無條件說 tests/run.sh 會印 START
 has 'when the repo has `tests/run.sh`, it prints `START <name>`' "$S0"
 ! grep -qF 'and `tests/run.sh` prints `START <name>`' "$RV" || fail "review SKILL.md 不能無條件說 tests/run.sh 會印 START"

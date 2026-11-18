@@ -49,6 +49,23 @@ ctx_mg="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],t
   | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
 case "$ctx_mg" in *' · autopilot：'*) ;; *) fail "cwd 在主 checkout 的 .git 裡 router 仍要注入 autopilot 規則: $ctx_mg" ;; esac
 case "$ctx_mg" in *'bash tests/run.sh'*) fail "cwd 在主 checkout 的 .git 裡要看主 checkout，主 checkout 沒有 tests/run.sh: $ctx_mg" ;; esac
+# D8：--relative-paths 建的 worktree，gitdir 檔寫相對於 git 目錄的路徑；git 不支援這個選項就略過
+mkdir -p "$R/openspec/changes/eval-rel"
+printf 'schema: opsx\ncreated: 2026-11-17\nkind: dev\n' > "$R/openspec/changes/eval-rel/.openspec.yaml"
+RW="$R/.claude/worktrees/eval-rel"
+if git -C "$R" worktree add -q --relative-paths -b feat/eval-rel/mikaela "$RW" 2>/dev/null; then
+  RG="$(git -C "$RW" rev-parse --absolute-git-dir)"
+  case "$(cat "$RG/gitdir")" in /*) fail "--relative-paths 的 gitdir 應是相對路徑: $(cat "$RG/gitdir")" ;; esac
+  mkdir -p "$RW/tests"; printf '#!/usr/bin/env bash\n' > "$RW/tests/run.sh"
+  printf '{"Acmecorp-AI/eval-rel":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+  ctx_rel="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$RG" \
+    | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+  case "$ctx_rel" in *'opsx：'*'eval-rel'*' · autopilot：'*) ;; *) fail "relative gitdir 的 worktree 要認出卡 eval-rel: $ctx_rel" ;; esac
+  case "$ctx_rel" in *'bash tests/run.sh'*) ;; *) fail "relative gitdir：router 要看那棵 worktree 的 tests/run.sh: $ctx_rel" ;; esac
+  git -C "$R" worktree remove --force "$RW"
+else
+  echo "skip: git worktree add 不支援 --relative-paths"
+fi
 
 # 反方向：主 checkout 有 tests/run.sh、worktree 的分支沒有，router 不能注入 bash tests/run.sh
 mkdir -p "$R/openspec/changes/eval-nr"
@@ -156,16 +173,19 @@ has "$(cat "$TW/AGENTS.override.md")" 'repo-rule-xyz' override
 has "$(cat "$TW/AGENTS.override.md")" "$(rule_interactive)" override
 assert_eq "$(git -C "$TW" status --porcelain)" "" "override 不進 git"
 
-# repo 有 tests/run.sh：dispatch 出的 AGENTS.md 拿到 bash tests/run.sh 那段，place_agents_md 傳錯根就紅
+# AGENTS.md 的測試段兩種都列、不依根目錄，所以改用仍依根目錄的 docs:api 段證明 place_agents_md 拿的是 worktree 根：
+# 這個 repo 的 package.json 有 docs:api，上面沒有 package.json 的 cx 不該有，傳錯根就紅
 P="$(mk_repo Acmecorp-Runner git@gitlab.example.com:acmecorp/Acmecorp-Runner.git)"
 mkdir -p "$P/tests"; printf '#!/usr/bin/env bash\n' > "$P/tests/run.sh"
-git -C "$P" add tests/run.sh; git -C "$P" commit -q -m "add runner"
+printf '{"scripts":{"docs:api":"tsx scripts/api-docs/gen.ts"}}\n' > "$P/package.json"
+git -C "$P" add tests/run.sh package.json; git -C "$P" commit -q -m "add runner and docs:api"
+gone "$(cat "$WT/AGENTS.md")" '`pnpm docs:api` 要單獨下' "沒有 package.json 的 worktree 的 AGENTS.md"
 mkdir -p "$P/openspec/changes/rn"; printf 'schema: opsx\ncreated: 2026-11-16\nkind: chore\n' > "$P/openspec/changes/rn/.openspec.yaml"
 printf '[repos]\n"Acmecorp-CS" = "acmecorp-ai"\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-Runner" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
 cd "$P"
 out="$(opsx dispatch rn --agent codex --mode autopilot --kind chore 2>&1)" || fail "dispatch codex 有 tests/run.sh 的 repo: $out"
 wait_drive Acmecorp-Runner rn
-has "$(cat "$P/.claude/worktrees/rn/AGENTS.md")" 'bash tests/run.sh' "有 tests/run.sh 的 worktree 的 AGENTS.md"
+has "$(cat "$P/.claude/worktrees/rn/AGENTS.md")" '`pnpm docs:api` 要單獨下' "package.json 有 docs:api 的 worktree 的 AGENTS.md"
 opsx stop rn >/dev/null 2>&1 || fail "stop rn"
 
 # git dir 沒有 info/（自訂 template 的 repo）：exclude 要建得起來，AGENTS.md 不能留成會進 git 的檔
