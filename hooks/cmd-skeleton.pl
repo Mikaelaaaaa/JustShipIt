@@ -142,7 +142,7 @@ sub skeleton {
     return $s if $depth > MAX_DEPTH;
     $s = strip_heredocs($s, $depth);
     my ($out, $i, $n) = ('', 0, length $s);
-    my ($dq_open, $esc_end) = (0, -1);
+    my ($dq_open, $esc_end, $mask) = (0, -1, code_mask($s));
     while ($i < $n) {
         my $c = substr $s, $i, 1;
         if ($c eq '\\') {
@@ -160,19 +160,22 @@ sub skeleton {
             next;
         }
         my $prev = $i ? substr($s, $i - 1, 1) : '';
-        if ($c eq $SQ && $prev =~ /[\w]/) {
+        # 註解裡的撇號（# it's）不是引號：前一個字不是程式碼就不當片段開頭
+        if ($c eq $SQ && $prev =~ /[\w]/ && substr($mask, $i - 1, 1) eq '1') {
             # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號；
-            # 其他的（don't … it's）保留兩個引號，片段裡的 " 不能被當成雙引號開頭，片段裡的 g\it 照樣還原
+            # 其他的（don't … it's）保留兩個引號，片段裡的 " 不能被當成雙引號開頭，片段裡的 g\it 照樣還原。
+            # 片段不是新的一層求值，遞迴不加深度
             my $end = index $s, $SQ, $i + 1;
             if ($end >= 0) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
-                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : $SQ . skeleton($body, $depth + 1) . $SQ;
+                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : $SQ . skeleton($body, $depth) . $SQ;
                 $i = $end + 1;
                 next;
             }
         }
         # 迴圈走到的 ' 不會是被跳脫的（反斜線分支一次吃兩個字元），所以 \\' 的 ' 是真引號；\$' 的 $ 被跳脫了，不是 $'…'
-        my $ansi = $prev eq '$' && $i != $esc_end;
+        # $$' 的 $$ 是 PID，後面的 ' 是一般單引號
+        my $ansi = $prev eq '$' && $i != $esc_end && ($i < 2 || substr($s, $i - 2, 1) ne '$');
         if ($c eq $SQ && $prev !~ /\w/) {
             my $end = $i + 1;
             if ($ansi) { $end += substr($s, $end, 1) eq '\\' ? 2 : 1 while $end < $n && substr($s, $end, 1) ne $SQ }
@@ -187,11 +190,10 @@ sub skeleton {
                 next;
             }
         }
-        if ($c eq '"') {
-            # 沒結尾的雙引號當一般字元往下走；之後的 " 改用 index 配對，不然每個 "$( 都用 skip_dq 重掃到尾（二次方）
-            my $end = $dq_open ? index($s, '"', $i + 1) : skip_dq($s, $i);
-            $end = $n if $end < 0;
-            $dq_open ||= $end >= $n;
+        # 沒結尾的雙引號之後，" 一律當一般字元：再配對會把夾在中間的指令收成 ""，每個都用 skip_dq 重掃到尾又是二次方
+        if ($c eq '"' && !$dq_open) {
+            my $end = skip_dq($s, $i);
+            $dq_open = $end >= $n;
             if ($end < $n) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
                 if (substr($out, -80) =~ $RUNS_STRING) {

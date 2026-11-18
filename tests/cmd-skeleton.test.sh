@@ -79,6 +79,16 @@ has_commit $'bash -c true\'; g\\it commit -m x\'' || fail "緊貼字的片段裡
 has_commit $'echo "((" ; cat <<EOF\ncat <<X\nEOF\ngit commit -m x\nX' || fail "引號裡的 (( 取消了真 heredoc：$(skel $'echo "((" ; cat <<EOF\ncat <<X\nEOF\ngit commit -m x\nX')"
 # 被跳脫的 \$ 後面的 ' 是一般單引號，不是 $'…'
 has_commit $'echo \\$\'\\\'\ng\\it commit -m x\necho \'y\'' || fail "\\\$' 被當成 \$'…'：$(skel $'echo \\$\'\\\'\ng\\it commit -m x\necho \'y\'')"
+# 沒結尾的雙引號之後，後面的 " 不再配對，夾在中間的指令留在骨架
+has_commit $'echo "$(echo a # it\'s\n)" ; git commit -m x ; echo $(echo "a")' || fail "沒結尾的 \" 之後，\$(echo \"a\") 的引號吞掉了 commit：$(skel $'echo "$(echo a # it\'s\n)" ; git commit -m x ; echo $(echo "a")')"
+has_commit $'echo "$(echo a # it\'s\n)" ; git commit -m x ; echo \\"' || fail "沒結尾的 \" 之後，\\\\\" 吞掉了 commit：$(skel $'echo "$(echo a # it\'s\n)" ; git commit -m x ; echo \\"')"
+case "$(skel $'echo "$(echo a # (\n)" ; git push ; echo "x"')" in *"git push"*) ;; *) fail "沒結尾的 \" 之後的 git push 不見：$(skel $'echo "$(echo a # (\n)" ; git push ; echo "x"')" ;; esac
+# 註解裡的撇號不是單引號開頭
+has_commit $'# it\'s\necho \'x \' ; git commit -m x ; echo \' y\'' || fail "註解撇號讓引號錯位：$(skel $'# it\'s\necho \'x \' ; git commit -m x ; echo \' y\'')"
+# 第 3 層的緊貼字片段照樣還原
+has_commit $'echo "$(echo "$(echo "$(bash -c x\'; g\\it commit -m x\')")")"' || fail "第 3 層緊貼字片段的 g\\it：$(skel $'echo "$(echo "$(echo "$(bash -c x\'; g\\it commit -m x\')")")"')"
+# $$ 後面的 ' 是一般單引號
+has_commit $'echo $$\'\\\' ; g\\it commit -m x ; echo \'y\'' || fail "\$\$' 被當成 \$'…'：$(skel $'echo $$\'\\\' ; g\\it commit -m x ; echo \'y\'')"
 # (( 之後一行很多 << 也要線性
 big="$(perl -e 'print "git commit -m x; (( ", "<<a" x 10900, "\n"')"
 t0=$SECONDS; skel "$big" >/dev/null; elapsed=$((SECONDS - t0))
