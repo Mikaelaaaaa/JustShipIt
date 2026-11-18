@@ -354,4 +354,20 @@ for W in "$SIB" "$SIBF"; do
   assert_bytes '' wp_pr_field "$W" fu1 branch
   assert_bytes 'b4\n' wp_pr_field "$W" p4 branch
 done
+
+# blocks-from: apply 的 gate（dispatch 的 install-deps）：卡還沒有 tasks.md 時不算 open，也不擋 Stop；有 tasks.md 後照一般 gate 算
+# 驗收：openspec/changes/me-20261116-1650-4/specs/opsx-dispatch/spec.md「install 失敗照樣派、開 needs: run gate」
+DG="$FX/deps-card"; mkdir -p "$DG"
+printf '## install-deps\ntype: decision\nstatus: open\nneeds: run\nblocks-from: apply\n問題: 裝依賴？\n' > "$DG/gates.md"
+assert_bytes '0' st_open_gates "$DG"
+assert_bytes '0' st_open_gates_blocking "$DG"
+printf '\n## other\ntype: decision\nstatus: open\n問題: 選哪個？\n' >> "$DG/gates.md"
+assert_bytes '1' st_open_gates "$DG"
+assert_bytes '1' st_open_gates_blocking "$DG"
+printf '## 1\n- [ ] 1.1 a\n' > "$DG/tasks.md"
+assert_bytes '2' st_open_gates "$DG"
+assert_bytes '2' st_open_gates_blocking "$DG"
+# 只擋 apply 的那題答完了：有 tasks.md 也不算
+printf '## install-deps\ntype: decision\nstatus: answered\nblocks-from: apply\n' > "$DG/gates.md"
+assert_bytes '0' st_open_gates "$DG"
 echo "ok stage"

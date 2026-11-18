@@ -35,12 +35,22 @@ opsx_dispatch() {
   [ -z "$only" ] || [ -n "$feature" ] || die "dispatch: --only 只能跟 --feature 一起用"
   [ -n "$slug" ] || die "dispatch: 要給 slug"
   [ -z "$has_note" ] || [ -n "$note" ] || die "dispatch: --note 壓成一行後是空的"
-  [ -n "$top" ] || top="$(git_toplevel)"
+  # 在找卡之前：`..` 與 archive 在每個有歸檔卡的 repo 都是 openspec/changes/ 底下的目錄
+  printf '%s' "$slug" | grep -qE '^[a-z][a-z0-9_-]{0,31}$' || die "dispatch: slug 要符合 [a-z][a-z0-9_-]{0,31}（herdr agent 名）：$slug"
+  [ -n "$feature" ] || [ "$slug" != archive ] || die "dispatch: archive 是 openspec/changes/ 底下放歸檔卡的資料夾，不是卡"
+  if [ -z "$top" ]; then
+    top="$(git_toplevel)"
+    # 卡不在 cwd 的 repo（或 cwd 不在 repo 裡）時，到已登記 repo 找；--feature 的名字在 workplan，不是卡目錄
+    if [ -z "$feature" ]; then
+      [ -d "$top/openspec/changes/$slug" ] || top="$(find_card_repo "$slug")" || exit 2
+      # cwd 的 repo 有卡也印：同名卡在別的 repo 時，看得到這次派的是哪一張
+      say "dispatch: 卡在 $top"
+    fi
+  fi
   [ -n "$top" ] || die "dispatch: 不在 git repo 裡，或給 --repo"
   top="$(cd "$top" && pwd -P)"
   case "$agent" in claude|codex) ;; *) die "dispatch: --agent 只收 claude|codex" ;; esac
   case "$mode" in interactive|autopilot) ;; drive) mode=autopilot ;; *) die "dispatch: --mode 只收 interactive|autopilot（drive 是 autopilot 的舊名）" ;; esac
-  printf '%s' "$slug" | grep -qE '^[a-z][a-z0-9_-]{0,31}$' || die "dispatch: slug 要符合 [a-z][a-z0-9_-]{0,31}（herdr agent 名）：$slug"
   local card="$slug" repo; repo="$(basename "$top")"
   command -v herdr >/dev/null || die "dispatch: 找不到 herdr"
   ensure_dir "$OPSX_STATE_DIR"
@@ -132,8 +142,9 @@ PY
   fi
 
   # worktree：一卡一棵
-  local wt="$top/.claude/worktrees/$slug"
+  local wt="$top/.claude/worktrees/$slug" fresh=""
   if [ ! -d "$wt" ]; then
+    fresh=1
     local used; used="$(git -C "$top" worktree list --porcelain | awk -v b="branch refs/heads/$branch" '/^worktree /{w=substr($0, 10)} $0 == b {print w}')"
     [ -z "$used" ] || die "dispatch: 分支 $branch 已經 checkout 在 ${used}$(held_by "$used")，不另開 worktree。那張卡在做就不用派；沒人在做就先收掉那棵 worktree"
     ensure_dir "$top/.claude/worktrees"
@@ -149,6 +160,16 @@ PY
       git -C "$top" worktree add -q --no-track "$wt" -b "$branch" "$start"
     fi
   fi
+  # 依賴沒裝好的標記放在 worktree 的 git-dir，跟著樹走：上次派工裝失敗或被殺在半路、卡又沒派出去時，重派看得到。卡派出去、gate 開好才刪
+  local mark deps_fail="" real
+  # 頂層不是這棵樹（沒有 .git 時 git 往上找到主 repo；.git 指向已刪的 git-dir 時找不到）：標記會寫錯地方，pane 也會開在壞掉的樹上
+  real="$(cd "$wt" && pwd -P)"
+  [ "$(git -C "$wt" rev-parse --show-toplevel 2>/dev/null)" = "$real" ] \
+    || die "dispatch: $wt 不是一棵能用的 git worktree（.git 不在或指向已刪的 git-dir）。先 cd $top && git worktree prune，或刪掉 $wt 再派"
+  mark="$(git -C "$wt" rev-parse --absolute-git-dir)/opsx-deps-pending"
+  # 只裝這次新建的樹：既有的 worktree 可能有人手動刪過或正在裝 node_modules
+  if [ -n "$fresh" ] && [ -f "$wt/pnpm-lock.yaml" ]; then install_deps "$wt" "$mark"; fi
+  if [ -f "$mark" ]; then deps_fail="$(cat "$mark")"; fi
   warn_untrusted "$top"
   warn_slots_full
   # codex 沒有 router hook：把同一批規則放進 worktree。worktree 已在也寫（重派可能換模式）
@@ -166,7 +187,7 @@ PY
   launch_args "$agent" "$model" "$mode" "$repo" "$slug" "$top"
   # 名字被占用：dispatch.json 沒記著（手動開的、或 stop 時 pane 沒關成）但 herdr 還有同名 agent，指出它在哪
   runtime_open "$me_key" --kind "$agent" "${ws_arg[@]}" --cwd "$wt" --label "$slug" -- "${LAUNCH_ARGS[@]}" \
-    || die "dispatch: herdr agent start 失敗：herdr 已經有叫 ${slug} 的 agent，dispatch.json 沒記：${HERDR_TAKEN_AT}。關掉那個 pane 再派"
+    || die "dispatch: herdr agent start 失敗：herdr 已經有叫 ${slug} 的 agent，dispatch.json 沒記：${HERDR_TAKEN_AT}。關掉那個 pane 再派${deps_fail:+。$wt 的依賴沒裝好：$deps_fail}"
   local pane="$RUNTIME_PANE" tab="$RUNTIME_TAB" ws_id="$RUNTIME_WORKSPACE_ID"
 
   # dispatch.json
@@ -211,6 +232,12 @@ PY
     die "dispatch: feature「${feature}」能開工的主 change 在派工途中都被人停了，tab 已關"
   fi
   card="$(printf '%s\n' "$written" | head -1)"; d="$top/openspec/changes/$card"
+  local c via=""
+  # feature session 的卡共用這棵樹，每張進 apply 前都要看得到依賴沒裝好
+  if [ -n "$deps_fail" ]; then
+    for c in $written; do write_install_gate "$top/openspec/changes/$c" "$wt" "$deps_fail"; done
+    rm -f "$mark"
+  fi
 
   # 第一句：照狀態
   local first; first="$(stage_name "$top" "$card")"
@@ -218,7 +245,6 @@ PY
   # 指示要在 agent 讀到第一句前就在卡上；放在前面每一步之後，失敗的派工不會留下指示，重跑也不會寫兩條
   if [ -n "$note" ]; then note_append "$d" "$note" || die "dispatch: 寫不進 $d/inbox.md 的派工指示，第一句沒送"; fi
   runtime_prompt "$me_key" "/opsx-workflow:$first $card" nowait >/dev/null
-  local c via=""
   [ -n "$feature" ] && via="（session ${feature}）"
   for c in $written; do
     log_row "$top/openspec/changes/$c" 你 已指派 "指派給 ${agent}${via}，第一句 /opsx-workflow:${first} ${card}" "${agent} · ${mode} · ${model}"
@@ -235,6 +261,47 @@ PY
     ( trap '' HUP; exec "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/safefile.py" exec-append "$drivelog" bash "$OPSX_ROOT/bin/opsx" drive "$slug" --repo "$top" ) < /dev/null > /dev/null 2>&1 &
     say "dispatch: drive 跑起來了（pid $!），log 在 $drivelog"
   fi
+}
+
+install_deps() { # <worktree> <標記檔>：裝不起來不擋派工，原因寫進標記檔，卡派出去後才開 gate
+  local wt="$1" mark="$2" out
+  if ! command -v pnpm >/dev/null; then
+    say "dispatch: PATH 上找不到 pnpm，$wt 沒裝依賴，派出去後在卡上開 gate"
+    printf 'PATH 上找不到 pnpm\n' > "$mark"
+    return 0
+  fi
+  # 開跑前就留標記：dispatch 在 install 途中被殺（看板 120 秒逾時）時沒機會寫失敗原因
+  printf 'pnpm install 沒跑完（dispatch 在安裝途中被停）\n' > "$mark"
+  say "dispatch: 在 $wt 跑 pnpm install --frozen-lockfile"
+  # --frozen-lockfile：鎖檔對不上就失敗，不讓新分支一開就有改過的 pnpm-lock.yaml
+  # shortcut: 沒有時限，registry 卡住時 dispatch 跟著等、coordinate 那一輪也停住；量到最大的 pnpm repo 實際要裝幾秒，或 coordinate 真的被卡過一輪，就加 timeout，逾時照 install 失敗開 gate
+  if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then rm -f "$mark"; say "dispatch: 依賴裝好了"; return 0; fi
+  # \r 也換掉：看板用 Python 讀 gates.md 時把 \r 當換行，依賴的安裝腳本印的字會變成假的 gate 欄位
+  out="$(printf '%s\n' "$out" | tail -10 | tr '\r\n' '  ')"
+  say "dispatch: pnpm install 失敗，派出去後在卡上開 gate：$out"
+  printf 'pnpm install --frozen-lockfile 失敗：%s\n' "$out" > "$mark"
+}
+
+write_install_gate() { # <card dir> <worktree> <reason>：同一張卡再寫時 id 加流水號，不跟舊的撞
+  local d="$1" wt="$2" why="$3" id=install-deps n q cmd
+  # 取已有的最大編號（install-deps 算 1），不數題數：前面的題被手動刪掉時不會撞 id。卡上還沒有 gates.md 時 awk 讀空的 stdin，照樣印 0；cat 的失敗在 pipefail 下用 || true 接住
+  n=$(cat "$d/gates.md" 2>/dev/null | awk '/^## install-deps$/ { if (m < 1) m = 1 } /^## install-deps-[0-9]+$/ { k = substr($0, 17) + 0; if (k > m) m = k } END { print m + 0 }' || true)
+  [ "$n" -eq 0 ] || id="install-deps-$((n + 1))"
+  printf -v q '%q' "$wt"
+  # 不建議刪 node_modules：使用者可能已經自己裝好（CLAUDE.md §7 不刪除重裝）
+  cmd="cd $q && pnpm install --frozen-lockfile"
+  {
+    printf '\n## %s\n' "$id"
+    # blocks-from: apply：卡寫出 tasks.md 前 stop hook、drive、看板都不當它在等人（stage.sh st_gates_file_count）
+    printf 'type: decision\nstatus: open\nneeds: run\nblocks-from: apply\nopened_at: %s\n' "$(now_iso)"
+    printf '問題: dispatch 沒裝好 %s 的依賴，你自己裝嗎？\n' "$wt"
+    printf '已確認: 卡照樣派出去了；%s\n' "$why"
+    printf '選項: 我在終端機裝好了 (Recommended) | 先不裝，照樣往下做\n'
+    printf '建議: %s\n' "$cmd"
+    printf '證據: %s\n' "$why"
+    printf '風險: 不裝的話 apply 跑測試時缺依賴\n'
+    printf '預設: explore／grill／propose 照常往下；卡寫出 tasks.md 時還沒回，就停在 apply 等你\n'
+  } >> "$d/gates.md"
 }
 
 send_to_session() { # <top> <repo> <slug> <feature> <note>：人停的成員卡交回活著的 session，不開 pane
@@ -284,6 +351,23 @@ if n >= limit:
 PY
 }
 
+find_card_repo() { # <slug>：已登記 repo（跟 collect、sync 同一份清單）裡剛好一個有 openspec/changes/<slug>/ 就印它的路徑，否則說明原因、退出非 0
+  OPSX_SLUG="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "${OPSX_CODE_ROOT:-$HOME/code}" "$OPSX_STATE_DIR" <<'PY'
+import os, pathlib, sys, tomllib
+sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
+slug = os.environ["OPSX_SLUG"]
+try:
+    repos = sync.opsx_repos(pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]))
+except tomllib.TOMLDecodeError as e:
+    sys.exit("opsx: dispatch: sources.toml 壞了，找不了別的 repo：%s" % e)
+hits = sorted(str(p) for p in repos.values() if (p / "openspec" / "changes" / slug).is_dir())
+if not hits:
+    sys.exit("opsx: dispatch: 沒有這張卡：%s（cwd 的 repo 與 %d 個已登記 repo 的 openspec/changes/ 都沒有）" % (slug, len(repos)))
+if len(hits) > 1:
+    sys.exit("opsx: dispatch: %s 在 %d 個 repo 都有，給 --repo 指定一個：%s" % (slug, len(hits), "、".join(hits)))
+print(hits[0])
+PY
+}
 workplan_branch() { wp_pr_field "$1" "$2" branch; } # <top> <slug>：印 workplan 裡這張卡所屬 PR 的 branch，沒有就空
 held_by() { # <worktree>：印 dispatch.json 裡 worktree 指向它的條目（「（key · pane …）」），沒有就空。兩邊路徑先 realpath 再比
   [ -f "$OPSX_STATE_DIR/dispatch.json" ] || return 0

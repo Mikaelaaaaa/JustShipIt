@@ -44,7 +44,7 @@ opsx_merge-card() {
   MERGE_CARD_COPY="$(mktemp "${TMPDIR:-/tmp}/opsx-merge-card.XXXXXX")" || die "merge-card: 開不了暫存檔"
   trap 'rm -f "$MERGE_CARD_COPY"' EXIT   # opsx_drop 拒絕時走 die 離開，暫存檔也要收
   cp "$s_inbox" "$MERGE_CARD_COPY" || die "merge-card: 複製來源 inbox 失敗：$s_inbox"
-  "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" carry-check "$ch/$into" "$MERGE_CARD_COPY" "$src" || die "merge-card: 來源 $src 的事實欄位併不進 $into，兩張卡都沒動"
+  "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" carry-check "$ch/$into" "$MERGE_CARD_COPY" "$src" || die "merge-card: 來源 $src 的事實欄位併不進 ${into}，兩張卡都沒動"
 
   "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" open-check "$ch/$into" || die "merge-card: 目標 $into 不收併入，兩張卡都沒動"
 

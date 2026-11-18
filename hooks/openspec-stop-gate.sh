@@ -117,7 +117,10 @@ $missing
     confirmed="$(sed -n 's/^確認: *//p' "$d/report.md" | head -1)"
     head_sha="$(git -C "$(hook_cwd)" rev-parse HEAD 2>/dev/null)"
     # 確認: <sha> 之後這個 branch 自己沒有新的一般 commit（只合併了 base 分支，merge commit 與它帶進來的別人的 commit 不算）就視同確認過
-    if [ "$last_commit" -gt "$report_ts" ] && { [ -z "$confirmed" ] || ! confirmed_covers_head "$confirmed" "$head_sha"; }; then
+    # archive 站到這裡只會是沒 MR 的卡：HEAD 相對 <primary remote>/main 沒有自己的 commit 時，HEAD 較新只是快轉到了較新的 main，沒有東西要重審。
+    # 看 HEAD 而不是 workplan 的 branch：session 可能在另一個 branch 上 commit
+    if { [ "$stage" != archive ] || [ "$(git -C "$(hook_cwd)" rev-list --count "$(primary_remote "$(hook_cwd)")/main..HEAD" 2>/dev/null)" != 0 ]; } \
+      && [ "$last_commit" -gt "$report_ts" ] && { [ -z "$confirmed" ] || ! confirmed_covers_head "$confirmed" "$head_sha"; }; then
       printf '%s' "review|opsx：$slug 在 report.md 之後又有新 commit，review 沒涵蓋到。再跑一次 /opsx-workflow:review $slug 再停。"
       return 0
     fi
@@ -207,10 +210,11 @@ wait_reason() { # <dir> <站>
 }
 
 # coordinate 只在 MR ready 時送「可以合併」，MR 合不了時沒有別的通知，要推。只有 ready、CI 還在跑、查不到 MR 狀態不推
+# 升級前寫的快取沒有 pipeline_status：pipeline 不過時分不出 CI 在跑還是卡住，當查不到（GitLab 沒有 pipeline 時 pipeline 條件是過的）
 babysit_reason() {
-  local blocked=""
+  local blocked="?"
   [ "$mr_rc" -eq 0 ] && blocked="$(printf '%s' "$mr_out" | jq -r '
-    select(.error == null and .conditions != null) |
+    if .error != null or .conditions == null or (.pipeline_status == null and (.conditions.pipeline | not)) then "?" else
     [ (if .pipeline_status == "failed" then " CI 紅"
        elif (.conditions.pipeline | not) and ((.pipeline_status // "") | IN("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled") | not)
        then " " + (.pipeline_status // "CI") else empty end),
@@ -218,11 +222,13 @@ babysit_reason() {
       (if .conditions.not_draft then empty else " draft" end),
       (if .conditions.threads then empty else "要求修改" end),
       (if .conditions.opened then empty else "已關閉" end)
-    ] | .[0] // empty' 2>/dev/null)"
+    ] | .[0] // "" end' 2>/dev/null || printf '?')"
   # 原因前面的空白跟著原因走：英文前面空一格，中文直接接「卡在」
-  if [ -n "$blocked" ]; then printf 'push|babysit 做完，MR 卡在%s' "$blocked"
-  else printf 'quiet|babysit 一輪做完，等 MR 合併'
-  fi
+  case "$blocked" in
+    "?") printf 'quiet|babysit 一輪做完，查不到 MR 狀態' ;;
+    "") printf 'quiet|babysit 一輪做完，等 MR 合併' ;;
+    *) printf 'push|babysit 做完，MR 卡在%s' "$blocked" ;;
+  esac
 }
 
 # 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉

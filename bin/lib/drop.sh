@@ -53,7 +53,7 @@ opsx_drop() {
   case "$rc" in
     0) ;;
     3) die "drop: 記 decisions.tsv 或 openspec archive $slug 失敗（上面是原因）；outcome 與理由已寫進 $d" ;;
-    *) die "drop: 沒有捨棄 $repo/$slug（上面是原因）" ;;
+    *) die "drop: 沒有捨棄 $repo/${slug}（上面是原因）" ;;
   esac
   say "drop: $repo/$slug 已捨棄並歸檔"
 }
