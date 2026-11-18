@@ -81,6 +81,20 @@ case "$ctx_nr" in *'opsx：'*'eval-nr'*) ;; *) fail "router 沒認出 worktree �
 case "$ctx_nr" in *'bash tests/run.sh'*) fail "worktree 沒有 tests/run.sh、主 checkout 有，router 不該注入 bash tests/run.sh: $ctx_nr" ;; esac
 case "$ctx_nr" in *'package.json / pyproject'*) ;; *) fail "worktree 沒有 tests/run.sh，router 要注入 repo 自己測試指令那段: $ctx_nr" ;; esac
 
+# D9：worktree 目錄已刪、還沒 prune，gitdir 指到不存在的目錄時退回主 checkout（此時主 checkout 有 tests/run.sh）
+mkdir -p "$R/openspec/changes/eval-gone"
+printf 'schema: opsx\ncreated: 2026-11-18\nkind: dev\n' > "$R/openspec/changes/eval-gone/.openspec.yaml"
+GW="$R/.claude/worktrees/eval-gone"
+git -C "$R" worktree add -q -b feat/eval-gone/mikaela "$GW"
+GG="$(git -C "$GW" rev-parse --absolute-git-dir)"
+rm -rf "$GW"
+printf '{"Acmecorp-AI/eval-gone":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+ctx_gone="$(python3 -I -c 'import json,sys;print(json.dumps(dict(cwd=sys.argv[1],tool_name="",tool_input={},prompt="下一步",hook_event_name="UserPromptSubmit")))' "$GG" \
+  | bash "$OPSX_ROOT/hooks/openspec-router.sh" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext')"
+case "$ctx_gone" in *'opsx：'*'eval-gone'*' · autopilot：'*) ;; *) fail "已刪 worktree 的 git 目錄裡 router 仍要認出卡 eval-gone: $ctx_gone" ;; esac
+case "$ctx_gone" in *'bash tests/run.sh'*) ;; *) fail "gitdir 指到已刪目錄時要退回主 checkout（有 tests/run.sh）: $ctx_gone" ;; esac
+git -C "$R" worktree prune
+
 # cwd 在 git 目錄裡（沒有 work tree）：卡照樣找得到，router 不能整個死掉
 printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
 rc_git=0
@@ -102,6 +116,8 @@ NR="$(mk_repo NoRunnerAgents)"
 for root in "$OPSX_ROOT" "$NR"; do
   m="$(render_agents_md autopilot "$root")"
   for s in '- worktree 根有 `tests/run.sh` 時：跑測試一律 bash tests/run.sh' '- 沒有時：跑測試用這個 repo 的指令' 'package.json / pyproject'; do has "$m" "$s" "AGENTS.md($root)"; done
+  # 兩段是替換原段，不是附加：不能留下不帶條件的測試段條目
+  for s in $'\n- 跑測試一律' $'\n- 跑測試用這個 repo'; do gone "$m" "$s" "AGENTS.md($root)"; done
 done
 i="$(render_agents_md interactive "$OPSX_ROOT")"
 has "$i" "$(rule_interactive)" interactive
@@ -174,18 +190,17 @@ has "$(cat "$TW/AGENTS.override.md")" "$(rule_interactive)" override
 assert_eq "$(git -C "$TW" status --porcelain)" "" "override 不進 git"
 
 # AGENTS.md 的測試段兩種都列、不依根目錄，所以改用仍依根目錄的 docs:api 段證明 place_agents_md 拿的是 worktree 根：
-# 這個 repo 的 package.json 有 docs:api，上面沒有 package.json 的 cx 不該有，傳錯根就紅
+# 帶 docs:api 的 package.json 只在主 checkout 的工作區、不 commit，worktree 沒有它；傳成主 checkout 就會多出 docs:api 段
 P="$(mk_repo Acmecorp-Runner git@gitlab.example.com:acmecorp/Acmecorp-Runner.git)"
 mkdir -p "$P/tests"; printf '#!/usr/bin/env bash\n' > "$P/tests/run.sh"
+git -C "$P" add tests/run.sh; git -C "$P" commit -q -m "add runner"
 printf '{"scripts":{"docs:api":"tsx scripts/api-docs/gen.ts"}}\n' > "$P/package.json"
-git -C "$P" add tests/run.sh package.json; git -C "$P" commit -q -m "add runner and docs:api"
-gone "$(cat "$WT/AGENTS.md")" '`pnpm docs:api` 要單獨下' "沒有 package.json 的 worktree 的 AGENTS.md"
 mkdir -p "$P/openspec/changes/rn"; printf 'schema: opsx\ncreated: 2026-11-16\nkind: chore\n' > "$P/openspec/changes/rn/.openspec.yaml"
 printf '[repos]\n"Acmecorp-CS" = "acmecorp-ai"\n"Acmecorp-AI" = "acmecorp-ai"\n"Acmecorp-Runner" = "acmecorp-ai"\n' > "$OPSX_STATE_DIR/workspaces.toml"
 cd "$P"
 out="$(opsx dispatch rn --agent codex --mode autopilot --kind chore 2>&1)" || fail "dispatch codex 有 tests/run.sh 的 repo: $out"
 wait_drive Acmecorp-Runner rn
-has "$(cat "$P/.claude/worktrees/rn/AGENTS.md")" '`pnpm docs:api` 要單獨下' "package.json 有 docs:api 的 worktree 的 AGENTS.md"
+gone "$(cat "$P/.claude/worktrees/rn/AGENTS.md")" '`pnpm docs:api` 要單獨下' "主 checkout 才有 docs:api、worktree 沒有時的 AGENTS.md"
 opsx stop rn >/dev/null 2>&1 || fail "stop rn"
 
 # git dir 沒有 info/（自訂 template 的 repo）：exclude 要建得起來，AGENTS.md 不能留成會進 git 的檔
