@@ -81,4 +81,12 @@ for c in 'git -C /tmp/r push --force origin feat' 'git -c core.x=1 push -f origi
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "push 授權不夠，危險的寫法要擋：${c}｜$(reason "$out")"
   case "$(reason "$out")" in *第三級*) ;; *) fail "要說這是第三級：${c}｜$(reason "$out")" ;; esac
 done
+# autopilot-local-ops：allow 有 Bash(rm:*) 時，沒有 delete 授權的 rm -r／-f 仍擋，普通 rm 不擋
+printf '[repos."Acmecorp-AI"]\npush = false\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
+printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot","grants":[]}}' > "$OPSX_STATE_DIR/dispatch.json"
+printf '{"permissions":{"allow":["Bash(git status:*)","Bash(rm:*)"]}}' > "$SETTINGS"
+for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'rm -fr build' 'git status && rm -rf build'; do
+  out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的 rm -r／-f 要擋（${c}）: $(reason "$out")"
+done
+out="$(gg 'rm tests/zz-probe.test.sh')"; assert_eq "$(decision "$out")" allow "普通 rm 不需授權: $(reason "$out")"
 echo "grant-gate-segments ok"
