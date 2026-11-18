@@ -160,7 +160,6 @@ def conflict_message(name: str, paths: list[pathlib.Path]) -> str:
     return "repo 名 %s 重複：%s；兩個都不收，把其中一個資料夾改名" % (name, "、".join(str(p) for p in paths))
 
 
-
 def sources_message(e: ValueError) -> str:
     return "%s；只列 root 底下的 repo" % e
 
