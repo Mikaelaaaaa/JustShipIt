@@ -296,7 +296,10 @@ if [ "$tool" = "Bash" ]; then
         *.env|*.env.*) held=1 ;;
       esac
     done
-    [ "$held" = 1 ] || case "$(card_mode "$repo" "$OPSX_CARD" || true)" in autopilot|drive) allow ;; esac
+    # feature 派出的 session 在 dispatch.json 只有 <repo>/@<feature> 這筆
+    rm_mode="$(card_mode "$repo" "$OPSX_CARD" || true)"
+    [ -n "$rm_mode" ] || rm_mode="$(card_mode "$repo" "@$OPSX_CARD" || true)"
+    [ "$held" = 1 ] || case "$rm_mode" in autopilot|drive) allow ;; esac
   fi
   [ "$UNMAPPED" = 1 ] && exit 0
   # 第二級

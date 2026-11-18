@@ -84,7 +84,7 @@ done
 # autopilot-local-ops：權限檔不放 rm，閘門只對派工 session（OPSX_CARD 的卡是 autopilot／drive）的嚴格普通 rm 明說 allow
 explicit() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // empty'; }
 printf '[repos."Acmecorp-AI"]\npush = true\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
-printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot","grants":[]},"Acmecorp-AI/interactive-card":{"mode":"interactive","grants":[]}}' > "$OPSX_STATE_DIR/dispatch.json"
+printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot","grants":[]},"Acmecorp-AI/interactive-card":{"mode":"interactive","grants":[]},"Acmecorp-AI/@feat-x":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
 git -C "$R" worktree add -q "$R/.claude/worktrees/agent-x" -b worktree-agent-x
 UW="$(cd "$R/.claude/worktrees/agent-x" && pwd -P)"
 export OPSX_CARD=eval-core
@@ -92,6 +92,9 @@ for c in 'rm tests/zz-probe.test.sh' 'rm a.txt b.txt' 'rm -v tests/zz-probe.test
   out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "派工 session 的普通 rm 要明說放行（${c}）: $(reason "$out")"
 done
 out="$(gg 'rm tests/zz-probe.test.sh' "$UW")"; assert_eq "$(explicit "$out")" allow "subagent worktree 帶 OPSX_CARD 的普通 rm 要明說放行: $(reason "$out")"
+export OPSX_CARD=feat-x
+out="$(gg 'rm tests/zz-probe.test.sh')"; assert_eq "$(explicit "$out")" allow "feature session（條目只有 <repo>/@feat-x）的普通 rm 要明說放行: $(reason "$out")"
+export OPSX_CARD=eval-core
 for c in 'rm \-rf build' 'rm -rf>x build' 'rm $(cat list)' 'rm tests/zz-*.test.sh' "rm 'a b.txt'" 'rm x -rf' 'rm --recur build' $'rm a.txt\ngrep -rn foo .' 'rm a.txt; ls'; do
   out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "形狀不嚴格的 rm 不能明說放行（${c}）"
 done
