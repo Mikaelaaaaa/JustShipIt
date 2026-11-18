@@ -787,6 +787,10 @@ assert_eq "$(mwait nomap waiting) $(mwait consider waiting) $(mwait pending wait
 assert_eq "$(mwait carded waiting.type) $(mwait accepted waiting.type)" "可以合併 可以合併"
 # R1：pane blocked 是終端機等待輸入；子殼 open gate 擋；描述含「接受」不算處理過；縮排子項目跟著上一項；9 碼 sha 照認
 assert_eq "$(mwait blocked waiting.type)" "終端機等待輸入" "blocked 不標可以合併"
+# 對到 pane、herdr 回 unknown：照舊算對到卡，不進 unmatched_agents（D13）
+printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"unknown"}],"type":"agent_list"}}' > "$FX/agents-m-unknown.json"
+JU="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m-unknown.json" opsx collect --root "$RM" --state "$SM")"
+assert_eq "$(q "$JU" unmatched_agents)" '[]' "對到 pane、狀態 unknown 不算沒對到卡"
 assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting)" "null null"
 assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以合併 可以合併"
 # report.md 讀不了只壞這一張卡：不標可以合併、記一筆 errors，別張卡照常

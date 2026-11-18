@@ -11,11 +11,11 @@ import re
 
 NOT_READY = "MR 五條件沒全綠"
 OPEN_GATE = "有 open gate"
-WORKING = "agent 還在改（pane working 或在終端機等輸入）"
+WORKING = "agent 還在改（pane working）"
+WAITING_INPUT = "agent 在終端機等輸入（pane blocked）"
 STALE_MAP = "邏輯表不是 MR 最新 head"
 OPEN_REVIEW = "report.md 有留給人決定的項目"
 
-BUSY = ("working", "blocked")
 HANDLED = re.compile(r"· (開卡 \S+|接受)\s*$")
 MAP_LINE = re.compile(r"^openspec/changes/(\S+)/logic-map\.md · ([0-9a-f]{7,40})$")
 
@@ -76,6 +76,8 @@ def blockers(slug, mr, has_open_gate, agent_status, report, map_exists):
         out.append(NOT_READY)
     if has_open_gate:
         out.append(OPEN_GATE)
-    if agent_status in BUSY:
+    if agent_status == "working":
         out.append(WORKING)
+    if agent_status == "blocked":
+        out.append(WAITING_INPUT)
     return out + card_blockers(slug, report, map_exists, mr.get("head_sha") if mr else None)

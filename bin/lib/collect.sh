@@ -335,7 +335,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     disp = dispatch.get(key)
     if disp and disp.get("mode") == "stopped": disp = None
     agent_status = mergeready.agent_status_of(agents, disp.get("pane")) if disp else None
-    if agent_status not in (None, "unknown"): matched_panes.add(str(disp.get("pane")))
+    if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
     waiting = None if c["archived"] else waiting_of(c, gates, agent_status)

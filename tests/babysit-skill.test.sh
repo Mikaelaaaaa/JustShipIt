@@ -49,6 +49,9 @@ assert_fixed 'with the same check the pr skill makes before its reply' "$STEP"
 assert_fixed 'a `產表失敗：` line, or no `## 邏輯表` section' "$STEP"
 assert_fixed 'A run whose map already shows the MR head does not regenerate it, and the `merge <sha>` mode never does' "$STEP"
 assert_not_fixed 'Every run that pushed regenerates' "$STEP"
+# sha 的比法跟 mergeready 一樣：7 碼以上、是 MR head 的開頭（大 repo 的 --short 會給 8–9 碼）
+assert_fixed 'a hex sha of 7 or more characters that the MR head starts with' "$STEP"
+assert_not_fixed 'the first 7 characters of the MR head' "$STEP"
 assert_not_fixed 'did not push never regenerate' "$STEP"
 # 步 5 不另寫一次重產，免得同一輪產兩次
 STEP5="$FX/step5"

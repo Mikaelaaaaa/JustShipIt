@@ -31,19 +31,20 @@ printf '{"Acmecorp-AI/x":{"mode":"autopilot","pane":"p4","agent":"x","grants":[]
 assert_not_grep '^mr merge' "$OPSX_FAKE_LOG"   # 不自己合
 
 # --- 五條件全綠，但 agent 還在改或邏輯表舊：拒絕、什麼都不寫（specs/board-actions「核准合併前確認 agent 停手、邏輯表對應最新 head」） ---
-refused() { # <訊息關鍵字> <說明>
+refused() { # <訊息關鍵字> <說明> [訊息不該含的字]
   local out; out="$(opsx merge x 2>&1)" && fail "$2 要拒絕: $out"
   echo "$out" | grep -q "$1" || fail "$2 的訊息要含「$1」: $out"
+  [ -z "${3:-}" ] || ! echo "$out" | grep -q "$3" || fail "$2 的訊息不該含「$3」: $out"
   assert_no_file "$PD/authz.json"
   cmp -s "$C/decisions.tsv" "$FX/before.tsv" || fail "$2：decisions 不該變"
   assert_eq "$(grep -c 'babysit merge' "$OPSX_FAKE_LOG" || true)" 0 "$2 不送 /babysit merge"
 }
 cp "$C/decisions.tsv" "$FX/before.tsv"; : > "$OPSX_FAKE_LOG"; rm -rf "$PD"
 printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"p4","agent_status":"working"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
-refused '還在改' "pane working"
+refused '還在改' "pane working" '等輸入'
 # pane 停在權限框：不能把 /babysit merge 加 Enter 打進去
 printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"p4","agent_status":"blocked"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
-refused '等輸入' "pane blocked"
+refused '等輸入' "pane blocked" '還在改'
 printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"p4","agent_status":"idle"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
 printf '## g1\ntype: decision\nstatus: open\n問題: 哪個？\n' > "$C/gates.md"
 refused 'gate' "open gate"

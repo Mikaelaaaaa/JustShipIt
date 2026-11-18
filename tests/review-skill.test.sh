@@ -162,3 +162,6 @@ assert_not_fixed 'Clear the line under `## 邏輯表`' "$FX/answered"
 assert_fixed 'keeps the `· 接受` or `· 開卡 <slug>` mark at the end of every Consider item that is still listed' "$STEP5"
 assert_fixed 'The user accepts a Consider item by adding `· 接受` at the end of its line' "$STEP5"
 assert_fixed 'Consider never opens a gate' "$STEP5"
+# 開卡標記寫在行尾，後面不接字：mergeready 只認行尾標記
+assert_fixed 'Append ` · 開卡 <slug>` at the end of the finding'"'"'s line in Consider; nothing follows it.' "$STEP4"
+assert_not_fixed 'Write `開卡 <slug>` on the finding'"'"'s line in Consider.' "$STEP4"

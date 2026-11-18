@@ -1465,7 +1465,6 @@ logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
 printf '\n## 四桶\n### Consider\n- a.ts:3 測試沒蓋到空字串\n' >> "$C/report.md"
 out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
 logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
-logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
 printf '\n## 四桶\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲\n' >> "$C/report.md"
 out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
 # 待修有項目：既有的檢查先擋下、叫 /apply，輪不到這裡推
