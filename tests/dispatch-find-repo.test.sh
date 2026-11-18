@@ -205,6 +205,18 @@ assert_grep "$DUP" "$FX/err"
 assert_grep '改名' "$FX/err"
 assert_eq "$(key Acmecorp-CS/card-n)" false
 assert_no_file "$C/.claude/worktrees/card-n"
+# --repo 指到沒登記、但跟已登記的 Acmecorp-AI 同名的資料夾：不派，列兩個路徑（D13）
+U="$(mk_repo unreg/Acmecorp-AI)"; mkdir -p "$U/openspec/changes"
+card "$U" card-o
+dispatch_refused "$P" card-o --repo "$U"
+assert_grep "$A" "$FX/err"
+assert_grep "$U" "$FX/err"
+assert_no_file "$U/.claude/worktrees/card-o"
+# 卡同時在同名的 dup/Acmecorp-CS 與沒衝突的 Acmecorp-AI：照舊不派，但說可以用 --repo 派 Acmecorp-AI 那張（D14）
+card "$DUP" card-p; card "$A" card-p
+dispatch_refused "$P" card-p
+assert_grep '同名' "$FX/err"
+assert_grep "--repo $A" "$FX/err"
 
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"

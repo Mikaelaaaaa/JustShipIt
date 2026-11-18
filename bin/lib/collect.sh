@@ -53,7 +53,7 @@ opsx_collect() {
   local repo_dir repo d slug archived stage mrfile no_mr n=0 archive_cap="${OPSX_COLLECT_ARCHIVE_CAP:-30}" seen_archive real
   : > "$work/cards.tsv"; : > "$work/legacy"; mkdir -p "$work/mr"
   # repo 清單跟 sync、dispatch 同一份（sync.scan_repos）。sources.toml 寫壞或形狀不對只列 root 底下的 repo、記 errors；
-  # 同名的兩個都不收、沒有 .git 的不收，都記 errors
+  # 同名的兩個都不收、沒有 .git 的與讀不了的不收，都記 errors
   "$OPSX_PY" -I - "$root" "$state" > "$work/scan" <<'PY' || die "collect: 取 repo 清單失敗"
 import os, pathlib, sys
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib"))
@@ -64,15 +64,15 @@ try:
 except ValueError as e:
     print("error\t%s\t%s" % (state / "sources.toml", sync.sources_message(e)))
     sources = []
-repos, conflicts, worktrees, not_repos = sync.scan_repos(root, sources)
+repos, conflicts, worktrees, skipped = sync.scan_repos(root, sources)
 for name, path in repos.items():
     print("repo\t%s\t%s" % (name, path))
 for name in worktrees:
     print("worktree\t%s" % name)
 for name, paths in conflicts.items():
     print("error\trepos\t%s" % sync.conflict_message(name, paths))
-for path in not_repos:
-    print("error\trepos\t%s" % sync.not_repo_message(path))
+for message in skipped.values():
+    print("error\trepos\t%s" % message)
 PY
   awk -F'\t' '$1=="repo"{print $2 "\t" $3}' "$work/scan" > "$work/repos"
   awk -F'\t' '$1=="worktree"{print $2}' "$work/scan" > "$work/worktrees"

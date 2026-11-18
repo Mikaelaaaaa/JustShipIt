@@ -326,6 +326,7 @@ assert_eq "$(find "$CH" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d 
 logcols | cut -f5 | grep -qF "$DUP" || fail "第一個錯誤是同名，含登記的 a 的路徑：$(lastsync)"
 logcols | cut -f5 | grep -qF "$A" || fail "第一個錯誤是同名，含 root 底下 a 的路徑：$(lastsync)"
 logcols | cut -f5 | grep -qF "改名" || fail "第一個錯誤是同名，叫人改資料夾名：$(lastsync)"
+assert_eq "$(logcols | cut -f4)" 1 "同名已記過，issue 不再另記「不是 opsx repo 的根目錄」：$(lastsync)"
 rm -f "$OPSX_TEST_ISSUES/dup.json" "$A/dup.py" "$B/dup.py"
 cp "$FX/sources.dup.bak" "$OPSX_STATE_DIR/sources.toml"
 
@@ -342,8 +343,8 @@ printf '\n[[source]]\nkind = "gitlab"\nrepo = "bad"\nproject = "g/bad"\npath = 1
 echo "# shortcut: b 的形狀測試, 要進" > "$B/shape.py"
 out="$(opsx sync --root "$ROOT" --source debt 2>&1)"; assert_eq "$?" 0 "形狀不對不改退出碼：$out"
 assert_eq "$(python3 -I -c 'import json,sys;print("b" in json.load(open(sys.argv[1])))' "$SNAP")" True "root 底下的 b 照撈"
-[ "$(logcols | cut -f4)" -ge 1 ] || fail "形狀不對要記錯：$(lastsync)"
-logcols | cut -f5 | grep -qF "path" || fail "錯誤要指出 path：$(lastsync)"
+assert_eq "$(logcols | cut -f4)" 1 "形狀不對記一筆錯：$(lastsync)"
+logcols | cut -f5 | grep -qF "path 要是絕對路徑字串，現在是：1" || fail "錯誤要指出 path 與值：$(lastsync)"
 rm -f "$B/shape.py"
 cp "$FX/sources.dup.bak" "$OPSX_STATE_DIR/sources.toml"
 

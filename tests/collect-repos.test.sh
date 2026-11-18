@@ -61,11 +61,19 @@ src_errors() { printf '%s' "$1" | python3 -I -c 'import json,sys;e=json.load(sys
 printf '[[source]]\nkind = "gitlab"\npath = 1\n' > "$OPSX_STATE_DIR/sources.toml"
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "path = 1 collect 照常：$J"
 assert_eq "$(scope_repos "$J")" "['a', 'b']" "path = 1 不拖垮 root 的 repo"
-assert_eq "$(src_errors "$J" path)" "1 True True" "path = 1 記一筆、指出 path：$(errors_of "$J")"
+assert_eq "$(src_errors "$J" "path 要是絕對路徑字串，現在是：1")" "1 True True" "path = 1 記一筆、指出 path 與值：$(errors_of "$J")"
 printf '[source]\npath = "%s"\n' "$Z" > "$OPSX_STATE_DIR/sources.toml"
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "[source] 單表 collect 照常：$J"
 assert_eq "$(scope_repos "$J")" "['a', 'b']" "[source] 單表不拖垮 root 的 repo"
-assert_eq "$(src_errors "$J" source)" "1 True True" "[source] 單表記一筆、指出 source：$(errors_of "$J")"
+assert_eq "$(src_errors "$J" "[[source]] 表的陣列")" "1 True True" "[source] 單表記一筆、指出 source 的寫法：$(errors_of "$J")"
+# path 不是絕對路徑（`~` 不展開、相對路徑隨 cwd 變）：一樣當成形狀不對
+printf '[[source]]\npath = "~/code/z"\n' > "$OPSX_STATE_DIR/sources.toml"
+J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "path = ~ collect 照常：$J"
+assert_eq "$(scope_repos "$J")" "['a', 'b']" "path = ~ 只列 root 的 repo"
+assert_eq "$(src_errors "$J" "'~/code/z'")" "1 True True" "path = ~ 記一筆、含那個值：$(errors_of "$J")"
+printf '[[source]]\npath = ""\n' > "$OPSX_STATE_DIR/sources.toml"
+J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "path 空字串 collect 照常：$J"
+assert_eq "$(src_errors "$J" "現在是：''")" "1 True True" "path 空字串記一筆：$(errors_of "$J")"
 
 # --- root 底下有 openspec/changes 但沒有 .git：不收，記一筆 errors 說它沒有 .git ---
 : > "$OPSX_STATE_DIR/sources.toml"
@@ -74,5 +82,14 @@ J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "沒有 .git collect 照常
 assert_eq "$(scope_repos "$J")" "['a', 'b']" "沒有 .git 的 n 不收"
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;e=json.load(sys.stdin)["errors"];print(len(e), sys.argv[1] in e[0]["message"], "沒有 .git" in e[0]["message"])' "$NP")" "1 True True" "沒有 .git 記一筆、含路徑：$(errors_of "$J")"
 rm -rf "$ROOT/n"
+
+# --- root 底下有讀不了的目錄：記一筆 errors，其餘 repo 照列（root 身分跑時 chmod 擋不住，跳過）---
+mkdir -p "$ROOT/locked"; LP="$(cd "$ROOT" && pwd -P)/locked"; chmod 000 "$ROOT/locked"
+if ! ls "$ROOT/locked" >/dev/null 2>&1; then
+  J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "讀不了的目錄 collect 照常：$J"
+  assert_eq "$(scope_repos "$J")" "['a', 'b']" "讀不了的目錄不拖垮其餘 repo"
+  assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;e=json.load(sys.stdin)["errors"];print(len(e), sys.argv[1] in e[0]["message"])' "$LP")" "1 True" "讀不了記一筆、含路徑：$(errors_of "$J")"
+fi
+chmod 755 "$ROOT/locked"; rmdir "$ROOT/locked"
 
 echo ok
