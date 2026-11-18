@@ -68,4 +68,20 @@ has_commit 'env /usr/bin/g\it commit -m x' || fail 'env 之後的 g\it：'"$(ske
 has_commit 'command /usr/bin/g\it commit -m x' || fail 'command 之後的 g\it：'"$(skel 'command /usr/bin/g\it commit -m x')"
 case "$(skel 'git -C /tmp/env\b commit -m x')" in *'/tmp/env\b'*) ;; *) fail "路徑裡的 env 不算前綴，跳脫要保留：$(skel 'git -C /tmp/env\b commit -m x')" ;; esac
 case "$(skel 'git -C /tmp/a\b commit -m x')" in *'/tmp/a\b'*) ;; *) fail "參數位置的路徑字要保留跳脫：$(skel 'git -C /tmp/a\b commit -m x')" ;; esac
+
+# --- 原樣保留的片段不能讓裡面的指令字逃過還原 ---
+# 沒結尾的雙引號之後，指令位置的 g\it 照樣還原
+has_commit $'# say "hi\ng\\it commit -m x' || fail "註解裡沒結尾的 \" 之後的 g\\it：$(skel $'# say "hi\ng\\it commit -m x')"
+has_commit $'echo "$(echo a # it\'s\n)"; g\\it commit -m x' || fail "\$( 裡註解的撇號之後的 g\\it：$(skel $'echo "$(echo a # it\'s\n)"; g\\it commit -m x')"
+# 緊貼字、含空白的單引號片段保留引號，片段裡的指令字照樣還原
+has_commit $'bash -c true\'; g\\it commit -m x\'' || fail "緊貼字的片段裡的 g\\it：$(skel $'bash -c true\'; g\\it commit -m x\'')"
+# 引號裡的 (( 不是算術，同一行的真 heredoc 照樣剝掉，本體裡的 <<X 不吞後面的 commit
+has_commit $'echo "((" ; cat <<EOF\ncat <<X\nEOF\ngit commit -m x\nX' || fail "引號裡的 (( 取消了真 heredoc：$(skel $'echo "((" ; cat <<EOF\ncat <<X\nEOF\ngit commit -m x\nX')"
+# 被跳脫的 \$ 後面的 ' 是一般單引號，不是 $'…'
+has_commit $'echo \\$\'\\\'\ng\\it commit -m x\necho \'y\'' || fail "\\\$' 被當成 \$'…'：$(skel $'echo \\$\'\\\'\ng\\it commit -m x\necho \'y\'')"
+# (( 之後一行很多 << 也要線性
+big="$(perl -e 'print "git commit -m x; (( ", "<<a" x 10900, "\n"')"
+t0=$SECONDS; skel "$big" >/dev/null; elapsed=$((SECONDS - t0))
+[ "$elapsed" -le 3 ] || fail "(( 之後 10900 個 <<a 骨架花了 ${elapsed} 秒（要線性）"
+has_commit "$big" || fail "(( 之後那串 <<a 之前的 git commit 不能不見"
 echo "cmd-skeleton ok"

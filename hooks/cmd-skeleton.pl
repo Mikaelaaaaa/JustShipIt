@@ -118,9 +118,10 @@ sub strip_heredocs {
         my $nl = index $s, "\n", $opener_end;
         next if $nl < 0;
         next unless substr($mask, $start, 1) eq '1';
-        # $(( 1<<2 )) 與 (( y = 1<<2 )) 的 << 是位移：同一行前面有還沒閉合的 ((（中間最多一層括號）就不是 heredoc
+        # $(( 1<<2 )) 與 (( y = 1<<2 )) 的 << 是位移：同一行前面有程式碼位置、還沒閉合的 (( 就不是 heredoc
+        # shortcut: 只看同一行、(( 裡最多一層括號，巢狀更深或算術跨行時改成數括號
         my $ls = rindex($s, "\n", $start - 1) + 1;
-        next if substr($s, $ls, $start - $ls) =~ /\(\((?:[^()]|\([^()]*\))*\z/;
+        next if substr($s, $ls, $start - $ls) =~ /\(\((?:[^()]|\([^()]*\))*\z/ && substr($mask, $ls + $-[0], 1) eq '1';
         # $'…\x41…' 的跳脫 bash 會展開，這裡不展開：算不準分隔字就不剝本體（fail-closed）
         next if $word =~ /\$['"]/ && $word =~ /\\/;
         my $delim = unquote_word($word);
@@ -141,6 +142,7 @@ sub skeleton {
     return $s if $depth > MAX_DEPTH;
     $s = strip_heredocs($s, $depth);
     my ($out, $i, $n) = ('', 0, length $s);
+    my ($dq_open, $esc_end) = (0, -1);
     while ($i < $n) {
         my $c = substr $s, $i, 1;
         if ($c eq '\\') {
@@ -154,29 +156,31 @@ sub skeleton {
             elsif ($next eq "\n") { }                     # 行尾續行：bash 把反斜線與換行整個拿掉
             else { $out .= "\\$next" }
             $i += 2;
+            $esc_end = $i;
             next;
         }
         my $prev = $i ? substr($s, $i - 1, 1) : '';
         if ($c eq $SQ && $prev =~ /[\w]/) {
             # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號；
-            # 其他的（don't … it's）整段原樣保留，片段裡的 " 不能被當成雙引號開頭
+            # 其他的（don't … it's）保留兩個引號，片段裡的 " 不能被當成雙引號開頭，片段裡的 g\it 照樣還原
             my $end = index $s, $SQ, $i + 1;
             if ($end >= 0) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
-                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : substr($s, $i, $end - $i + 1);
+                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : $SQ . skeleton($body, $depth + 1) . $SQ;
                 $i = $end + 1;
                 next;
             }
         }
-        # 迴圈走到的 ' 不會是被跳脫的（反斜線分支一次吃兩個字元），所以 \\' 的 ' 是真引號
+        # 迴圈走到的 ' 不會是被跳脫的（反斜線分支一次吃兩個字元），所以 \\' 的 ' 是真引號；\$' 的 $ 被跳脫了，不是 $'…'
+        my $ansi = $prev eq '$' && $i != $esc_end;
         if ($c eq $SQ && $prev !~ /\w/) {
             my $end = $i + 1;
-            if ($prev eq '$') { $end += substr($s, $end, 1) eq '\\' ? 2 : 1 while $end < $n && substr($s, $end, 1) ne $SQ }
+            if ($ansi) { $end += substr($s, $end, 1) eq '\\' ? 2 : 1 while $end < $n && substr($s, $end, 1) ne $SQ }
             else { $end = index $s, $SQ, $end }
             $end = -1 if $end >= $n;
             if ($end >= 0) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
-                if ($prev eq '$') { $out .= "$SQ$body$SQ" }
+                if ($ansi) { $out .= "$SQ$body$SQ" }
                 elsif (substr($out, -80) =~ $RUNS_STRING) { $out .= " ; " . skeleton($body, $depth + 1) . " ; " }
                 else { $out .= $body =~ /^\S*$/ ? $body : "''" }
                 $i = $end + 1;
@@ -184,21 +188,24 @@ sub skeleton {
             }
         }
         if ($c eq '"') {
-            my $end = skip_dq($s, $i);
-            # 沒結尾的雙引號：剩下的原樣保留就停，逐字往下走會讓後面每個 "$( 都重掃到尾（二次方）
-            if ($end >= $n) { $out .= substr $s, $i; last }
-            my $body = substr $s, $i + 1, $end - $i - 1;
-            if (substr($out, -80) =~ $RUNS_STRING) {
-                (my $plain = $body) =~ s/\\(["\\\$`])/$1/g;
-                $out .= " ; " . skeleton($plain, $depth + 1) . " ; ";
-            } elsif ($body =~ /^[^\s\\\$`]*$/) {
-                $out .= $body;
-            } else {
-                $out .= '""';
-                $out .= " ; " . skeleton($_, $depth + 1) . " ; " for substitutions($body);
+            # 沒結尾的雙引號當一般字元往下走；之後的 " 改用 index 配對，不然每個 "$( 都用 skip_dq 重掃到尾（二次方）
+            my $end = $dq_open ? index($s, '"', $i + 1) : skip_dq($s, $i);
+            $end = $n if $end < 0;
+            $dq_open ||= $end >= $n;
+            if ($end < $n) {
+                my $body = substr $s, $i + 1, $end - $i - 1;
+                if (substr($out, -80) =~ $RUNS_STRING) {
+                    (my $plain = $body) =~ s/\\(["\\\$`])/$1/g;
+                    $out .= " ; " . skeleton($plain, $depth + 1) . " ; ";
+                } elsif ($body =~ /^[^\s\\\$`]*$/) {
+                    $out .= $body;
+                } else {
+                    $out .= '""';
+                    $out .= " ; " . skeleton($_, $depth + 1) . " ; " for substitutions($body);
+                }
+                $i = $end + 1;
+                next;
             }
-            $i = $end + 1;
-            next;
         }
         $out .= $c;
         $i++;
