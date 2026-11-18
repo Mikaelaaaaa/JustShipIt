@@ -81,12 +81,27 @@ for c in 'git -C /tmp/r push --force origin feat' 'git -c core.x=1 push -f origi
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "push 授權不夠，危險的寫法要擋：${c}｜$(reason "$out")"
   case "$(reason "$out")" in *第三級*) ;; *) fail "要說這是第三級：${c}｜$(reason "$out")" ;; esac
 done
-# autopilot-local-ops：allow 有 Bash(rm:*) 時，沒有 delete 授權的 rm -r／-f 仍擋，普通 rm 不擋
-printf '[repos."Acmecorp-AI"]\npush = false\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
+# autopilot-local-ops：權限檔用 write_settings 產生（allow 有 Bash(rm:*)），沒有 delete 授權的遞迴或強制 rm 仍擋，普通 rm 不擋
+source "$OPSX_ROOT/bin/lib/common.sh"
+source "$OPSX_ROOT/bin/lib/python.sh"
+opsx_python_load || fail "python 載不起來：$OPSX_PY_ERR"
+source "$OPSX_ROOT/bin/lib/launch.sh"
+printf '[repos."Acmecorp-AI"]\npush = true\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
 printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot","grants":[]}}' > "$OPSX_STATE_DIR/dispatch.json"
-printf '{"permissions":{"allow":["Bash(git status:*)","Bash(rm:*)"]}}' > "$SETTINGS"
-for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'rm -fr build' 'git status && rm -rf build'; do
-  out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的 rm -r／-f 要擋（${c}）: $(reason "$out")"
+write_settings "$SETTINGS" Acmecorp-AI "$R/openspec" autopilot eval-core
+jq -e '.permissions.allow | index("Bash(rm:*)")' "$SETTINGS" >/dev/null || fail "產生的權限檔 allow 要有 Bash(rm:*)"
+for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'rm -fr build' 'git status && rm -rf build' 'rm -R build' 'rm -Rf build' 'rm -rfv build' 'rm -vrf build' 'rm -v -rf build' 'rm build -rf' 'rm --recursive build' 'rm --force build'; do
+  out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的遞迴或強制 rm 要擋（${c}）: $(reason "$out")"
+  reason "$out" | grep -qF 'action: delete' || fail "deny 要是 delete 授權（${c}）: $(reason "$out")"
 done
-out="$(gg 'rm tests/zz-probe.test.sh')"; assert_eq "$(decision "$out")" allow "普通 rm 不需授權: $(reason "$out")"
+for c in 'rm tests/zz-probe.test.sh' 'rm a.txt b.txt' 'rm -v tests/zz-probe.test.sh' 'rm -i tests/zz-probe.test.sh' 'rm tests/from-rfc.txt'; do
+  out="$(gg "$c")"; assert_eq "$out" "" "普通 rm 閘門不出聲（${c}）"
+done
+out="$(gg 'git push && rm foo')"; assert_eq "$(decision "$out")" allow "push 授權串普通 rm 照權限檔放行: $(reason "$out")"
+out="$(gg 'git push && rm -R foo')"; assert_eq "$(decision "$out")" deny "push 授權串 rm -R 要擋: $(reason "$out")"
+# 對不到卡的 session（subagent 的 worktree-agent-<id>）沿用同一份權限檔：遞迴或強制 rm 也擋
+git -C "$R" worktree add -q "$R/.claude/worktrees/agent-x" -b worktree-agent-x
+UW="$(cd "$R/.claude/worktrees/agent-x" && pwd -P)"
+out="$(gg 'rm -rf build' "$UW")"; assert_eq "$(decision "$out")" deny "對不到卡的 session 刪遞迴也擋: $(reason "$out")"
+out="$(gg 'rm build' "$UW")"; assert_eq "$out" "" "對不到卡的 session 普通 rm 閘門不出聲"
 echo "grant-gate-segments ok"

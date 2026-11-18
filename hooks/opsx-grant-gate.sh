@@ -103,7 +103,8 @@ GIT_PUSH="git(([[:space:]]+(${GIT_GOPT}))*)[[:space:]]+push"
 RE_PUSH="${CMD_START}${GIT_PUSH}(\\s|;|&|\\||\$)"
 RE_MR='(glab mr (create|update)|gh pr (create|edit)|glab issue (note|comment)|gh issue comment)'
 RE_MIGRATE='db:migrate|drizzle-kit (migrate|push)|alembic upgrade'
-RE_DELETE="${CMD_START}rm\\s+-(r|f|rf|fr)\\b"
+# 任何位置、任何合併方式的短旗標帶 r／R／f，或長選項 --recursive／--force；autopilot allow 有 Bash(rm:*)，漏認的寫法就不經授權
+RE_DELETE="${CMD_START}rm([[:space:]]+[^;&|()\`[:space:]]+)*[[:space:]]+(-[A-Za-z]*[rRf][A-Za-z]*|--recursive|--force)([[:space:];&|)\`]|\$)"
 RE_INSTALL='(pnpm (add|install|i)\b|npm (install|i|ci)\b|uv (add|sync)|pip install|yarn add|brew install)'
 RE_REBASE="${CMD_START}git\\s+rebase(\\s|;|&|\\||\$)"
 RE_EXTERNAL='(curl|wget|http)\s+'
@@ -281,6 +282,8 @@ if [ "$tool" = "Bash" ]; then
   printf '%s' "$l3" | grep -qiE '(^|\s|/)deploy(\.sh)?(\s|$)' && level3 "deploy"
   printf '%s' "$l3" | grep -qiE 'drop\s+(table|database|schema)|truncate\s+table|db:reset' && level3 "刪資料"
   printf '%s' "$l3" | grep -qiE 'sops\s+(-e|--encrypt|edit)|\.gitlab-ci\.yml|\.github/workflows' && level3 "改 CI / secrets"
+  # 對不到卡的 session（subagent）沿用卡的權限檔，allow 有 Bash(rm:*)；沒有卡可查 delete 授權，遞迴或強制刪除一律擋
+  [ "$UNMAPPED" = 1 ] && printf '%s' "$sk" | grep -qE "$RE_DELETE" && deny "opsx 授權閘門：「刪檔（rm -r/-f）」要授權（第二級），這個 session 對不到卡，查不到授權。$GATE_MSG"
   [ "$UNMAPPED" = 1 ] && exit 0
   # 第二級
   printf '%s' "$sk" | grep -qE "$RE_PUSH" && level2 push "git push"
