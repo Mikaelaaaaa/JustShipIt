@@ -285,12 +285,18 @@ if [ "$tool" = "Bash" ]; then
   # 單行、只有 rm 一段、旗標只有 -v／-i、參數只含一般路徑字元且不以 - 開頭；其他寫法不出聲，交給 dontAsk 拒
   RE_PLAIN_RM='^rm( -[vi]+)*( [A-Za-z0-9._/@+=,:][A-Za-z0-9._/@+=,:-]*)+$'
   if [ -n "${OPSX_CARD:-}" ] && [[ $cmd =~ $RE_PLAIN_RM ]]; then
-    # .env 不進 git，Edit／Write 寫它要 env 授權，刪它也不在這裡放行。形狀已排除 glob 與引號，照空白拆參數是安全的
-    rm_env=0
+    # 工作目錄外的檔（state 目錄的 dispatch.json 一刪閘門就失效）、Edit／Write 要授權或第三級的 .env 與 secrets，都不在這裡放行。
+    # 形狀已排除 glob 與引號，照空白拆參數是安全的
+    held=0
     for a in $(printf '%s' "${cmd#rm }" | tr '[:upper:]' '[:lower:]'); do
-      case "$a" in *.env.example) ;; *.env|*.env.*) rm_env=1 ;; esac
+      case "$a" in
+        /*|..|../*|*/..|*/../*) held=1 ;;
+        *secrets*|*.sops.*|sops/*|*/sops/*) held=1 ;;
+        *.env.example) ;;
+        *.env|*.env.*) held=1 ;;
+      esac
     done
-    [ "$rm_env" = 1 ] || case "$(card_mode "$repo" "$OPSX_CARD" || true)" in autopilot|drive) allow ;; esac
+    [ "$held" = 1 ] || case "$(card_mode "$repo" "$OPSX_CARD" || true)" in autopilot|drive) allow ;; esac
   fi
   [ "$UNMAPPED" = 1 ] && exit 0
   # 第二級

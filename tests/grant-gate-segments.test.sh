@@ -98,7 +98,10 @@ done
 for c in 'rm .env' 'rm src/.env.local' 'rm a.txt .Env'; do
   out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "刪 .env 不能明說放行（${c}）"
 done
-for c in 'rm .env.example' 'rm foo.envrc'; do
+for c in 'rm /tmp/state/dispatch.json' 'rm ../x.txt' 'rm a/../../x.txt' 'rm config/secrets.yaml' 'rm x.sops.yaml' 'rm infra/sops/key' 'rm sops/key'; do
+  out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "刪工作目錄外或 secrets 的檔不能明說放行（${c}）"
+done
+for c in 'rm .env.example' 'rm foo.envrc' 'rm a..b.txt'; do
   out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "範例檔或只含 env 字樣的檔照舊放行（${c}）: $(reason "$out")"
 done
 for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'git status && rm -rf build'; do
