@@ -71,4 +71,74 @@ python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["worker"]
 opsx status apply 3/3 z --sub s1 || fail "--sub 無 --worker"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["worker"]=="session",d' "$SS"
 assert_rc 2 opsx status apply 1/3 x --sub nope
+
+# --- status-card-lookup：分支名對不到卡時用 dispatch worktree 名 ---
+Q="$(mk_repo Acmecorp-CS)"; W="$Q/.claude/worktrees"
+mkcard() { mkdir -p "$Q/openspec/changes/$1"; printf 'schema: opsx\n' > "$Q/openspec/changes/$1/.openspec.yaml"; }
+phase_of() { python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["phase"])' "$Q/openspec/changes/$1/status.json"; }
+for c in other-card my-card me-1402 parent child a b m; do mkcard "$c"; done
+mkdir -p "$Q/openspec/changes/m/subs/s"
+git -C "$Q" checkout -q -b fix/other-card/mikaela
+git -C "$Q" worktree add -q -b feat/my-card/mikaela "$W/my-card"
+git -C "$Q" worktree add -q -b feat/switch-off-popup/mikaela "$W/me-1402"
+git -C "$Q" worktree add -q -b feat/no-card/mikaela "$W/agent-x"
+git -C "$Q" worktree add -q -b feat/child/mikaela "$W/parent"
+git -C "$Q" worktree add -q -b feat/a/mikaela "$W/a"
+git -C "$Q" worktree add -q -b feat/m--s/mikaela "$FX/sub-wt"
+nostatus() { [ -z "$(find "$Q/openspec" -name status.json)" ] || fail "不該有 status.json：$(find "$Q/openspec" -name status.json)"; }
+
+# 分支名就是卡名（正例）
+( cd "$W/my-card" && opsx status apply 1/3 x ) || fail "分支名就是卡名 rc"
+assert_eq "$(phase_of my-card)" apply "分支名就是卡名"
+rm "$Q/openspec/changes/my-card/status.json"
+
+# 分支名不是卡名時用 dispatch worktree 名（正例）
+( cd "$W/me-1402" && opsx status apply 1/3 x ) || fail "worktree 名 rc"
+assert_eq "$(phase_of me-1402)" apply "worktree 名"
+rm "$Q/openspec/changes/me-1402/status.json"
+
+# 分支和 worktree 名都對不到卡（反例）
+( cd "$W/agent-x" && opsx status apply 1/3 x ) 2>/dev/null; assert_eq "$?" 2 "都對不到 rc"
+nostatus
+
+# --- status-card-lookup：dispatch 的 agent 在主 checkout 寫自己 pane 的卡 ---
+# agent 在主 checkout 寫自己 pane 的卡（正例）
+( cd "$Q" && OPSX_CARD=my-card opsx status explore 2/9 x ) || fail "pane 的卡 rc"
+assert_eq "$(phase_of my-card)" explore "pane 的卡"
+assert_no_file "$Q/openspec/changes/other-card/status.json"
+rm "$Q/openspec/changes/my-card/status.json"
+
+# pane worktree 已切到續接的子卡（正例）
+( cd "$Q" && OPSX_CARD=parent opsx status apply 1/2 x ) || fail "續接子卡 rc"
+assert_eq "$(phase_of child)" apply "續接子卡"
+assert_no_file "$Q/openspec/changes/parent/status.json"
+rm "$Q/openspec/changes/child/status.json"
+
+# agent 的 pane worktree 不在時拒寫（反例）
+out="$(cd "$Q" && OPSX_CARD=gone opsx status apply 1/2 x 2>&1)"; assert_eq "$?" 2 "pane worktree 不在 rc"
+echo "$out" | grep -qF "$W/gone" || fail "pane worktree 不在的訊息沒有路徑: $out"
+echo "$out" | grep -qF -- "--change" || fail "pane worktree 不在的訊息沒有 --change: $out"
+nostatus
+# pane 路徑只剩一般資料夾（不是 worktree 根）也要拒寫，不能往上找到主 checkout 的分支
+mkdir -p "$W/ghost"
+out="$(cd "$Q" && OPSX_CARD=ghost opsx status apply 1/2 x 2>&1)"; assert_eq "$?" 2 "pane 路徑不是 worktree rc"
+echo "$out" | grep -qF "$W/ghost" || fail "pane 路徑不是 worktree 的訊息沒有路徑: $out"
+nostatus
+
+# subagent 在自己的 worktree 不看 OPSX_CARD（反例）
+( cd "$FX/sub-wt" && OPSX_CARD=m opsx status apply 1/2 x ) || fail "subagent rc"
+python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["worker"]=="subagent-s",d' "$Q/openspec/changes/m/subs/s/status.json"
+assert_no_file "$Q/openspec/changes/m/status.json"
+rm "$Q/openspec/changes/m/subs/s/status.json"
+
+# --- status-card-lookup：沒有 OPSX_CARD 時主 checkout 照分支推，--change 永遠優先 ---
+# 人在主 checkout 照分支推（正例）
+( cd "$Q" && opsx status review 1/7 x ) || fail "人在主 checkout rc"
+assert_eq "$(phase_of other-card)" review "人在主 checkout"
+rm "$Q/openspec/changes/other-card/status.json"
+
+# --change 蓋過 OPSX_CARD（反例）
+( cd "$Q" && OPSX_CARD=a opsx status pr 5/5 x --change b ) || fail "--change rc"
+assert_eq "$(phase_of b)" pr "--change 蓋過 OPSX_CARD"
+assert_no_file "$Q/openspec/changes/a/status.json"
 echo ok
