@@ -1,5 +1,6 @@
 {
   "sandbox": {
-    "network": {"allowUnixSockets": ["${HOME}/.config/herdr/herdr.sock"]}
+    "network": {"allowUnixSockets": ["${HOME}/.config/herdr/herdr.sock"]},
+    "excludedCommands": ["opsx dispatch *"]
   }
 }

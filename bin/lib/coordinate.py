@@ -530,6 +530,14 @@ class Round:
             for key in [k for k in self.memo["_notified"] if k.startswith(scope + "/blocked/") and k not in still]:
                 del self.memo["_notified"][key]
 
+    def forget_mr_stuck(self, c, keep):
+        """清掉這張卡 MR 卡住紀錄裡不是 keep（CI 原因是 <head sha>/<原因>，其他是 <原因>；MR 不卡時是 None）的鍵：
+        MR 恢復、換了原因或 CI 原因換了 commit 之後再卡住（同一個 commit 的 CI 重跑又紅也算）要再通知。"""
+        prefix = "%s/mr-stuck/" % card_key(c)
+        kept = prefix + keep if keep else None
+        for key in [k for k in self.memo["_notified"] if k.startswith(prefix) and k != kept]:
+            del self.memo["_notified"][key]
+
     def notify_sub_gates(self, sessions):
         """session 裡子 change 的 open gate。子 change 由主 change 的 session 轉給 subagent，協調者不答；
         記 ?? 並通知，人才看得到（卡本身的 waiting 只帶主 change 的 gate）。"""
@@ -1113,6 +1121,11 @@ def card_key(c):
     return "%s/%s" % (c["repo"], c["slug"])
 
 
+def spaced(reason):
+    """MR 卡住原因接在「卡在」後面：英文開頭空一格，中文直接接。Stop hook 的 babysit_reason 用同一條規則。"""
+    return " " + reason if reason[0].isascii() and reason[0].isalpha() else reason
+
+
 def session_scope(c):
     """卡屬於 feature session 時的通知鍵前綴 <repo>/@<feature>，否則 None。session 內的卡共用 pane，一件事不分卡。"""
     if c["dispatch"] and c["dispatch"].get("feature"):
@@ -1395,6 +1408,17 @@ def one_round(state, dry):
         if c["mr"] and c["mr"]["state"] == "ready":
             # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
+        # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
+        if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
+            reason = c["mr"]["stuck"]
+            ident = "%s/%s" % (c["mr"]["head_sha"], reason) if reason else None
+            # 只有 CI 原因跟 commit 有關：新 commit 的 CI 結果是新的一件事，其他原因換 commit 還是同一件事
+            if reason in ("已關閉", "衝突", "draft", "要求修改"):
+                ident = reason
+            r.forget_mr_stuck(c, ident)
+            # session 的 pane 共用 agent 狀態：pane 在做別張卡時，這張卡的 MR 沒人在修
+            if reason and (c["agent_status"] != "working" or session_scope(c)):
+                r.notify(c, "mr-stuck", ident, "MR 卡在" + spaced(reason), "看板／MR：" + c["mr"]["url"])
     if not paused:
         r.notify_sub_gates(data.get("sessions") or [])
     for c in live:

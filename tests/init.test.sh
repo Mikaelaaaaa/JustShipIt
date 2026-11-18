@@ -262,6 +262,8 @@ assert_eq "$(cj "$CS" sandbox.network.allowUnixSockets)" MISSING "herdr socket �
 CO="$OPSX_STATE_DIR/coordinator-settings.json"
 assert_file "$CO"
 assert_eq "$(cj "$CO" sandbox.network.allowUnixSockets)" "[\"$HOME/.config/herdr/herdr.sock\"]" "主控 session 的設定要開 herdr socket"
+assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "主控 session 的 opsx dispatch 要在沙盒外跑（git worktree add 寫 .git/worktrees）"
+assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c '"opsx dispatch \*"\|"opsx \*"')" 0 "opsx dispatch * 與整個 opsx * 不進使用者層排除清單"
 case "$outg" in *"主控 session 用 opsx lead 啟動（它帶 --settings $CO"*) ;; *) fail "要印主控 session 用 opsx lead 啟動與設定檔路徑：$outg" ;; esac
 case "$outg" in *"用 claude --settings"*) fail "不能再叫人直接跑 claude --settings（起來的協調者沒有 herdr 名）：$outg" ;; esac
 assert_eq "$(printf '%s\n' "$outg" | tail -1)" "init --global: 開協調者：在 herdr pane 跑 opsx lead" "結尾要提示用 opsx lead 開協調者：$outg"
@@ -276,6 +278,12 @@ assert_eq "$(cat "$CS")" "$before" "重跑改了 settings.json"
 assert_eq "$(cat "$CO")" "$co_before" "重跑改了主控 session 的設定檔"
 case "$outs" in *"coordinator-settings.json 已有"*) ;; *) fail "內容沒變時要說已有、不重寫（沙盒內重寫會失敗）：$outs" ;; esac
 assert_no_file "$CS.opsx-bak"        # no-op 不產生備份
+# 加 opsx dispatch * 之前裝的主控設定：重跑 init --global 要重寫成新範本
+printf '{"sandbox":{"network":{"allowUnixSockets":["%s"]}}}\n' "$HOME/.config/herdr/herdr.sock" > "$CO"
+outu="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "upgrade rerun: $outu"
+assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "舊的主控設定沒補上 opsx dispatch *"
+case "$outu" in *"寫 $CO"*) ;; *) fail "舊內容要重寫並印寫：$outu" ;; esac
+case "$outu" in *"coordinator-settings.json 已有"*) fail "內容不同時不能說已有：$outu" ;; esac
 
 # CLAUDE_CONFIG_DIR 沒設：寫 $HOME/.claude/settings.json
 mkdir -p "$FX/home"
