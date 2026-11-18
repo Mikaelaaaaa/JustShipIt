@@ -5,7 +5,8 @@ H="$OPSX_ROOT/hooks/lead-skill-reload.sh"
 REC="$OPSX_STATE_DIR/lead-skill.cksum"
 IN='{"hook_event_name":"UserPromptSubmit","prompt":"進度","cwd":"/"}'
 
-run_hook() { printf '%s' "$IN" | bash "$H"; }
+# 直接執行，不經 bash：settings 的 command 就是這樣叫它，沒有執行權限會失敗
+run_hook() { printf '%s' "$IN" | "$H"; }
 context() { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext'; }
 
 mkdir -p "$FX/plugin/skills/lead"
