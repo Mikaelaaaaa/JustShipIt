@@ -25,6 +25,7 @@ import late  # noqa: E402
 import priority  # noqa: E402
 import runtime  # noqa: E402
 import safefile  # noqa: E402
+import workplanwrite  # noqa: E402
 
 MAX_DISPATCH = 6
 # 同時活著的 pane 數上限預設值；<state>/max-working 可改
@@ -429,15 +430,16 @@ class Round:
         if self.dry:
             self.log("DRY workplan %s 標 %s" % (path, "、".join("%s %s" % (n, v) for _, n, v in marks)))
             return True
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
-        for key, name, value in marks:
-            i = status_line(lines, key, name)
-            if i is None:
-                self.log("?? %s 找不到 %s 的 status 行，不收尾" % (path, name))
-                return False
-            lines[i] = re.sub(r"status:.*$", "status: " + value, lines[i])
-        safefile.write_atomic(path, "\n".join(lines))
+        with workplanwrite.WorkplanLock(top):
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+            for key, name, value in marks:
+                i = status_line(lines, key, name)
+                if i is None:
+                    self.log("?? %s 找不到 %s 的 status 行，不收尾" % (path, name))
+                    return False
+                lines[i] = re.sub(r"status:.*$", "status: " + value, lines[i])
+            safefile.write_atomic(path, "\n".join(lines))
         self.plans.pop(top, None)
         if archived:
             self.log("ok   workplan 的 change %s 已歸檔、沒更新，跟著標 done" % "、".join(archived))
@@ -1232,7 +1234,7 @@ def status_line(lines, key, name):
         if m:
             item_indent = len(m.group(1)) + 2
             continue
-        if item_indent is None or not re.match(r"^ {%d}- name:\s*%s\s*(#.*)?$" % (item_indent, re.escape(name)), line):
+        if item_indent is None or not re.match(r"""^ {%d}- name:\s*(["']?)%s\1\s*(#.*)?$""" % (item_indent, re.escape(name)), line):
             continue
         for j in range(i + 1, len(lines)):
             if re.match(r"^ {%d}status:" % (item_indent + 2), lines[j]):

@@ -1,0 +1,189 @@
+"""workplan.yaml 的寫入端：在 `features:`、某 feature 的 `prs:`、某 PR 的 `changes:` 尾端加一項。
+只插入新行，原有的行逐字不變（註解、引號、排版都留著）；寫完用 chain.load_workplan 讀回驗證。
+寫入期間持 WorkplanLock，coordinate.mark_merged 改 status 時持同一把。
+
+用法：
+    sys.path.insert(0, os.environ["OPSX_LIB"]); import workplanwrite
+    workplanwrite.add_feature(top, {"name": ..., "status": "active", "depends-on": [], "prs": [{...}]})
+    workplanwrite.add_pr(top, <feature 名>, {"name": ..., "branch": ..., "changes": [{...}]})
+    workplanwrite.add_change(top, <PR 名>, {"name": ..., "status": "pending"})
+item 的值是字串、字串清單、或 mapping 清單（巢狀項目）；照 dict 順序寫出，第一個鍵要是 name。
+"""
+from __future__ import annotations
+
+import fcntl
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import chain  # noqa: E402
+import safefile  # noqa: E402
+
+NAME = re.compile(r"""^ *- name:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))""")
+# 每一層的子清單鍵與子項目的種類
+CHILD = {"feature": ("prs", "PR"), "PR": ("changes", "change"), "change": (None, None)}
+
+
+class WorkplanError(ValueError):
+    pass
+
+
+class WorkplanLock:
+    """openspec/workplan.lock 上的獨占 flock。鎖固定鎖檔而不是 workplan.yaml：write_atomic 會換 inode。"""
+
+    def __init__(self, top: str):
+        self.path = os.path.join(top, "openspec", "workplan.lock")
+        self.f = None
+
+    def __enter__(self) -> "WorkplanLock":
+        self.f = safefile.open_lock(self.path)
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.f.close()
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _header(lines: list, key: str, start: int, end: int, indent: int):
+    pat = re.compile(r"^ {%d}%s:\s*(#.*)?$" % (indent, re.escape(key)))
+    return next((i for i in range(start, end) if pat.match(lines[i])), None)
+
+
+def _items(lines: list, h: int, what: str) -> list:
+    """lines[h] 是清單頭，回每一項的 (第一行, 結束後一行, 縮排, 名字)。
+    最後一項結束在清單最後一行內容之後，所以清單後面接的註解與空行不算進去。"""
+    hind = _indent(lines[h])
+    ind, starts, last = None, [], None
+    for j in range(h + 1, len(lines)):
+        if not lines[j].strip() or lines[j].lstrip().startswith("#"):
+            continue
+        k, dash = _indent(lines[j]), lines[j].lstrip().startswith("- ")
+        if ind is None:
+            if k < hind or not dash:
+                break
+            ind = k
+        if k < ind or (k == ind and not dash):
+            break
+        if k == ind:
+            starts.append(j)
+        last = j
+    if not starts:
+        raise WorkplanError("workplan 的 %s 底下沒有項目" % what)
+    return [(s, e, ind, _name(lines[s])) for s, e in zip(starts, starts[1:] + [last + 1])]
+
+
+def _name(line: str):
+    m = NAME.match(line)
+    return next(g for g in m.groups() if g is not None) if m else None
+
+
+def _children(lines: list, item: tuple, kind: str):
+    """項目底下的子清單項目；沒有子清單頭是 None。"""
+    key = CHILD[kind][0]
+    h = _header(lines, key, item[0], item[1], item[2] + 2)
+    return None if h is None else _items(lines, h, "%s %s 的 %s:" % (kind, item[3], key))
+
+
+def _target(lines: list, path: str, kind: str, owner):
+    """新項目要插入的 (行 index, 縮排)：目標清單最後一項的最後一行之後。"""
+    h = _header(lines, "features", 0, len(lines), 0)
+    if h is None:
+        raise WorkplanError("%s 沒有 features:" % path)
+    features = _items(lines, h, "features:")
+    if kind == "feature":
+        return features[-1][1], features[-1][2]
+    parent = "feature" if kind == "PR" else "PR"
+    owners = features if kind == "PR" else [p for f in features for p in _children(lines, f, "feature") or []]
+    for item in owners:
+        if item[3] != owner:
+            continue
+        sibs = _children(lines, item, parent)
+        if sibs is None:
+            raise WorkplanError("workplan 的 %s %s 沒有 %s:" % (parent, owner, CHILD[parent][0]))
+        return sibs[-1][1], sibs[-1][2]
+    raise WorkplanError("workplan 沒有 %s %s" % (parent, owner))
+
+
+def _quote(field: str, v) -> str:
+    if not isinstance(v, str) or '"' in v or "\\" in v or "\n" in v:
+        raise WorkplanError("workplan 欄位 %s 的值 %r 不能寫成雙引號字串" % (field, v))
+    return '"%s"' % v
+
+
+def _render(item: dict, ind: int) -> list:
+    out = []
+    for n, (k, v) in enumerate(item.items()):
+        lead = " " * ind + "- " if n == 0 else " " * (ind + 2)
+        if isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+            out.append("%s%s:" % (lead, k))
+            for sub in v:
+                out += _render(sub, ind + 4)
+        elif isinstance(v, list):
+            out.append("%s%s: [%s]" % (lead, k, ", ".join(_quote(k, x) for x in v)))
+        else:
+            out.append("%s%s: %s" % (lead, k, _quote(k, v)))
+    return out
+
+
+def _new_names(item: dict, kind: str) -> list:
+    """新項目與它底下巢狀項目的 (種類, 名字)。"""
+    if next(iter(item), None) != "name" or not item["name"]:
+        raise WorkplanError("新 %s 的第一個欄位要是非空的 name，拿到 %r" % (kind, item))
+    key, sub = CHILD[kind]
+    out = [(kind, item["name"])]
+    for x in (item.get(key) or []) if key else []:
+        out += _new_names(x, sub)
+    return out
+
+
+def _existing(wp: dict) -> set:
+    features = wp.get("features") or []
+    prs = [p for f in features for p in f.get("prs") or []]
+    changes = [c for p in prs for c in p.get("changes") or []]
+    return ({("feature", x.get("name")) for x in features} | {("PR", x.get("name")) for x in prs}
+            | {("change", x.get("name")) for x in changes})
+
+
+def _found(wp: dict, kind: str, owner, name: str) -> bool:
+    features = wp.get("features") or []
+    if kind == "feature":
+        return any(f.get("name") == name for f in features)
+    if kind == "PR":
+        return any(p.get("name") == name for f in features if f.get("name") == owner for p in f.get("prs") or [])
+    prs = [p for f in features for p in f.get("prs") or [] if p.get("name") == owner]
+    return any(c.get("name") == name for p in prs for c in p.get("changes") or [])
+
+
+def _add(top: str, kind: str, owner, item: dict) -> None:
+    path = os.path.join(top, "openspec", "workplan.yaml")
+    names = _new_names(item, kind)
+    with WorkplanLock(top):
+        taken = [n for n in names if n in _existing(chain.load_workplan(path))]
+        if taken:
+            raise WorkplanError("workplan 已經有 %s" % "、".join("%s %s" % n for n in taken))
+        with open(path, encoding="utf-8") as f:
+            old = f.read()
+        lines = old.split("\n")
+        at, ind = _target(lines, path, kind, owner)
+        lines[at:at] = _render(item, ind)
+        safefile.write_atomic(path, "\n".join(lines))
+        if not _found(chain.load_workplan(path), kind, owner, item["name"]):
+            safefile.write_atomic(path, old)
+            raise WorkplanError("寫入後讀回 %s 找不到 %s %s，已還原" % (path, kind, item["name"]))
+
+
+def add_feature(top: str, item: dict) -> None:
+    _add(top, "feature", None, item)
+
+
+def add_pr(top: str, feature: str, item: dict) -> None:
+    _add(top, "PR", feature, item)
+
+
+def add_change(top: str, pr: str, item: dict) -> None:
+    _add(top, "change", pr, item)
