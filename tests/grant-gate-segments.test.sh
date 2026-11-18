@@ -95,6 +95,12 @@ out="$(gg 'rm tests/zz-probe.test.sh' "$UW")"; assert_eq "$(explicit "$out")" al
 for c in 'rm \-rf build' 'rm -rf>x build' 'rm $(cat list)' 'rm tests/zz-*.test.sh' "rm 'a b.txt'" 'rm x -rf' 'rm --recur build' $'rm a.txt\ngrep -rn foo .' 'rm a.txt; ls'; do
   out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "形狀不嚴格的 rm 不能明說放行（${c}）"
 done
+for c in 'rm .env' 'rm src/.env.local' 'rm a.txt .Env'; do
+  out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "刪 .env 不能明說放行（${c}）"
+done
+for c in 'rm .env.example' 'rm foo.envrc'; do
+  out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "範例檔或只含 env 字樣的檔照舊放行（${c}）: $(reason "$out")"
+done
 for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'git status && rm -rf build'; do
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的 rm -r／-f 要擋（${c}）: $(reason "$out")"
   reason "$out" | grep -qF 'action: delete' || fail "deny 要是 delete 授權（${c}）: $(reason "$out")"
