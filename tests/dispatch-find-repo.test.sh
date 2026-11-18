@@ -212,6 +212,12 @@ dispatch_refused "$P" card-o --repo "$U"
 assert_grep "$A" "$FX/err"
 assert_grep "$U" "$FX/err"
 assert_no_file "$U/.claude/worktrees/card-o"
+# --repo 指到第三個沒登記、跟同名衝突的 Acmecorp-CS 同名的資料夾：一樣不派（D15）
+T="$(mk_repo third/Acmecorp-CS)"; mkdir -p "$T/openspec/changes"
+card "$T" card-q
+dispatch_refused "$P" card-q --repo "$T"
+assert_grep '改名' "$FX/err"
+assert_no_file "$T/.claude/worktrees/card-q"
 # 卡同時在同名的 dup/Acmecorp-CS 與沒衝突的 Acmecorp-AI：照舊不派，但說可以用 --repo 派 Acmecorp-AI 那張（D14）
 card "$DUP" card-p; card "$A" card-p
 dispatch_refused "$P" card-p

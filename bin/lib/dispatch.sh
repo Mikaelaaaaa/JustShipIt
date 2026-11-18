@@ -378,7 +378,7 @@ if len(hits) > 1:
 print(hits[0])
 PY
 }
-refuse_conflict_repo() { # <top>：top 是同名衝突的其中一個、或名字已是清單裡另一個路徑的 repo 名，就說衝突、退出非 0。cwd 與 --repo 決定的 top 也要擋：dispatch.json 與授權以 repo 名為 key
+refuse_conflict_repo() { # <top>：top 的名字是同名衝突的名字、或已是清單裡另一個路徑的 repo 名，就說衝突、退出非 0。cwd 與 --repo 決定的 top 也要擋：dispatch.json 與授權以 repo 名為 key
   OPSX_TOP="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "${OPSX_CODE_ROOT:-$HOME/code}" "$OPSX_STATE_DIR" <<'PY'
 import os, pathlib, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
@@ -389,10 +389,9 @@ except ValueError as e:
     sources = []
 repos, conflicts, _, _ = sync.scan_repos(pathlib.Path(sys.argv[1]), sources)
 top = os.environ["OPSX_TOP"]
-for name, paths in conflicts.items():
-    if any(os.path.samefile(p, top) for p in paths):
-        sys.exit("opsx: dispatch: %s 是同名的 repo，不派：%s" % (top, sync.conflict_message(name, paths)))
 name = os.path.basename(top)
+if name in conflicts:
+    sys.exit("opsx: dispatch: %s 是同名的 repo，不派：%s" % (top, sync.conflict_message(name, conflicts[name])))
 if name in repos and not os.path.samefile(repos[name], top):
     sys.exit("opsx: dispatch: %s 跟已登記的 %s 同名（repo 名 %s），不派；把其中一個資料夾改名" % (top, repos[name], name))
 PY
