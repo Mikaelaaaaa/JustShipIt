@@ -77,4 +77,10 @@ printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職�
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
+# 職責 2：opsx-workflow 的 decision 由 opsx coordinate 照建議答並列在 ④，其餘 gate 轉給使用者（specs/opsx-lead「opsx repo 的決定題由 coordinate 照建議答」「其他 gate 仍不代答」）
+D2="$(grep -E '^2\. ' "$F")"; [ -n "$D2" ] || fail "缺職責 2"
+for k in 'opsx-workflow' 'decision' '照建議' 'ponytail' '④' 'Every other gate is the user'"'"'s'; do
+  case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
+done
+case "$D2" in *"Every gate is the user's"*) fail "職責 2 不該再寫每個 gate 都是使用者的" ;; esac
 echo ok

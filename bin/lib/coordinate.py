@@ -1,4 +1,4 @@
-"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
+"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、照建議答 opsx-workflow 的 decision gate、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
 
 每個動作是一條外部指令（opsx / git / openspec）。推節點（送 /<stage>）是每張卡的 drive 的事，這裡不送。
 合併永遠由人按（板上的「合併」或 forge 網頁），這裡從不呼叫 opsx merge。

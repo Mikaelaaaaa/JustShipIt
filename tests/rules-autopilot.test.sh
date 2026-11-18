@@ -19,8 +19,10 @@ has "$r" 'cd <worktree 根>'
 has "$r" 'bash tests/run.sh'
 has "$r" '不加 `VAR=…` 或 `export`'
 gone "$r" 'OPSX_ROOT='
-# gate 一律由使用者答；操作類題不開 gate（me-20261112-1415 D3、D4）
-has "$r" '協調者不代答'
+# opsx-workflow 的 decision 由協調者照建議答，其餘 gate 由使用者答；操作類題不開 gate（coordinate-answer-opsx-gates D3、me-20261112-1415 D4）
+has "$r" 'opsx-workflow 的 decision 由協調者照建議答'
+has "$r" '其餘 gate 由使用者答'
+gone "$r" '協調者不代答'
 has "$r" '不開 gate'
 # 段與段用 ' · ' 隔開，AGENTS.md 依它拆條列：「Bash 會被 dontAsk 拒的寫法」要是自己的一段
 has "$r" ' · Bash 會被 dontAsk 拒的寫法'
