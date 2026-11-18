@@ -71,4 +71,34 @@ R="$(fixture hasmr)"; workplan "$R" c "mr: none"; git -C "$R" branch -q feat/c/m
 printf '# report\n\n## MR\nhttps://gitlab.example.com/g/p/-/merge_requests/9\n' > "$R/openspec/changes/c/report.md"
 assert_eq "$(stage "$R" c)" babysit "已開 MR"
 
+# 判不成時 pr 行附原因：驗收 openspec/changes/agent-20261116-1640/specs/no-mr-archive/spec.md「標了不開 MR 但判不成時 pr 行附原因」
+line() { ( source "$OPSX_ROOT/bin/lib/stage.sh"; stage_of "$1" "$2" ); }
+has() { case "$1" in *"$2"*) ;; *) fail "[$2] not in [$1]${3:+ — $3}" ;; esac; }
+hasnt() { case "$1" in *"$2"*) fail "[$2] should not be in [$1]${3:+ — $3}" ;; esac; }
+
+R="$(fixture why-ahead)"; workplan "$R" c "mr: none"
+git -C "$R" checkout -q -b feat/c/mikaela; git -C "$R" commit -q --allow-empty -m a; git -C "$R" commit -q --allow-empty -m b
+out="$(line "$R" c)"; has "$out" "pr · c" "branch 有 2 commit"; has "$out" "workplan mr: none，但 branch 有 2 個自己的 commit" "branch 有 2 commit"
+
+R="$(fixture why-nobranch)"; workplan "$R" c "mr: none"
+out="$(line "$R" c)"; has "$out" "pr · c"; has "$out" "workplan mr: none，但 本地 branch feat/c/mikaela 查不到"
+
+R="$(fixture why-nobase)"; workplan "$R" c "mr: none"; git -C "$R" branch -q feat/c/mikaela HEAD
+git -C "$R" update-ref -d refs/remotes/origin/main
+out="$(line "$R" c)"; has "$out" "pr · c"; has "$out" "workplan mr: none，但 origin/main 查不到"
+
+R="$(fixture why-upper)"; workplan "$R" c "mr: None"; git -C "$R" branch -q feat/c/mikaela HEAD
+out="$(line "$R" c)"; has "$out" "pr · c"; has "$out" "workplan mr: None，但 mr: None 不認得，只認 none"
+
+R="$(fixture why-no)"; workplan "$R" c "mr: no"; git -C "$R" branch -q feat/c/mikaela HEAD
+out="$(line "$R" c)"; has "$out" "pr · c"; has "$out" "workplan mr: no，但 mr: no 不認得，只認 none"
+
+R="$(fixture why-nobranchfield)"
+printf 'features:\n  - name: f\n    prs:\n      - name: c\n        status: pending\n        mr: none\n' > "$R/openspec/workplan.yaml"
+out="$(line "$R" c)"; has "$out" "pr · c"; has "$out" "workplan mr: none，但 workplan 沒寫 branch"
+
+# 反例：沒寫 mr 欄位 → pr 行不附原因
+R="$(fixture why-nofield)"; workplan "$R" c ""; git -C "$R" branch -q feat/c/mikaela HEAD
+out="$(line "$R" c)"; has "$out" "pr · c"; hasnt "$out" "workplan mr:"
+
 echo "stage-no-mr ok"
