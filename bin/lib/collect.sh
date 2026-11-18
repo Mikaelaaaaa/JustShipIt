@@ -449,7 +449,8 @@ def progress_class(c, top, prs):
         # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)
         if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return "waiting_on_you"
-    if c["stage"] in ("review", "pr", "babysit"): return "testing"
+    # 不在「已完成」的 archive 卡只有沒 MR、只差歸檔的那種
+    if c["stage"] in ("review", "pr", "babysit", "archive"): return "testing"
     if c["dispatch"]: return "developing"
     return "not_dispatched"
 

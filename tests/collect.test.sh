@@ -121,7 +121,7 @@ C="$(card "$J" a x7)"; assert_eq "$(q "$C" waiting.options)" '["拒絕"]' "merge
 C="$(card "$J" a x1)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" title)" 第一張
 assert_eq "$(q "$C" source)" me; assert_eq "$(q "$C" upstream)" null; assert_eq "$(q "$C" stale)" false
 assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" dispatch)" null; assert_eq "$(q "$C" agent_status)" null; assert_eq "$(q "$C" kind)" dev
-C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" propose; assert_eq "$(q "$C" section)" 待指派
+C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" grill; assert_eq "$(q "$C" section)" 待指派
 C="$(card "$J" a x9)"; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" upstream)" closed; assert_eq "$(q "$C" stale)" true; assert_eq "$(q "$C" source)" "gitlab:a#412"
 C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 進行中
 # 排序：待處理 · 進行中 · 待指派 · 收件匣 · 已完成
