@@ -36,6 +36,9 @@ case "$T2" in *'還沒有邏輯表'*) ;; *) fail "類型 2 要寫沒有邏輯表
 for s in '沒有 CI' '`pipeline_status`' '`## 邏輯表`' '`mr.head_sha`' '前 7 碼' '邏輯表沒產出'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
+# 類型 6 也照沒事不回報（design D36）
+T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
+case "$T6" in *'沒事不回報'*) ;; *) fail "類型 6 要照沒事不回報（design D36）" ;; esac
 # 類型 1 的區塊欄只寫 repo，milestone 另寫（design D12）
 T1="$(awk '/^### 類型 1：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T1" in *'區塊 is the repo only'*) ;; *) fail "類型 1 要寫區塊欄只寫 repo" ;; esac
@@ -184,6 +187,7 @@ GATES="$(printf '%s\n' "$PROSE" | grep -F '沒派出去')"
 for s in 'open_gates' 'gates.md' 'waits_on' 'workplan' 'archived' 'needs' '類型 4' 'type 不明'; do
   case "$GATES" in *"$s"*) ;; *) fail "沒派出去的卡的 gate 那行缺：$s — $GATES" ;; esac
 done
+case "$GATES" in *'opsx-workflow'*'duty 9'*) ;; *) fail "沒派出去的卡的 gate：opsx-workflow 的照職責 9 代答（design D36）— $GATES" ;; esac
 case "$GATES" in *'live list'*) fail "等的卡合了沒不能看活卡清單 — $GATES" ;; esac
 # .errors 的 glab/gh 是讀不到，不是快取；寫類型 2 前用 opsx mr 重讀
 ERR="$(printf '%s\n' "$PROSE" | grep -F '.errors')"
