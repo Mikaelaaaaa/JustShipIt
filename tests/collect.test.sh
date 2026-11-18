@@ -279,7 +279,7 @@ assert_eq "$(q "$(card "$J" r5 bad-ts)" open_gates)" "[{\"id\": \"g1\", \"opened
 E="$(q "$J" errors)"
 GE="$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(json.dumps([e for e in json.load(sys.stdin)["errors"] if e["source"].endswith("/r5/openspec/changes/bad-ts/gates.md")],ensure_ascii=False))')"
 assert_eq "$(printf '%s' "$GE" | python3 -I -c 'import json,sys;print(len(json.load(sys.stdin)))')" 3 "三個壞值各一筆 error：$E"
-for want in "g1.*$FUT" "g2.*2026-11-06 14:05" "g3.*昨天"; do printf '%s' "$GE" | grep -Eq "$want" || fail "errors 要有 gate id 與原值（$want）：$E"; done
+for want in "g1.*$FUT" "g2.*2026-11-06 14:05" "g3.*昨天"; do printf '%s' "$GE" | grep -Eq "$want" || fail "errors 要有 gate id 與原值（${want}）：$E"; done
 case "$E" in *g4*|*g5*) fail "寬限內與 answered 的 gate 不該進 errors：$E" ;; esac
 # ---------- 派工指示（specs/board-collect「卡帶派工指示」） ----------
 RN="$FX/code-notes"; mkdir -p "$RN/rn/.git"

@@ -25,6 +25,7 @@
 #   type: approval | decision      action: push|mr|migrate|…（approval 才有）      status: open | answered      opened_at: <ISO>
 #   needs: run（可選：建議欄是要人在終端機跑的指令；看板不給照建議）      type 沒寫或不在同義詞表內 → waiting.type 為 type 不明
 #   waits-on: <卡名>（可選：這題要等那張卡合進 main 才能做；coordinate 只憑這個欄位停 pane，不從問題與建議的文字猜）
+#   blocks-from: apply（可選：卡還沒有 tasks.md 時不算等人，不進 waiting，open_gates 照列；dispatch 的 install-deps 用）
 #   問題: …   建議: …   選項: a | b (Recommended) | c（decision 才有）   證據: …   風險: …   預設: …
 #   已確認: …（可多行，到下一個欄位為止）   answer: …（answered 時）
 
@@ -182,7 +183,7 @@ if os.path.exists(agents_path) and not os.environ["OPSX_C_HERDR_ERR"]:
         agents = None
         errors.append({"source": "herdr", "message": "agent list 讀不懂（要 result.agents）：%s" % e})
 
-FIELD = re.compile(r"^(type|needs|waits-on|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
+FIELD = re.compile(r"^(type|needs|waits-on|blocks-from|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
 
 def parse_gates(text):
     gates, cur, key = [], None, None
@@ -286,6 +287,11 @@ def mergeable(card, agent_status):
                    for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in parse_gates(read(p)))
     return not mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
 
+# 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人
+def gates_in_force(gates, d):
+    if os.path.exists(os.path.join(d, "tasks.md")): return gates
+    return [g for g in gates if g.get("blocks-from") != "apply"]
+
 def waiting_of(card, gates, agent_status):
     for g in gates:
         if g.get("status", "").strip() != "open": continue
@@ -338,7 +344,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
-    waiting = None if c["archived"] else waiting_of(c, gates, agent_status)
+    waiting = None if c["archived"] else waiting_of(c, gates_in_force(gates, d), agent_status)
     if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
     elif waiting: section = "待處理"
     elif disp: section = "進行中"
@@ -454,7 +460,8 @@ def progress_class(c, top, prs):
         # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)
         if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return "waiting_on_you"
-    if c["stage"] in ("review", "pr", "babysit"): return "testing"
+    # 不在「已完成」的 archive 卡只有沒 MR、只差歸檔的那種
+    if c["stage"] in ("review", "pr", "babysit", "archive"): return "testing"
     if c["dispatch"]: return "developing"
     return "not_dispatched"
 

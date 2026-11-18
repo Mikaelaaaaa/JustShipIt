@@ -279,7 +279,9 @@ mk_card carry-s15 incident data "x15"
 mkdir -p "$CH/carry-d15"; printf 'schema: opsx\n' > "$CH/carry-d15/.openspec.yaml"
 printf '# 標題\n\n---\n\n## 證據\n\n- 原有\n' > "$CH/carry-d15/inbox.md"
 before="$(snap)"
-assert_rc 1 opsx merge-card carry-s15 --into carry-d15 --repo "$A"
+out="$(opsx merge-card carry-s15 --into carry-d15 --repo "$A" 2>&1)"; rc=$?
+assert_eq "$rc" 2 "沒有 frontmatter 的目標要由 die 退出：$out"
+case "$out" in *"併不進 carry-d15，兩張卡都沒動"*) ;; *) fail "die 的訊息要完整印出，不能被 unbound variable 蓋掉：$out" ;; esac
 assert_eq "$(snap)" "$before" "沒有 frontmatter 的目標不能被寫進內文"
 
 # --- 巢狀目標只有 impact 變、evidence 相同：改成同一行後 evidence 還在 ---
