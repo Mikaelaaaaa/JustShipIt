@@ -192,6 +192,19 @@ assert_no_file "$DUP/.claude/worktrees/card-k"
 card "$A" card-l
 dispatch_ok "$P" card-l >/dev/null
 assert_eq "$(key Acmecorp-AI/card-l)" true
+# 站在同名的 repo 裡派它自己的卡、或 --repo 指到同名的 repo：一樣不派（D8）
+card "$DUP" card-m
+dispatch_refused "$DUP" card-m
+assert_grep "$C" "$FX/err"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_no_file "$DUP/.claude/worktrees/card-m"
+card "$C" card-n
+dispatch_refused "$P" card-n --repo "$C"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_eq "$(key Acmecorp-CS/card-n)" false
+assert_no_file "$C/.claude/worktrees/card-n"
 
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"

@@ -90,10 +90,20 @@ def append_to_section(text: str, heading: str, line: str) -> str:
 
 
 def source_paths(state: pathlib.Path) -> list[pathlib.Path]:
+    """sources.toml 每筆 [[source]] 的 path。寫壞或形狀不對都 raise ValueError，訊息含檔名與壞掉的值；呼叫端記一筆錯、只列 root 底下的 repo。"""
     f = state / "sources.toml"
     if not f.exists():
         return []
-    return [pathlib.Path(s["path"]) for s in tomllib.loads(f.read_text(encoding="utf-8")).get("source", []) if "path" in s]
+    try:
+        sources = tomllib.loads(f.read_text(encoding="utf-8")).get("source", [])
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError("%s TOML 壞了：%s" % (f, " ".join(str(e).split()))) from e
+    if not isinstance(sources, list) or not all(isinstance(s, dict) for s in sources):
+        raise ValueError("%s 的 source 要寫成 [[source]] 表的陣列，現在是：%r" % (f, sources))
+    bad = [s["path"] for s in sources if "path" in s and not isinstance(s["path"], str)]
+    if bad:
+        raise ValueError("%s 的 path 要是字串，現在是：%r" % (f, bad[0]))
+    return [pathlib.Path(s["path"]) for s in sources if "path" in s]
 
 
 def has_customer(state: pathlib.Path) -> bool:
@@ -107,32 +117,47 @@ def log_sync_row(opsx_root: pathlib.Path, state: pathlib.Path, source: str, crea
                           capture_output=True, text=True, env=dict(os.environ, OPSX_STATE_DIR=str(state)))
 
 
-def scan_repos(root: pathlib.Path, sources: list[pathlib.Path]) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]], list[str]]:
+def scan_repos(root: pathlib.Path, sources: list[pathlib.Path]) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]], list[str], list[pathlib.Path]]:
     """已登記 repo 清單，collect、sync、dispatch 共用：root 下的子目錄，加上 sources（sources.toml 登記的 path）本身，不含它的兄弟目錄。
-    有 openspec/changes 而且 .git 是目錄才算；.git 是檔的是 linked worktree，只把名字放進 worktrees。以實體路徑去重。
+    有 openspec/changes 而且 .git 是目錄才算；.git 是檔的是 linked worktree，只把名字放進 worktrees；沒有 .git 的放進 not_repos，呼叫端記錯。
+    以 inode 去重：macOS 上大小寫不同的寫法 resolve() 不會統一，比字串會把同一個 repo 當成兩個。先掃到的寫法勝出。
     repo 名取實體路徑的 basename（symlink 進來的 repo，debt.sh 回報的也是實體名）。兩個實體路徑同名時兩個都不收、放進 conflicts：
     grants.toml、dispatch.json、workspaces.toml 都以名字為 key，收了其中一個或兩個都收，授權與派工就會落到另一個 repo 上。"""
     candidates = sorted(root.iterdir()) if root.is_dir() else []
     by_name: dict[str, list[pathlib.Path]] = {}
     worktrees: list[str] = []
+    not_repos: list[pathlib.Path] = []
+    seen: set[tuple[int, int]] = set()
     for d in candidates + sources:
         if not (d / "openspec" / "changes").is_dir():
             continue
         real = d.resolve()
+        st = real.stat()
+        if (st.st_dev, st.st_ino) in seen:
+            continue
+        seen.add((st.st_dev, st.st_ino))
         if (real / ".git").is_file():
             if real.name not in worktrees:
                 worktrees.append(real.name)
         elif (real / ".git").is_dir():
-            paths = by_name.setdefault(real.name, [])
-            if real not in paths:
-                paths.append(real)
+            by_name.setdefault(real.name, []).append(real)
+        else:
+            not_repos.append(real)
     repos = {name: paths[0] for name, paths in by_name.items() if len(paths) == 1}
     conflicts = {name: paths for name, paths in by_name.items() if len(paths) > 1}
-    return repos, conflicts, worktrees
+    return repos, conflicts, worktrees, not_repos
 
 
 def conflict_message(name: str, paths: list[pathlib.Path]) -> str:
     return "repo 名 %s 重複：%s；兩個都不收，把其中一個資料夾改名" % (name, "、".join(str(p) for p in paths))
+
+
+def not_repo_message(path: pathlib.Path) -> str:
+    return "%s 有 openspec/changes 但沒有 .git，不算 repo，不收" % path
+
+
+def sources_message(e: ValueError) -> str:
+    return "%s；只列 root 底下的 repo" % e
 
 
 def demote_headings(body: str) -> str:
@@ -358,9 +383,16 @@ def main() -> int:
     now = datetime.datetime.now().astimezone()
     today = now.date().isoformat()
     tally = Tally()
-    repos, conflicts, _ = scan_repos(a.root.resolve(), source_paths(a.state))
+    try:
+        sources = source_paths(a.state)
+    except ValueError as e:
+        tally.error("sources", sources_message(e))
+        sources = []
+    repos, conflicts, _, not_repos = scan_repos(a.root.resolve(), sources)
     for name, paths in conflicts.items():
         tally.error("repos", conflict_message(name, paths))
+    for path in not_repos:
+        tally.error("repos", not_repo_message(path))
     index = build_index(repos, a.state)
 
     wanted = (a.source,) if a.source else SOURCES

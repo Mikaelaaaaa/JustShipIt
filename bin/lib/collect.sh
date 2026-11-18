@@ -52,24 +52,27 @@ opsx_collect() {
   # archive 只取最新 N 張，已完成不能無限長。
   local repo_dir repo d slug archived stage mrfile no_mr n=0 archive_cap="${OPSX_COLLECT_ARCHIVE_CAP:-30}" seen_archive real
   : > "$work/cards.tsv"; : > "$work/legacy"; mkdir -p "$work/mr"
-  # repo 清單跟 sync、dispatch 同一份（sync.scan_repos）。sources.toml 壞了只列 root 底下的 repo、記 errors；同名的兩個都不收、記 errors
+  # repo 清單跟 sync、dispatch 同一份（sync.scan_repos）。sources.toml 寫壞或形狀不對只列 root 底下的 repo、記 errors；
+  # 同名的兩個都不收、沒有 .git 的不收，都記 errors
   "$OPSX_PY" -I - "$root" "$state" > "$work/scan" <<'PY' || die "collect: 取 repo 清單失敗"
-import os, pathlib, sys, tomllib
+import os, pathlib, sys
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib"))
 import sync
 root, state = pathlib.Path(sys.argv[1]).resolve(), pathlib.Path(sys.argv[2])
 try:
     sources = sync.source_paths(state)
-except tomllib.TOMLDecodeError as e:
-    print("error\t%s\tTOML 壞了，只列 root 底下的 repo：%s" % (state / "sources.toml", " ".join(str(e).split())))
+except ValueError as e:
+    print("error\t%s\t%s" % (state / "sources.toml", sync.sources_message(e)))
     sources = []
-repos, conflicts, worktrees = sync.scan_repos(root, sources)
+repos, conflicts, worktrees, not_repos = sync.scan_repos(root, sources)
 for name, path in repos.items():
     print("repo\t%s\t%s" % (name, path))
 for name in worktrees:
     print("worktree\t%s" % name)
 for name, paths in conflicts.items():
     print("error\trepos\t%s" % sync.conflict_message(name, paths))
+for path in not_repos:
+    print("error\trepos\t%s" % sync.not_repo_message(path))
 PY
   awk -F'\t' '$1=="repo"{print $2 "\t" $3}' "$work/scan" > "$work/repos"
   awk -F'\t' '$1=="worktree"{print $2}' "$work/scan" > "$work/worktrees"
@@ -547,6 +550,8 @@ def orphan_reason(key, pane):
     if entry is None or str(entry.get("pane")) != str(pane): return None
     # opsx 自己已經關掉這個 pane（stop 記 pane_closed_at、reap 記 reaped_at）：同一個 id 現在是別人的 pane
     if entry.get("pane_closed_at") or entry.get("reaped_at"): return None
+    # 這次沒掃到的 repo（同名被丟掉、sources.toml 壞了）看不到它的卡，判不出 pane 還有沒有人用
+    if key[0] not in repo_paths: return None
     # session 條目不是卡：走到這裡代表 pane 上已沒有活成員（live_panes 先擋掉了）
     if key[1].startswith("@"): return "session-done"
     c = card_by_key.get(key)

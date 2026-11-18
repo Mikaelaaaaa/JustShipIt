@@ -324,7 +324,27 @@ opsx sync --root "$ROOT" --source gitlab >/dev/null 2>&1
 assert_eq "$(find "$DUP/openspec/changes" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d ' ')" 0 "同名的登記 repo 不建殼"
 assert_eq "$(find "$CH" -mindepth 1 -maxdepth 1 ! -name archive | wc -l | tr -d ' ')" "$n_a" "root 底下同名的 a 也不建殼"
 logcols | cut -f5 | grep -qF "$DUP" || fail "第一個錯誤是同名，含登記的 a 的路徑：$(lastsync)"
+logcols | cut -f5 | grep -qF "$A" || fail "第一個錯誤是同名，含 root 底下 a 的路徑：$(lastsync)"
+logcols | cut -f5 | grep -qF "改名" || fail "第一個錯誤是同名，叫人改資料夾名：$(lastsync)"
 rm -f "$OPSX_TEST_ISSUES/dup.json" "$A/dup.py" "$B/dup.py"
+cp "$FX/sources.dup.bak" "$OPSX_STATE_DIR/sources.toml"
+
+# --- root 底下有 openspec/changes 但沒有 .git：不收，記一筆錯說它沒有 .git ---
+mkdir -p "$ROOT/nogit/openspec/changes"; NG="$(cd "$ROOT/nogit" && pwd -P)"
+opsx sync --root "$ROOT" --source debt >/dev/null 2>&1
+assert_eq "$(logcols | cut -f4)" 1 "沒有 .git 記一筆錯：$(lastsync)"
+logcols | cut -f5 | grep -qF "$NG" || fail "錯誤要有沒有 .git 的路徑：$(lastsync)"
+logcols | cut -f5 | grep -qF "沒有 .git" || fail "錯誤要說沒有 .git：$(lastsync)"
+rm -rf "$ROOT/nogit"
+
+# --- sources.toml 形狀不對（path = 1）：跟寫壞一樣，記錯、只列 root 底下的 repo，退出碼 0 ---
+printf '\n[[source]]\nkind = "gitlab"\nrepo = "bad"\nproject = "g/bad"\npath = 1\n' >> "$OPSX_STATE_DIR/sources.toml"
+echo "# shortcut: b 的形狀測試, 要進" > "$B/shape.py"
+out="$(opsx sync --root "$ROOT" --source debt 2>&1)"; assert_eq "$?" 0 "形狀不對不改退出碼：$out"
+assert_eq "$(python3 -I -c 'import json,sys;print("b" in json.load(open(sys.argv[1])))' "$SNAP")" True "root 底下的 b 照撈"
+[ "$(logcols | cut -f4)" -ge 1 ] || fail "形狀不對要記錯：$(lastsync)"
+logcols | cut -f5 | grep -qF "path" || fail "錯誤要指出 path：$(lastsync)"
+rm -f "$B/shape.py"
 cp "$FX/sources.dup.bak" "$OPSX_STATE_DIR/sources.toml"
 
 # ========== 真實樣本（board-inbox 1.1，tests/fakes/gh-samples/，cli/cli 公開 issue 2026-11-06 實抓）==========

@@ -49,6 +49,7 @@ opsx_dispatch() {
   fi
   [ -n "$top" ] || die "dispatch: 不在 git repo 裡，或給 --repo"
   top="$(cd "$top" && pwd -P)"
+  refuse_conflict_repo "$top" || exit 2
   case "$agent" in claude|codex) ;; *) die "dispatch: --agent 只收 claude|codex" ;; esac
   case "$mode" in interactive|autopilot) ;; drive) mode=autopilot ;; *) die "dispatch: --mode 只收 interactive|autopilot（drive 是 autopilot 的舊名）" ;; esac
   local card="$slug" repo; repo="$(basename "$top")"
@@ -358,12 +359,12 @@ PY
 
 find_card_repo() { # <slug>：已登記 repo（跟 collect、sync 同一份清單）裡剛好一個有 openspec/changes/<slug>/ 就印它的路徑，否則說明原因、退出非 0
   OPSX_SLUG="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "${OPSX_CODE_ROOT:-$HOME/code}" "$OPSX_STATE_DIR" <<'PY'
-import os, pathlib, sys, tomllib
+import os, pathlib, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
 slug = os.environ["OPSX_SLUG"]
 try:
-    repos, conflicts, _ = sync.scan_repos(pathlib.Path(sys.argv[1]), sync.source_paths(pathlib.Path(sys.argv[2])))
-except tomllib.TOMLDecodeError as e:
+    repos, conflicts, _, _ = sync.scan_repos(pathlib.Path(sys.argv[1]), sync.source_paths(pathlib.Path(sys.argv[2])))
+except ValueError as e:
     sys.exit("opsx: dispatch: sources.toml 壞了，找不了別的 repo：%s" % e)
 clashes = [sync.conflict_message(n, ps) for n, ps in conflicts.items() if any((p / "openspec" / "changes" / slug).is_dir() for p in ps)]
 if clashes:
@@ -374,6 +375,22 @@ if not hits:
 if len(hits) > 1:
     sys.exit("opsx: dispatch: %s 在 %d 個 repo 都有，給 --repo 指定一個：%s" % (slug, len(hits), "、".join(hits)))
 print(hits[0])
+PY
+}
+refuse_conflict_repo() { # <top>：top 是同名衝突的其中一個 repo 就說衝突、退出非 0。cwd 與 --repo 決定的 top 也要擋：dispatch.json 與授權以 repo 名為 key
+  OPSX_TOP="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "${OPSX_CODE_ROOT:-$HOME/code}" "$OPSX_STATE_DIR" <<'PY'
+import os, pathlib, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import sync
+try:
+    sources = sync.source_paths(pathlib.Path(sys.argv[2]))
+except ValueError as e:
+    print("opsx: dispatch: %s" % sync.sources_message(e), file=sys.stderr)
+    sources = []
+_, conflicts, _, _ = sync.scan_repos(pathlib.Path(sys.argv[1]), sources)
+top = os.environ["OPSX_TOP"]
+for name, paths in conflicts.items():
+    if any(os.path.samefile(p, top) for p in paths):
+        sys.exit("opsx: dispatch: %s 是同名的 repo，不派：%s" % (top, sync.conflict_message(name, paths)))
 PY
 }
 workplan_branch() { wp_pr_field "$1" "$2" branch; } # <top> <slug>：印 workplan 裡這張卡所屬 PR 的 branch，沒有就空
