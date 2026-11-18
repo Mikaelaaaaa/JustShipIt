@@ -267,7 +267,8 @@ assert_fixed '「邏輯表的 D3 是什麼」' "$FX/description"
 assert_not_fixed '「D3 是什麼」' "$FX/description"
 
 # --- 引用業務說明的句子：觸發、對回節點、頂端標功能、不一致要明說 ---
-assert_fixed 'a ⚠ item, or a sentence of its business summary' "$FX/description"
+assert_fixed 'a ⚠ item, or a sentence of its business sections' "$FX/description"
+assert_fixed '「業務說明這句是什麼意思」' "$FX/description"
 assert_fixed 'Use this section when the user quotes a D node, a condition-table row, a ⚠ item, or a sentence of a business section of an existing map and asks what it means.' "$FX/answer-first"
 for k in 'When the quoted line is a sentence of `## 這支 PR 在做什麼（業務說明）` or of a feature'"'"'s `### 業務上在做什麼`, find the D nodes it summarizes from that feature'"'"'s 做了什麼, 流程圖, and 條件表, and open the reply with one line 「這句對到 D2、D4」 before the four parts.' \
   'Parts 1 to 4 cover only those nodes, and part 2 gives no row to a gate before them; this overrides the every-gate rule of part 2.' \
