@@ -43,6 +43,13 @@ assert_not_fixed 'post a new comment' "$STEP"
 assert_not_fixed 'no `## 邏輯表` line' "$STEP"
 assert_fixed 'overwrite' "$STEP"
 
+# --- autopilot-forge-access：步 6 讀 GitLab thread 用 glab mr view --comments，不用 glab api（autopilot 不放行）---
+STEP6="$FX/step6"
+awk '/^6\. /{on=1} /^7\. /{on=0} on' "$SK" > "$STEP6"
+[ -s "$STEP6" ] || fail "skills/babysit/SKILL.md 沒有步 6"
+grep -oE 'Unresolved threads:[^.]*' "$STEP6" | grep -qF 'glab mr view <iid> --comments' || fail "步 6 讀未解決 thread 要用 glab mr view <iid> --comments"
+assert_not_fixed 'glab api' "$STEP6"
+
 # --- 不重產的情況（Scenario「沒有 push 不重產」）---
 assert_fixed 'Only a `threads-only` run that pushed' "$STEP"
 for k in '`check`' '`merge <sha>`' 'did not push'; do

@@ -25,8 +25,20 @@ launch_args() { # <agent> <model> <mode> <repo> <herdr 名> <主 repo>
 
 write_settings() { # <file> <repo> <主 repo openspec 目錄> <mode> <herdr 名>：autopilot 直接做那級 allow，永遠要人那級 deny；repo 永遠的授權也進 allow。interactive 只寫可寫目錄。兩種模式都寫 env OPSX_CARD，opsx new 靠它認出 dispatch 的 agent
   OPSX_REPO="$2" OPSX_SD="$OPSX_STATE_DIR" OPSX_MODE="$4" OPSX_NAME="$5" "$OPSX_PY" -I - "$1" "$3" <<'PY'
-import json,os,sys,tomllib
+import json,os,subprocess,sys,tomllib,urllib.parse
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib")); import safefile
+
+def remote_host(top):
+    """主要 remote（gitlab，沒有就 origin）的主機名；兩個都沒有回 None。"""
+    for name in ("gitlab", "origin"):
+        r = subprocess.run(["git", "-C", top, "config", "--get", f"remote.{name}.url"], capture_output=True, text=True)
+        if r.returncode == 1: continue   # 這個 remote 不存在
+        if r.returncode != 0: raise SystemExit(f"{top}: 讀 remote.{name}.url 失敗：{r.stderr.strip()}")
+        url = r.stdout.strip()
+        host = urllib.parse.urlsplit(url).hostname if "://" in url else url.split("@", 1)[-1].split(":", 1)[0]   # 沒有 scheme 的是 scp 寫法 user@host:path
+        if not host: raise SystemExit(f"{top}: remote.{name}.url 取不到主機名：{url!r}")
+        return host
+    return None
 sd=os.environ["OPSX_SD"]; repo=os.environ["OPSX_REPO"]
 dirs=[sys.argv[2],sd]
 env={"OPSX_CARD":os.environ["OPSX_NAME"]}
@@ -57,10 +69,15 @@ if "docs:api" in scripts: allow.append("Bash(pnpm docs:api:*)")
 deny=["Bash(git push --force:*)","Bash(git push -f:*)","Bash(deploy.sh:*)","Bash(sops:*)","Bash(rm -rf /:*)"]
 try:
     g=tomllib.load(open(os.path.join(sd,"grants.toml"),"rb")).get("repos",{}).get(repo,{})
-    if g.get("push"): allow.append("Bash(git push:*)")
-    if g.get("mr"): allow+=["Bash(glab mr create:*)","Bash(glab mr update:*)","Bash(gh pr create:*)","Bash(gh pr edit:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"]   # gh pr comment 與 glab api 不進 allow：規則放行形狀之外的寫法（-R other/repo、merge?x=/notes/1）
-    if g.get("migrate"): allow+=["Bash(pnpm db:migrate:*)","Bash(pnpm --filter * run db:migrate:*)","Bash(alembic upgrade:*)"]
-except FileNotFoundError: pass
-safefile.write_atomic(sys.argv[1], json.dumps({"env":env,"permissions":{"allow":allow,"deny":deny,"additionalDirectories":dirs}},indent=2))
+except FileNotFoundError: g={}
+if g.get("push"): allow.append("Bash(git push:*)")
+if g.get("mr"): allow+=["Bash(glab mr create:*)","Bash(glab mr update:*)","Bash(glab mr note:*)","Bash(gh pr create:*)","Bash(gh pr edit:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"]   # gh pr comment 與 glab api 不進 allow：規則放行形狀之外的寫法（-R other/repo、merge?x=/notes/1）
+if g.get("migrate"): allow+=["Bash(pnpm db:migrate:*)","Bash(pnpm --filter * run db:migrate:*)","Bash(alembic upgrade:*)"]
+settings={"env":env,"permissions":{"allow":allow,"deny":deny,"additionalDirectories":dirs}}
+# dontAsk 下沒列進 allowedDomains 的網域一律被沙盒拒絕。git 在沙盒內連主機；
+# glab 是 Go，沙盒內驗不過 TLS 憑證（gh 撞過 x509 -26276），放沙盒外跑，能不能跑仍由 allow 與 grant hook 決定
+host=remote_host(os.path.dirname(sys.argv[2])) if g.get("push") or g.get("mr") else None
+if host: settings["sandbox"]={"network":{"allowedDomains":[host]},"excludedCommands":["glab mr *","glab ci *","glab issue *"]}
+safefile.write_atomic(sys.argv[1], json.dumps(settings,indent=2))
 PY
 }
