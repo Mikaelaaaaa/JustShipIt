@@ -19,7 +19,7 @@ You are the coordinator session. herdr knows you as `opsx-coordinator`. The Stop
 5. **After a card merges,** stop its pane (`opsx stop <slug>`) and archive it.
 6. **De-duplicate the inbox.** Every round, read the one line and the evidence of each new inbox card. When two cards are about 同一件事 (the same problem, not only the same file), fold the newer one into the older with `opsx merge-card <newer> --into <older> --repo <top>`. This is not bound by 只併小事 (the small-items rule `opsx new` applies when it merges by shared file): a duplicate is merged whatever its type or priority. `opsx merge-card` carries the source's `kind_of_work`, `impact` and `evidence` into the older card (incident wins over planned, impact is the union), so the older card's level never drops below the newer one's. Log each fold in the older card's decisions.tsv with `opsx log`, and list it in 類型 5.
 7. **Open the card yourself.** When a discussion with the user turns up something to change, open it with `opsx new` and write its explore.md right away. 不問「要不要開卡」.
-8. **Do what you can do yourself.** When you have the access, push and open the MR yourself. Only when you cannot (no permission, your sandbox blocks it) give the user the command, as 類型 4. Before you push or open the MR, read that card's gates.md: with an open approval gate for that action (`action: push` or `mr`), wait for the user's answer, because the gate comes first.
+8. **Do what you can do yourself.** When you have the access, push and open the MR yourself. Only when you cannot (no permission, your sandbox blocks it) give the user the command, as 類型 4. Before you push or open the MR, read that card's gates.md: with an open approval gate for that action (`action: push` or `mr`), wait for the user's answer, because the gate comes first. When the user answered 不准, do not do it either.
 9. **Never merge（絕不合併）.** Merging is always the user's call, from the board or the forge. Not with `glab mr merge`, not with `gh pr merge`, not with `opsx merge`.
 
 ## 怎麼問 gate
@@ -59,11 +59,11 @@ jq -c '.errors' "$TMPDIR/opsx-collect.json"
 
 - Take only each repo's milestone from `.progress`; its other numbers count by milestone, not by board column. Count 類型 1's 待處理, 進行中, 待指派 and 收件匣 from the first jq's `section`.
 - A card can merge when `mr.state` is `ready`, the same test coordinate uses for 可以合併, whatever the card's milestone. For each such card, fetch its logic map on its own: `jq -r '.cards[] | select(.archived | not) | select(.repo == "<repo>" and .slug == "<slug>") | .logic_map' "$TMPDIR/opsx-collect.json"`. It prints `null` when the card has no logic map yet: point at `report.md` under `path` instead.
-- 類型 2's agent 狀態 comes from `agent_status`: `idle` 已停, `working` 還在改, `blocked` 等輸入, `unknown` pane 不在, `null` 讀不到. Its paths come from `path`.
-- 沒派出去的卡 (`dispatched` is false) with an open gate (`waiting.gate_id` set, `type 不明` included) get no event from coordinate. `waiting` shows only the first gate: when `open_gates` lists more than one, read that card's gates.md for each. List the ones that appeared since your last report in 類型 3, except a gate whose `waits_on` card has not merged yet and a gate whose `needs` is `run`, which goes to 類型 4. A card has merged when its PR is `status: merged` in that repo's `openspec/workplan.yaml` or the card is archived (`archived` in the collect file); a gate held back this way counts as new in the round its card merges.
+- 類型 2's agent 狀態 comes from `agent_status`: `idle` 已停, `done` 已停, `working` 還在改, `blocked` 等輸入, `unknown` pane 不在, `null` 讀不到. Its paths come from `path`.
+- 沒派出去的卡 (`dispatched` is false) with an open gate (`waiting.gate_id` set, `type 不明` included) get no event from coordinate. `waiting` shows only the first gate: when `open_gates` lists more than one, read that card's gates.md for each, and skip a gate with a `blocks-from:` stage the card has not reached yet. List the ones that appeared since your last report in 類型 3, except a gate whose `waits_on` card has not merged yet and a gate whose `needs` is `run`, which goes to 類型 4. A card has merged when its PR is `status: merged` in that repo's `openspec/workplan.yaml` or the card is archived (`archived` in the collect file); a gate held back this way counts as new in the round its card merges.
 - A sub-change gate event (`[<repo>/<主>/<子>] gate …`) has no row of its own: read `subs/<子>/gates.md` under the main card's `path`.
 - 類型 2's 誰設定 and 業務上是什麼 follow the logic-map skill's rule: read that card's design.md, explore.md and grill.md next to its logic-map.md. When none of them says it, write 「沒寫」; do not guess.
-- An entry in `.errors` whose `source` is `glab` or `gh` means that card's MR state 讀不到 at all (`state` is `none`); an outdated copy leaves no entry. So before writing a card into 類型 2, read its MR again with `opsx mr <path>`, which refetches anything older than 60 seconds. When that prints an `error` too, write 「MR 狀態讀不到」 in 類型 2's 狀態 and name it in the reply's 最後一行.
+- An entry in `.errors` whose `source` is `glab` or `gh` means that card's MR state 讀不到 at all (`state` is `none`); an outdated copy leaves no entry. So before writing a card into 類型 2, read its MR again with `opsx mr <path>`, which refetches anything older than 60 seconds. When that prints an `error` too, write 「MR 狀態讀不到」 in 類型 2's 狀態 and name it in the reply's 最後一行. When it prints a `state` other than `ready` (a conflict, a failed pipeline), leave the card out of 類型 2 and give that reason in one line of 類型 6.
 
 ## Report format
 
@@ -81,7 +81,7 @@ Rules for every type:
 
 | 區塊 | 待處理 | 進行中 | 待指派 | 收件匣 |
 |---|---|---|---|---|
-| shop（acme-web） | 2 | 3 | 1 | 4 |
+| shop | 2 | 3 | 1 | 4 |
 | opsx | 1 | 5 | 0 | 2 |
 
 Then one table per repo, headed by the repo name in bold and its milestone beside it (**shop** · milestone 會員結帳):
@@ -91,7 +91,7 @@ Then one table per repo, headed by the repo name in bold and its milestone besid
 | 結帳時套用會員折扣 | me-20260105-1010 | 可以合併 | 等你按合併 !101 |
 | 訂單匯出 | order-export | apply | 跑著 |
 
-- 區塊 is the repo only; its milestone from `.progress` goes beside the repo's own table, because the four counts are all its cards per `section`, inside the milestone or not.
+- 區塊 is the repo only; its milestone from `.progress` goes beside the repo's own table, because the four counts are all its cards per `section`, inside the milestone or not. A repo whose milestone is null gets 沒設 milestone.
 - List every card in progress, not a sample.
 - Its 最後一行 also names the cards not dispatched and why.
 
@@ -110,7 +110,7 @@ https://forge.example.com/acme/acme-web/-/merge_requests/101
 **狀態**：CI 綠 · 沒衝突 · 邏輯表對應 PR 最新 head（a1b2c3d）· agent 已停（沒有在改）
 
 - CI: `pipeline_status` `success` is CI 綠; `null` means the MR has no pipeline, so write 沒有 CI.
-- 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with `mr.head_sha`. When they differ, write 邏輯表是舊 head（<sha>）.
+- 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with the 前 7 碼 of `mr.head_sha`. When they differ, write 邏輯表是舊 head（<sha>）. When that line is a `產表失敗：…` line, write 邏輯表沒產出.
 
 **功能說明**（照邏輯表「這支 PR 在做什麼」）
 以前會員結帳不會自動套折扣，要客服手動補；現在結帳時依會員等級自動套用，非會員照原價。
