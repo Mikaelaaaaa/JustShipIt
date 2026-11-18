@@ -309,6 +309,16 @@ def waiting_of(card, gates, agent_status):
                 "default_if_unanswered": "agent 停在那裡", "confirmed": None}
     return None
 
+# 全部 open gate 都是「等別張卡合進 main」就不用人現在處理（跟 progress_class、coordinate 的 handle_gate 同一條判斷）；
+# 沒有 open gate 的 waiting（MR 可合併、終端機等輸入）一律要人
+def needs_human(card, gates, agent_status, top, prs):
+    open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
+    if not open_gates: return True
+    for g in open_gates:
+        verdict = gaterule.decide(waiting_of(card, [g], agent_status))
+        if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return True
+    return False
+
 cards, matched_panes, legacy = [], set(), {}
 for r in read(os.path.join(work, "legacy")).split("\n"):
     if r: legacy[r] = legacy.get(r, 0) + 1
@@ -333,10 +343,13 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         if hit: matched_panes.add(str(hit[0].get("pane_id")))
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
-    waiting = None if c["archived"] else waiting_of(c, gates_in_force(gates, d), agent_status)
+    in_force = gates_in_force(gates, d)
+    waiting = None if c["archived"] else waiting_of(c, in_force, agent_status)
+    plan = plans.get(repo_)
+    prs = [pr for f in (plan["features"] if plan else []) for pr in f.get("prs") or []]
     if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
-    elif waiting: section = "待處理"
-    elif disp: section = "進行中"
+    elif waiting and needs_human(c, in_force, agent_status, repo_paths[repo_], prs): section = "待處理"
+    elif disp or waiting: section = "進行中"
     elif c["stage"] == "explore": section = "收件匣"
     else: section = "待指派"
     cards.append({

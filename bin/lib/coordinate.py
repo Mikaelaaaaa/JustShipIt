@@ -838,7 +838,7 @@ class Round:
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
-                if c["section"] not in ("待指派", "待處理"):
+                if c["section"] not in ("待指派", "待處理", "進行中"):
                     continue
                 if not parked.get("answered"):
                     newly = self.woken_by(key, parked, top)
