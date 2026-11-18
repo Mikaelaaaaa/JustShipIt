@@ -27,6 +27,8 @@ before 'count is 0' '/opsx-workflow:archive <slug>'
 # gate 答完照答案改 mr:，卡才不會在 pr 站重複開同一個 gate
 has 'set that PR'"'"'s `mr:` to `none`'
 has 'delete the `mr:` line'
+# D13：gate 的證據附上 branch 自己的 commit 數，選歸檔前看得到有沒有 commit
+before 'git rev-list --count <primary remote>/main..<branch>' 'git fetch <primary remote>'
 
 # archive 第 5 步與 review Step 0 遇到 workplan.yaml: mr: 那行：寫 decision gate，不 split-out、不自己選（design D3、D12）
 A="$(grep -n 'workplan.yaml: mr:' "$OPSX_ROOT/skills/archive/SKILL.md")"
@@ -34,4 +36,6 @@ case "$A" in *"type: decision"*) ;; *) fail "archive SKILL.md 要說 workplan.ya
 R="$(grep 'workplan.yaml: mr:' "$OPSX_ROOT/skills/review/SKILL.md")"
 case "$R" in *"type: decision"*) ;; *) fail "review SKILL.md 遇到 workplan.yaml: mr: 要寫 decision gate: [$R]" ;; esac
 case "$R" in *'(`none`, or delete the line)'*) fail "review SKILL.md 不能讓 agent 自己選 none 或刪掉" ;; esac
+P="$(grep 'workplan.yaml: mr:' "$OPSX_ROOT/skills/propose/SKILL.md")"
+case "$P" in *"type: decision"*) ;; *) fail "propose SKILL.md 遇到 workplan.yaml: mr: 要寫 decision gate（D15）: [$P]" ;; esac
 echo "pr-skill-no-mr ok"

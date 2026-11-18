@@ -101,10 +101,11 @@ check_gherkin() { # <卡目錄，主殼或子殼>：一個問題一行「<相對
     || printf '%s\n' "spec 規則是舊版：先跑 opsx init 拿插件版 specs instruction，再照它改 spec"
 }
 
-# workplan 所屬 PR 的 mr 有值又不是 none 時印一行。已 merged 的 PR 不報：它走 merged 的 archive，用不到 mr（同 st_no_mr_why）
+# workplan 所屬 PR 的 mr 有值又不是 none 時印一行。已 merged 的 PR 與 report.md 已有 MR 網址的卡不報：它們走 MR，用不到 mr（同 st_no_mr_why）
 check_mr() { # <top> <slug>
   local mr; mr="$(wp_pr_field "$1" "$2" mr)"
-  [ -z "$mr" ] || [ "$mr" = none ] || st_workplan_merged "$1" "$2" || printf 'workplan.yaml: mr: %s 不認得，只認 none\n' "$mr"
+  [ -z "$mr" ] || [ "$mr" = none ] || st_workplan_merged "$1" "$2" || st_mr_in_report "$1/openspec/changes/$2" \
+    || printf 'workplan.yaml: mr: %s 不認得，只認 none\n' "$mr"
 }
 
 # 併進這張卡的項目（inbox.md 的 ## 併入 段）要有去處：tasks.md 提到它的 id，或已經 opsx split-out。

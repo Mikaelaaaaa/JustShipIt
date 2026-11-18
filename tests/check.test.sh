@@ -506,4 +506,9 @@ out="$(cd "$M" && opsx check c 2>&1)" || fail "沒寫 mr 不報: $out"
 # 已 merged 的 PR 留著錯的 mr 值：stage 走 merged 的 archive，不用改 mr，check 不報（否則 archive 卡住）
 printf 'features:\n  - name: f\n    prs:\n      - name: c\n        branch: feat/c/mikaela\n        status: merged\n        mr: no\n' > "$M/openspec/workplan.yaml"
 out="$(cd "$M" && opsx check c 2>&1)" || fail "merged 的 PR 帶 mr: no 不報: $out"
+# D14：report.md 已有 MR 網址（MR 在 forge 合了、workplan 還沒標 merged）時不報
+mk_wp "mr: 42"
+out="$(cd "$M" && opsx check c 2>&1)" && fail "沒有 MR 網址時 mr: 42 照報: $out"
+printf '## MR\nhttps://github.com/o/r/pull/42 · opened 2026-11-18 · auto-merge: no\n' > "$M/openspec/changes/c/report.md"
+out="$(cd "$M" && opsx check c 2>&1)" || fail "report.md 有 MR 網址時 mr: 42 不報: $out"
 echo ok
