@@ -21,7 +21,6 @@ for s in \
   '| 程式名 | 誰設定 | 業務上是什麼 | 被擋時記成 |' \
   '| 你是誰 | 結果 |' \
   '| 節點 | 白話 |' \
-  '建議合併順序' \
   '| # | 卡 | 問什麼 | 你的回答 |' \
   '| 卡 | 為什麼我做不到 | 指令 |' \
   '| 卡 | 發生什麼 | 我怎麼處理 | 開卡 |' \
@@ -30,12 +29,26 @@ for s in \
   case "$REPORT" in *"$s"*) ;; *) fail "Report format 缺：$s" ;; esac
 done
 # 沒有邏輯表的卡：那幾欄寫「還沒有邏輯表」（design D6）
-T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### /{exit} f' "$F")"
+T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### 類型 /{exit} f' "$F")"
 case "$T2" in *'還沒有邏輯表'*) ;; *) fail "類型 2 要寫沒有邏輯表時那幾欄寫「還沒有邏輯表」" ;; esac
 # 沒有 pipeline 寫「沒有 CI」（design D11）；邏輯表的 head 取自 report.md「## 邏輯表」那行（design D13）
 for s in '沒有 CI' '`pipeline_status`' '`## 邏輯表`' '`mr.head_sha`' '前 7 碼' '邏輯表沒產出'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
+# 使用者 2026-11-19 範例的段落格式（spec「可合併回報的段落欄位都在」兩張 Examples 表每一列）
+for s in '開頭一行' 'git merge-tree' '### 1. !101' $'\n---\n' '[me-20260105-1010 邏輯表](file:///home/dev/' \
+  '沒看過程式的人' '直接貼' '寫「無」' '差的 commit 改了什麼' '照最新程式重畫' '照 diff 寫' 'references/mergeable-report.md'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
+# 合併順序放開頭，不再放最後（spec「合併順序不放最後（反例）」）
+case "$T2" in *'建議合併順序'*) fail "類型 2 不能再把建議合併順序放最後" ;; esac
+# 沒有邏輯表時邏輯圖照 diff 寫，不只給狀態、連結、測試（spec「沒有邏輯表時照 diff 寫邏輯圖」正反例）
+case "$T2" in *'only 狀態, the links and 測試'*|*'fills 狀態, the links and 測試'*) fail "類型 2 沒有邏輯表時不能只填狀態、連結、測試" ;; esac
+# reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
+R="$OPSX_ROOT/skills/lead/references/mergeable-report.md"
+assert_file "$R"
+grep -nE 'tsg-navigator|/Users/|Agentory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或 Agentory"
+grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
 # 類型 6 也照沒事不回報（design D36）
 T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T6" in *'沒事不回報'*) ;; *) fail "類型 6 要照沒事不回報（design D36）" ;; esac

@@ -100,23 +100,31 @@ Then one table per repo, headed by the repo name in bold and its milestone besid
 
 ### 類型 2：可以合併
 
-One section per MR or PR, in the order that merges with no conflict (the `git merge-tree` check in duty 4). Every field is required. A card with no logic map yet fills 狀態, the links and 測試, and writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠.
+The 開頭一行 of the reply gives the merge order, checked with `git merge-tree` from the latest main (duty 4): 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。Then one section per MR or PR in that order, with `---` between sections. Every field is required; the full example, including a card with no logic map, is in `references/mergeable-report.md` (absolute path: this skill's directory).
 
-**1. !101　結帳時套用會員折扣**
+- A card with no logic map yet (a PR that changes only tests, say): 狀態 says why there is none. Write 功能說明 and a short 邏輯圖 from the MR's diff yourself and mark it 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表. The link line points at the card's `report.md`.
+- 邏輯圖 is always 直接貼 in the reply, never only a link.
+
+---
+
+### 1. !101　結帳時套用會員折扣
 
 https://forge.example.com/acme/acme-web/-/merge_requests/101
 
-邏輯表全文（no logic map yet: the card's `report.md`）：
+邏輯表全文：
 
-/home/dev/code/acme-web/openspec/changes/me-20260105-1010/logic-map.md
+[me-20260105-1010 邏輯表](file:///home/dev/code/acme-web/openspec/changes/me-20260105-1010/logic-map.md)
 
-**狀態**：CI 綠 · 沒衝突 · 邏輯表對應 PR 最新 head（a1b2c3d）· agent 已停（沒有在改）
+**狀態**：CI 綠，沒有衝突。邏輯表對應 PR 最新 head（a1b2c3d），agent 已停（沒有在改）。
 
 - CI: `pipeline_status` `success` is CI 綠; `null` means the MR has no pipeline, so write 沒有 CI.
-- 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with the 前 7 碼 of `mr.head_sha`. When they differ, write 邏輯表是舊 head（<sha>）. When that line is a `產表失敗：…` line, write 邏輯表沒產出.
+- 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with the 前 7 碼 of `mr.head_sha`. When that line is a `產表失敗：…` line, write 邏輯表沒產出.
+- When they differ, write 邏輯表是舊 head（<sha>） and 差的 commit 改了什麼 (`git log --oneline <sha>..<head>` and its diff). A commit that only merged main changes nothing: say the map still holds. Otherwise redraw the 邏輯圖 照最新程式重畫 and say so in its heading.
 
-**功能說明**（照邏輯表「這支 PR 在做什麼」）
-以前會員結帳不會自動套折扣，要客服手動補；現在結帳時依會員等級自動套用，非會員照原價。
+**功能說明**（照邏輯表「這支 PR 在做什麼」，白話條列，給沒看過程式的人看）
+- **以前的問題**：會員結帳不會自動套折扣，要客服手動補。
+- **現在的規則**：結帳時依會員等級自動套用，非會員照原價。
+- **對使用者的影響**：金卡會員結帳直接看到折後價。
 
 **誰設定什麼**
 
@@ -149,9 +157,7 @@ https://forge.example.com/acme/acme-web/-/merge_requests/101
 
 **測試**：the related tests the card's agent ran, their result and the commit they ran on; the CI result.
 
-**⚠**：each ⚠ item of the logic map, numbered, sorted the way the logic-map skill sorts them.
-
-**建議合併順序**：!101 → !102（git merge-tree 驗過不衝突）
+**⚠**：each ⚠ item of the logic map, numbered, sorted the way the logic-map skill sorts them. 沒有就寫「無」.
 
 ### 類型 3：要你決定
 
