@@ -100,9 +100,9 @@ Then one table per repo, headed by the repo name in bold and its milestone besid
 
 ### 類型 2：可以合併
 
-The 開頭一行 of the reply gives the merge order, checked with `git merge-tree` from the latest main (duty 4): 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。Then one section per MR or PR in that order, with `---` between sections. Every field is required; the full example, including a card with no logic map, is in `references/mergeable-report.md` (absolute path: this skill's directory).
+The first line of 類型 2 gives the merge order, checked with `git merge-tree` from the latest main (duty 4): 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。With one card, write 只有 !101，沒有要排的順序。Then one section per MR or PR in that order, with `---` between sections. Every field is required; the full example, including a card with no logic map, is in `references/mergeable-report.md` next to this SKILL.md.
 
-- A card with no logic map yet (a PR that changes only tests, say): 狀態 says why there is none. Write 功能說明 and a short 邏輯圖 from the MR's diff yourself and mark it 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表. The link line points at the card's `report.md`.
+- A card with no logic map yet: when the MR's diff touches only test files, 狀態 says so, and you write 功能說明 and a short 邏輯圖 from the diff yourself, both marked 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表, and ⚠ is 無. Any other card with no logic map (product code changed, or 產表失敗) writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠, and 狀態 says the logic map has to be produced before merging. Either way the link line is labelled 卡的 report： and points at the card's `report.md`.
 - 邏輯圖 is always 直接貼 in the reply, never only a link.
 
 ---
@@ -119,7 +119,7 @@ https://forge.example.com/acme/acme-web/-/merge_requests/101
 
 - CI: `pipeline_status` `success` is CI 綠; `null` means the MR has no pipeline, so write 沒有 CI.
 - 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with the 前 7 碼 of `mr.head_sha`. When that line is a `產表失敗：…` line, write 邏輯表沒產出.
-- When they differ, write 邏輯表是舊 head（<sha>） and 差的 commit 改了什麼 (`git log --oneline <sha>..<head>` and its diff). A commit that only merged main changes nothing: say the map still holds. Otherwise redraw the 邏輯圖 照最新程式重畫 and say so in its heading.
+- When they differ, write 邏輯表是舊 head（<sha>） and 差的 commit 改了什麼. Read it in the card's repo (its `path`), not your cwd: the PR's own commits are `git log --first-parent --no-merges <sha>..<head>`, and each merge of main in that range gets `git show --remerge-diff <merge>`, which is empty unless resolving a conflict changed something. When both are empty, the branch only merged main: say the map still holds. Otherwise the PR's own code changed: update 邏輯圖, 條件表重點, 舉例 and ⚠ 照最新程式改 against the new head, and say so in each heading.
 
 **功能說明**（照邏輯表「這支 PR 在做什麼」，白話條列，給沒看過程式的人看）
 - **以前的問題**：會員結帳不會自動套折扣，要客服手動補。
@@ -158,6 +158,12 @@ https://forge.example.com/acme/acme-web/-/merge_requests/101
 **測試**：the related tests the card's agent ran, their result and the commit they ran on; the CI result.
 
 **⚠**：each ⚠ item of the logic map, numbered, sorted the way the logic-map skill sorts them. 沒有就寫「無」.
+
+---
+
+### 2. !102　訂單匯出加上發票號碼
+
+（same fields as section 1）
 
 ### 類型 3：要你決定
 

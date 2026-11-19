@@ -36,20 +36,37 @@ for s in '沒有 CI' '`pipeline_status`' '`## 邏輯表`' '`mr.head_sha`' '前 7
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
 # 使用者 2026-11-19 範例的段落格式（spec「可合併回報的段落欄位都在」兩張 Examples 表每一列）
-for s in '開頭一行' 'git merge-tree' '### 1. !101' $'\n---\n' '[me-20260105-1010 邏輯表](file:///home/dev/' \
-  '沒看過程式的人' '直接貼' '寫「無」' '差的 commit 改了什麼' '照最新程式重畫' '照 diff 寫' 'references/mergeable-report.md'; do
+for s in 'first line of 類型 2' '只有 !101' 'git merge-tree' '[me-20260105-1010 邏輯表](file:///home/dev/' \
+  '沒看過程式的人' '直接貼' '寫「無」' '差的 commit 改了什麼' 'references/mergeable-report.md'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
-# 合併順序放開頭，不再放最後（spec「合併順序不放最後（反例）」）
+# 合併順序在第一段之前、⚠ 之前；段間 --- 夾在 ### 1. 與 ### 2. 之間（spec「合併順序不放最後（反例）」、分隔列）
+t2_line() { printf '%s\n' "$T2" | grep -nF -- "$1" | head -1 | cut -d: -f1; }
+order="$(t2_line '合併順序是 !101 → !102')"; s1="$(t2_line '### 1. !101')"; s2="$(t2_line '### 2. !102')"; warn="$(t2_line '**⚠**')"
+[ -n "$order" ] && [ -n "$s1" ] && [ -n "$s2" ] && [ -n "$warn" ] || fail "類型 2 缺合併順序例句、### 1.、### 2. 或 **⚠**"
+[ "$order" -lt "$s1" ] && [ "$order" -lt "$warn" ] || fail "合併順序要在第一段與 ⚠ 之前（順序 $order、### 1. $s1、⚠ $warn）"
+printf '%s\n' "$T2" | sed -n "$((warn + 1)),$((s2 - 1))p" | grep -qx -- '---' || fail "### 1. 段結束到 ### 2. 之間要有 ---"
 case "$T2" in *'建議合併順序'*) fail "類型 2 不能再把建議合併順序放最後" ;; esac
-# 沒有邏輯表時邏輯圖照 diff 寫，不只給狀態、連結、測試（spec「沒有邏輯表時照 diff 寫邏輯圖」正反例）
-case "$T2" in *'only 狀態, the links and 測試'*|*'fills 狀態, the links and 測試'*) fail "類型 2 沒有邏輯表時不能只填狀態、連結、測試" ;; esac
+# 沒有邏輯表那條：只動測試檔才照 diff 寫功能說明與邏輯圖，其他卡照 D6 寫還沒有邏輯表（spec「沒有邏輯表時照 diff 寫邏輯圖」正反例）
+NOMAP="$(printf '%s\n' "$T2" | grep -F 'no logic map')"
+for s in 'only test files' '功能說明' '邏輯圖' '照 diff 寫' '還沒有邏輯表' '卡的 report'; do
+  case "$NOMAP" in *"$s"*) ;; *) fail "沒有邏輯表那條缺：$s — $NOMAP" ;; esac
+done
+# 只有合 main：看 PR 自己的 commit 與解衝突的改動，不用會混進 main 的 <sha>..<head>
+for s in '--first-parent --no-merges' '--remerge-diff'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 要用：$s" ;; esac
+done
+case "$T2" in *'git log --oneline <sha>..<head>'*) fail "類型 2 不能再用會混進 main commit 的 git log --oneline <sha>..<head>" ;; esac
+# 邏輯表落後且 PR 自己改了程式：四塊都照最新程式改
+case "$T2" in *'邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時邏輯圖、條件表重點、舉例、⚠ 都要照最新程式改" ;; esac
 # reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
 R="$OPSX_ROOT/skills/lead/references/mergeable-report.md"
 assert_file "$R"
 # 禁用字樣拼接寫，免得這個檔自己被 readme-landing 的追蹤檔掃描命中
 grep -niE 'ts''g-navigator|/Users/|agen''tory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或內部專案名"
 grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
+grep -qF '邏輯表是舊 head' "$R" || fail "reference 的落後 head 範例要用跟 SKILL.md 一樣的「邏輯表是舊 head」"
+grep -qF 'PR 自己改了程式' "$R" || fail "reference 的落後規則要跟 SKILL.md 一樣看 PR 自己有沒有改程式"
 # 類型 6 也照沒事不回報（design D36）
 T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T6" in *'沒事不回報'*) ;; *) fail "類型 6 要照沒事不回報（design D36）" ;; esac
