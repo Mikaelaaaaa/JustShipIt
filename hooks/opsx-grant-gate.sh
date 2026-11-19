@@ -286,6 +286,26 @@ if [ "$tool" = "Bash" ]; then
   printf '%s' "$l3" | grep -qiE '(^|\s|/)deploy(\.sh)?(\s|$)' && level3 "deploy"
   printf '%s' "$l3" | grep -qiE 'drop\s+(table|database|schema)|truncate\s+table|db:reset' && level3 "刪資料"
   printf '%s' "$l3" | grep -qiE 'sops\s+(-e|--encrypt|edit)|\.gitlab-ci\.yml|\.github/workflows' && level3 "改 CI / secrets"
+  # 權限檔不放 rm：派工的 session（OPSX_CARD 的卡是 autopilot／drive，subagent 繼承這個 env）送出形狀嚴格的普通 rm 才在這裡明說放行。
+  # 單行、只有 rm 一段、旗標只有 -v／-i、參數只含一般路徑字元且不以 - 開頭；其他寫法不出聲，交給 dontAsk 拒
+  RE_PLAIN_RM='^rm( -[vi]+)*( [A-Za-z0-9._/@+=,:][A-Za-z0-9._/@+=,:-]*)+$'
+  if [ -n "${OPSX_CARD:-}" ] && [[ $cmd =~ $RE_PLAIN_RM ]]; then
+    # 工作目錄外的檔（state 目錄的 dispatch.json 一刪閘門就失效）、Edit／Write 要授權或第三級的 .env 與 secrets，都不在這裡放行。
+    # 形狀已排除 glob 與引號，照空白拆參數是安全的
+    held=0
+    for a in $(printf '%s' "${cmd#rm }" | tr '[:upper:]' '[:lower:]'); do
+      case "$a" in
+        /*|..|../*|*/..|*/../*) held=1 ;;
+        *secrets*|*.sops.*|sops/*|*/sops/*) held=1 ;;
+        *.env.example) ;;
+        *.env|*.env.*) held=1 ;;
+      esac
+    done
+    # feature 派出的 session 在 dispatch.json 只有 <repo>/@<feature> 這筆
+    rm_mode="$(card_mode "$repo" "$OPSX_CARD" || true)"
+    [ -n "$rm_mode" ] || rm_mode="$(card_mode "$repo" "@$OPSX_CARD" || true)"
+    [ "$held" = 1 ] || case "$rm_mode" in autopilot|drive) allow ;; esac
+  fi
   [ "$UNMAPPED" = 1 ] && exit 0
   # 第二級
   printf '%s' "$sk" | grep -qE "$RE_PUSH" && level2 push "git push"

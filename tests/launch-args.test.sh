@@ -92,4 +92,18 @@ launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI with-grant "$TOP"
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(pnpm --filter * run db:migrate:*)" in a and "Bash(pnpm db:migrate:*)" in a,a' "$SD/settings/Acmecorp-AI-with-grant-autopilot.json" || fail "migrate 授權要放行 filter 寫法與原本的 db:migrate"
 rm -f "$SD/grants.toml"
 
+# --- autopilot-local-ops：本地小操作不看授權都放行；interactive 不放行；不放過寬的寫法 ---
+LOCAL_OPS='["Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)"]'
+has_local_ops() { python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];m=[r for r in json.loads(sys.argv[2]) if r not in a];assert not m,m' "$1" "$LOCAL_OPS"; }
+printf '[repos.Other]\npush = true\n' > "$SD/grants.toml"
+launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI no-entry "$TOP"
+has_local_ops "$SD/settings/Acmecorp-AI-no-entry-autopilot.json" || fail "grants.toml 沒有這個 repo 也要放行本地小操作"
+printf '[repos.Acmecorp-AI]\npush = true\nmr = true\nmigrate = true\n' > "$SD/grants.toml"
+launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI all-grant "$TOP"
+has_local_ops "$SD/settings/Acmecorp-AI-all-grant-autopilot.json" || fail "有其他授權時照樣放行本地小操作"
+rm -f "$SD/grants.toml"
+has_local_ops "$S" || fail "沒有 grants.toml 也要放行本地小操作"
+python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert "allow" not in d,d' "$SI" || fail "interactive 不放行本地小操作"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];w=[r for r in ("Bash(rm:*)","Bash(chmod:*)","Bash(bash evals/:*)","Bash(bash evals/run-candidate.sh:*)") if r in a];assert not w,w' "$S" || fail "不放行 rm 字首或過寬的 chmod、evals 寫法"
+
 echo ok
