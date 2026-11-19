@@ -100,10 +100,12 @@ Then one table per repo, headed by the repo name in bold and its milestone besid
 
 ### 類型 2：可以合併
 
-The first line of 類型 2 gives the merge order, checked with `git merge-tree` from the latest main (duty 4): 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。With one card, write 只有 !101，沒有要排的順序。Then one section per MR or PR in that order, with `---` between sections. Every field is required; the full example, including a card with no logic map, is in `references/mergeable-report.md` next to this SKILL.md.
+The user decides whether to merge from this report alone, usually without opening a file, so each section has to carry everything that decision needs. The format below is the one the user asked for on 2026-11-19.
 
-- A card with no logic map yet: when the MR's diff touches only test files, 狀態 says so, and you write 功能說明 and a short 邏輯圖 from the diff yourself, both marked 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表, and ⚠ is 無. Any other card with no logic map (product code changed) writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠, and 狀態 says the logic map has to be produced before merging. Either way the link line is labelled 卡的 report： and points at the card's `report.md`.
-- 邏輯圖 is always 直接貼 in the reply, never only a link.
+Put the merge order on the first line of 類型 2, checked with `git merge-tree` from the latest main (duty 4), so the user knows which button to press first: 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。With one card, write 只有 !101，沒有要排的順序。Then write one section per MR or PR in that order, with `---` between sections. Fill every field. Open `references/mergeable-report.md` (next to this SKILL.md) when a case is not covered by the example below: it has three full sections, including a card with no logic map and a map that is behind the head.
+
+- A card with no logic map yet: when the MR's diff touches only test files, there is no business logic for a logic map to trace, so 狀態 says so and you write 功能說明 and a short 邏輯圖 from the diff yourself, both marked 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表, and ⚠ is 無. Any other card with no logic map (product code changed) writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠, and 狀態 says the logic map has to be produced before merging: a flow you drew from a product diff has no file:line check behind it, and the user would be merging on your reading of the code. Either way the link line is labelled 卡的 report： and points at the card's `report.md`.
+- Paste the 邏輯圖 into the reply (直接貼), never only a link: the user reads the report in the terminal and will not open the map.
 
 ---
 
@@ -119,7 +121,7 @@ https://forge.example.com/acme/acme-web/-/merge_requests/101
 
 - CI: `pipeline_status` `success` is CI 綠; `null` means the MR has no pipeline, so write 沒有 CI.
 - 邏輯表對應 PR 最新 head: compare the sha on the line under `## 邏輯表` in the card's report.md with the 前 7 碼 of `mr.head_sha`. When that line is a `產表失敗：…` line, write 邏輯表沒產出.
-- When they differ, write 邏輯表是舊 head（<sha>） and 差的 commit 改了什麼. Read it in the card's repo (its `path`), not your cwd: the PR's own commits are `git log --first-parent --no-merges <sha>..<head>`, and each merge of main in that range gets `git show --remerge-diff <merge>`, which is empty unless resolving a conflict changed something. When both are empty, the branch only merged main: say the map still holds. Otherwise the PR's own code changed: update 邏輯圖, 條件表重點, 舉例 and ⚠ 照最新程式改 against the new head, and say so in each heading.
+- When they differ, write 邏輯表是舊 head（<sha>） and 差的 commit 改了什麼. Run git in the card's repo (its `path`), not your cwd. A plain `<sha>..<head>` range lists every main commit a merge brought in, so separate the PR's own work from merged-in work: the PR's own commits are `git log --first-parent --no-merges <sha>..<head>`; the merges of main are `git log --first-parent --merges <sha>..<head>`, and each one gets `git show --remerge-diff <merge>`, which is empty unless resolving a conflict changed something. When both are empty, the branch only merged main: say the map still holds. Otherwise the PR's own code changed: update 邏輯圖, 條件表重點, 舉例 and ⚠ 照最新程式改 against the new head, and say so in each heading, so the user can tell which parts no longer come from the checked map.
 
 **功能說明**（照邏輯表「這支 PR 在做什麼」，白話條列，給沒看過程式的人看）
 - **以前的問題**：會員結帳不會自動套折扣，要客服手動補。
