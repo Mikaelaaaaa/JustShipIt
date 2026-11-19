@@ -66,18 +66,25 @@ def bright_text(line):
     return "".join(out)
 
 
-def box_state(screen):
+def box_text(screen):
     """Claude Code 的輸入框是兩條 ─ 橫線夾住、第一行以 ❯ 開頭。只看畫面最下面那一個框。
     畫面是 --format ansi：dim 的提示字不算使用者打的字。
-    回 empty、typed，或 unknown（找不到這樣的框：在對話框裡、或不是 Claude Code）。"""
+    回框裡的字（折行接起來），找不到這樣的框（在對話框裡、或不是 Claude Code）回 None。"""
     lines = [bright_text(line) for line in screen.splitlines()]
     rules = [i for i, line in enumerate(lines) if RULE.match(line)]
     if len(rules) < 2:
-        return "unknown"
+        return None
     body = lines[rules[-2] + 1:rules[-1]]
     if not body or not body[0].lstrip().startswith(PROMPT):
+        return None
+    return body[0].lstrip()[len(PROMPT):] + "".join(body[1:])
+
+
+def box_state(screen):
+    """回 empty、typed，或 unknown（找不到輸入框）。"""
+    text = box_text(screen)
+    if text is None:
         return "unknown"
-    text = body[0].lstrip()[len(PROMPT):] + "".join(body[1:])
     return "typed" if text.strip() else "empty"
 
 

@@ -386,7 +386,8 @@ python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["Feat-Repo/m
 # 重派人停的成員卡、session 還活著：清掉 stopped、送 [m2] /apply m2 給 session，不開 pane
 : > "$OPSX_FAKE_LOG"
 out="$(opsx dispatch m2 --agent claude --mode autopilot 2>&1)"; assert_eq "$?" 0 "session 活著重派 m2: $out"
-assert_eq "$(cat "$OPSX_FAKE_LOG")" "agent prompt fs [m2] /opsx-workflow:apply m2" "只送一句給 session"
+assert_eq "$(cat "$OPSX_FAKE_LOG")" "agent prompt fs [m2] /opsx-workflow:apply m2
+agent read w1:pE --source visible --format ansi" "只送一句給 session，送出後讀一次輸入框"
 assert_eq "$(jq -r '."Feat-Repo/m2" | [.mode, .pane, .via, .herdr_name, (has("stopped_at") | tostring)] | join(" ")' "$J")" "autopilot w1:pE @fs fs false" "m2 不再是 stopped，pane 取自 session"
 
 # opsx stop @fs：關 session pane、標 session 條目 stopped，成員條目不動
