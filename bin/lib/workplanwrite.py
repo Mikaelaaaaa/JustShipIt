@@ -7,6 +7,7 @@
     workplanwrite.add_feature(top, {"name": ..., "status": "active", "depends-on": [], "prs": [{...}]})
     workplanwrite.add_pr(top, <feature 名>, {"name": ..., "branch": ..., "changes": [{...}]})
     workplanwrite.add_change(top, <PR 名>, {"name": ..., "status": "pending"})
+    $OPSX_PY -I workplanwrite.py attach <top> <卡> <父卡或空字串> <分支尾巴的名字>   新卡掛進 workplan（common.sh 的 new_shell、dispatch 呼叫）
 item 的值是字串、字串清單、或 mapping 清單（巢狀項目）；照 dict 順序寫出，第一個鍵要是 name。
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import chain  # noqa: E402
+import priority  # noqa: E402
 import safefile  # noqa: E402
 
 NAME = re.compile(r"""^ *- name:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))""")
@@ -187,3 +189,49 @@ def add_pr(top: str, feature: str, item: dict) -> None:
 
 def add_change(top: str, pr: str, item: dict) -> None:
     _add(top, "change", pr, item)
+
+
+def attach(top: str, slug: str, parent: str, user: str) -> None:
+    """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D4；母卡 me-20261118-1113 D7–D9）。
+    repo 沒有 workplan、或卡已在 workplan 就不動。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼；
+    父卡不在 workplan 當成沒有父卡。父卡的 feature 是 active 就在它底下加 PR，否則自成 feature，
+    milestone 沿用父 feature 的，沒有父卡用 current_milestone。掛入前是 P2 就先寫 priority: P2 覆寫再寫 workplan，
+    中間不會有一刻卡變成 P1 被協調者派走。"""
+    if not os.path.exists(os.path.join(top, "openspec", "workplan.yaml")):
+        return
+    plan = priority.load_plan(top)
+    own = priority.owners(plan["features"])
+    if slug in own:
+        return
+    if not user:
+        raise WorkplanError("分支尾巴沒有名字：OPSX_USER 沒設，git config user.name 是空的或占位字「Your Name」")
+    inbox = os.path.join(top, "openspec", "changes", slug, "inbox.md")
+    fm, _ = priority.frontmatter(priority.read_text(inbox))
+    if not parent and (fm.get("source") or "").startswith("agent:"):
+        parent = fm["source"][len("agent:"):]
+    owner = own.get(parent.split("--")[0]) if parent else None
+    got = priority.levels(top)[slug]
+    if "error" in got:
+        raise WorkplanError(got["error"])
+    if got["level"] == "P2" and not fm.get("priority"):
+        priority.set_override(inbox, "P2", "自動掛進 workplan，維持 P2")
+    pr = {"name": slug, "branch": "%s/%s/%s" % ("fix" if fm.get("type") == "bug" else "feat", slug, user),
+          "status": "pending", "depends-on": [], "changes": [{"name": slug, "status": "pending"}]}
+    if owner is not None and owner[0].get("status") == "active":
+        add_pr(top, owner[0]["name"], pr)
+        return
+    feature = {"name": slug}
+    milestone = owner[0].get("milestone") if owner is not None else plan["current"]
+    if milestone:
+        feature["milestone"] = milestone
+    feature.update({"status": "active", "depends-on": [], "prs": [pr]})
+    add_feature(top, feature)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 6 or sys.argv[1] != "attach":
+        sys.exit("用法：workplanwrite.py attach <top> <卡 slug> <父卡 slug 或空字串> <分支尾巴的名字>")
+    try:
+        attach(*sys.argv[2:])
+    except (WorkplanError, priority.PriorityError) as e:
+        sys.exit("workplan: %s" % e)

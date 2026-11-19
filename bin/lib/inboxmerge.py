@@ -241,7 +241,8 @@ def split_out(card_dir: str, mid: str, top: str) -> None:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md") as body:
             body.write(_card_unlocked(card_dir, mid))
             body.flush()
-            p = subprocess.run(["bash", "-c", 'source "$1"; new_shell "$2" "$3" "$4"', "opsx-split-out", common, top, mid, body.name],
+            p = subprocess.run(["bash", "-c", 'source "$1"; new_shell "$2" "$3" "$4" "$5"', "opsx-split-out", common, top, mid, body.name,
+                                os.path.basename(card_dir)], env=dict(os.environ, OPSX_PY=sys.executable),
                                stdout=subprocess.PIPE, text=True)
         if p.returncode != 0:
             raise ValueError("建殼失敗：new_shell 退出 %d（上面是原因）" % p.returncode)

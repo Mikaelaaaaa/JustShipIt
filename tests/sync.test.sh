@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # opsx sync：來源撈進收件匣。驗收：specs/board-sync（board-inbox 7.1 debt、8.1 gitlab、9.1 github）
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+OPSX_PY="$(cat "$OPSX_STATE_DIR/python")"   # 下面直接 source common.sh 呼叫 new_shell，它用 OPSX_PY 掛 workplan
 use_fakes glab gh
 export OPSX_FAKE_LOG="$FX/fake.log"; : > "$OPSX_FAKE_LOG"
 mkdir -p "$OPSX_STATE_DIR"

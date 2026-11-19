@@ -255,7 +255,7 @@ def create_shell(opsx_root: pathlib.Path, item: dict, today: str) -> str:
     try:
         p = subprocess.run(["bash", "-c", 'source "$1"; new_shell "$2" "$3" "$4"', "opsx-sync",
                             str(opsx_root / "bin" / "lib" / "common.sh"), str(item["path"]), item["slug"], f.name],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=dict(os.environ, OPSX_PY=sys.executable))
     finally:
         os.unlink(f.name)
     if p.returncode != 0:
