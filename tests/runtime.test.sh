@@ -28,6 +28,7 @@ row() { # <key> <名> <pane>
   runtime_prompt "$1" hi nowait >/dev/null || fail "$1 傳話 rc"
   runtime_read "$1" >/dev/null || fail "$1 讀畫面 rc"
   assert_eq "$(calls)" "agent prompt $2 hi
+agent read $3 --source visible --format ansi
 pane read $3" "$1 的 argv"
 }
 row r/card-a card-a w1:p1
@@ -73,7 +74,8 @@ verb() { # <期望 argv> <動詞與參數…>
   reset; "$@" >/dev/null || fail "$* rc"
   assert_eq "$(calls)" "$want" "$*"
 }
-verb "agent prompt card-a hi" runtime_prompt r/card-a hi nowait
+verb "agent prompt card-a hi
+agent read w1:p1 --source visible --format ansi" runtime_prompt r/card-a hi nowait
 verb "pane read w1:p1" runtime_read r/card-a
 verb "agent read w1:p1 --lines 10 --format text" runtime_read r/card-a --lines 10
 OPSX_TEST_AGENT_GET_RAW='{}' verb "agent get card-a" runtime_get r/card-a

@@ -89,24 +89,22 @@ def append_to_section(text: str, heading: str, line: str) -> str:
     return text[:m.start(1)] + kept + "\n" + line + "\n" + ("\n" if m.end(1) < len(text) else "") + text[m.end(1):]
 
 
-def repos_under(root: pathlib.Path) -> dict[str, pathlib.Path]:
-    """root 下的 opsx repo：有 openspec/changes 而且 .git 是目錄（linked worktree 的 .git 是檔，不算）。
-    repo 名取解析後路徑的 basename，跟 collect 一樣；symlink 進 root 的 repo，debt.sh 在實體目錄掃，回報的也是實體名。"""
-    out = {}
-    if not root.is_dir():
-        return out
-    for d in sorted(root.iterdir()):
-        if (d / "openspec" / "changes").is_dir() and (d / ".git").is_dir():
-            real = d.resolve()
-            out[real.name] = real
-    return out
-
-
 def source_paths(state: pathlib.Path) -> list[pathlib.Path]:
+    """sources.toml 每筆 [[source]] 的 path。寫壞或形狀不對都 raise ValueError，訊息含檔名與壞掉的值；呼叫端記一筆錯、只列 root 底下的 repo。"""
     f = state / "sources.toml"
     if not f.exists():
         return []
-    return [pathlib.Path(s["path"]) for s in tomllib.loads(f.read_text(encoding="utf-8")).get("source", []) if "path" in s]
+    try:
+        sources = tomllib.loads(f.read_text(encoding="utf-8")).get("source", [])
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError("%s TOML 壞了：%s" % (f, " ".join(str(e).split()))) from e
+    if not isinstance(sources, list) or not all(isinstance(s, dict) for s in sources):
+        raise ValueError("%s 的 source 要寫成 [[source]] 表的陣列，現在是：%r" % (f, sources))
+    # `~` 不展開、相對路徑隨下指令的位置變，同一份清單在 collect 與 dispatch 會不一樣
+    bad = [s["path"] for s in sources if "path" in s and not (isinstance(s["path"], str) and pathlib.Path(s["path"]).is_absolute())]
+    if bad:
+        raise ValueError("%s 的 path 要是絕對路徑字串，現在是：%r" % (f, bad[0]))
+    return [pathlib.Path(s["path"]) for s in sources if "path" in s]
 
 
 def has_customer(state: pathlib.Path) -> bool:
@@ -120,14 +118,50 @@ def log_sync_row(opsx_root: pathlib.Path, state: pathlib.Path, source: str, crea
                           capture_output=True, text=True, env=dict(os.environ, OPSX_STATE_DIR=str(state)))
 
 
-def opsx_repos(root: pathlib.Path, state: pathlib.Path) -> dict[str, pathlib.Path]:
-    """跟 opsx collect 同一份 repo 清單：root 下的 repo，加上 sources.toml 登記的 path 本身（不含它的兄弟目錄）。"""
-    repos = repos_under(root)
-    for p in source_paths(state):
-        real = p.resolve()
-        if (real / "openspec" / "changes").is_dir() and (real / ".git").is_dir():
-            repos.setdefault(real.name, real)
-    return repos
+def scan_repos(root: pathlib.Path, sources: list[pathlib.Path]) -> tuple[dict[str, pathlib.Path], dict[str, list[pathlib.Path]], list[str], dict[pathlib.Path, str]]:
+    """已登記 repo 清單，collect、sync、dispatch 共用：root 下的子目錄，加上 sources（sources.toml 登記的 path）本身，不含它的兄弟目錄。
+    有 openspec/changes 而且 .git 是目錄才算；.git 是檔的是 linked worktree，只把名字放進 worktrees。
+    沒有 .git 的與讀不了的（PermissionError）放進 skipped（路徑對錯誤訊息），呼叫端記錯；一個讀不了的目錄不拖垮整份清單。
+    以 inode 去重：macOS 上大小寫不同的寫法 resolve() 不會統一，比字串會把同一個 repo 當成兩個。先掃到的寫法勝出。
+    repo 名取實體路徑的 basename（symlink 進來的 repo，debt.sh 回報的也是實體名）。兩個實體路徑同名時兩個都不收、放進 conflicts：
+    grants.toml、dispatch.json、workspaces.toml 都以名字為 key，收了其中一個或兩個都收，授權與派工就會落到另一個 repo 上。"""
+    candidates = sorted(root.iterdir()) if root.is_dir() else []
+    by_name: dict[str, list[pathlib.Path]] = {}
+    worktrees: list[str] = []
+    skipped: dict[pathlib.Path, str] = {}
+    seen: set[tuple[int, int]] = set()
+    for d in candidates + sources:
+        try:
+            if not (d / "openspec" / "changes").is_dir():
+                continue
+            real = d.resolve()
+            st = real.stat()
+            git = real / ".git"
+            is_worktree, is_repo = git.is_file(), git.is_dir()
+        except PermissionError as e:
+            skipped[d] = "%s 讀不了（%s），跳過" % (d, e.strerror)
+            continue
+        if (st.st_dev, st.st_ino) in seen:
+            continue
+        seen.add((st.st_dev, st.st_ino))
+        if is_worktree:
+            if real.name not in worktrees:
+                worktrees.append(real.name)
+        elif is_repo:
+            by_name.setdefault(real.name, []).append(real)
+        else:
+            skipped[real] = "%s 有 openspec/changes 但沒有 .git，不算 repo，不收" % real
+    repos = {name: paths[0] for name, paths in by_name.items() if len(paths) == 1}
+    conflicts = {name: paths for name, paths in by_name.items() if len(paths) > 1}
+    return repos, conflicts, worktrees, skipped
+
+
+def conflict_message(name: str, paths: list[pathlib.Path]) -> str:
+    return "repo 名 %s 重複：%s；兩個都不收，把其中一個資料夾改名" % (name, "、".join(str(p) for p in paths))
+
+
+def sources_message(e: ValueError) -> str:
+    return "%s；只列 root 底下的 repo" % e
 
 
 def demote_headings(body: str) -> str:
@@ -193,9 +227,10 @@ def write_debt_snapshot(state: pathlib.Path, snapshot: dict[str, list[dict]], sc
     safefile.write_atomic(str(path), json.dumps(kept, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
-def issue_items(opsx_root: pathlib.Path, kind: str, state: pathlib.Path, repos: dict[str, pathlib.Path], tally: Tally) -> tuple[list[dict], dict[str, str]]:
+def issue_items(opsx_root: pathlib.Path, kind: str, state: pathlib.Path, repos: dict[str, pathlib.Path], reported: set[pathlib.Path], tally: Tally) -> tuple[list[dict], dict[str, str]]:
     """跑 herdr-board/sync/<kind>.sh list；回 item 與撈成功的 {repo: project}（只有撈成功的 repo 才查關閉）。
-    path 不在 repos（例如 linked worktree）的不建殼：去重索引掃不到那裡，建了每次都會多一張。"""
+    path 不在 repos（例如 linked worktree）的不建殼：去重索引掃不到那裡，建了每次都會多一張。
+    reported 是掃清單時已經記過錯的 repo（同名、沒有 .git、讀不了），它們的 issue 不再每筆另記一次。"""
     roots = set(repos.values())
     toml = state / "sources.toml"
     if not toml.exists():
@@ -213,6 +248,8 @@ def issue_items(opsx_root: pathlib.Path, kind: str, state: pathlib.Path, repos: 
             tally.error("%s:%s" % (kind, row["repo"]), row["error"])
         elif "listed" in row:
             listed[row["listed"]] = row["project"]
+        elif pathlib.Path(row["path"]).resolve() in reported:
+            continue
         elif pathlib.Path(row["path"]).resolve() not in roots:
             tally.error(row["source"], "%s 不是 opsx repo 的根目錄（要有 openspec/changes 與 .git 目錄）" % row["path"])
         else:
@@ -353,7 +390,17 @@ def main() -> int:
     now = datetime.datetime.now().astimezone()
     today = now.date().isoformat()
     tally = Tally()
-    repos = opsx_repos(a.root.resolve(), a.state)
+    try:
+        sources = source_paths(a.state)
+    except ValueError as e:
+        tally.error("sources", sources_message(e))
+        sources = []
+    repos, conflicts, _, skipped = scan_repos(a.root.resolve(), sources)
+    for name, paths in conflicts.items():
+        tally.error("repos", conflict_message(name, paths))
+    for message in skipped.values():
+        tally.error("repos", message)
+    reported = set(skipped) | {p for paths in conflicts.values() for p in paths}
     index = build_index(repos, a.state)
 
     wanted = (a.source,) if a.source else SOURCES
@@ -361,7 +408,7 @@ def main() -> int:
     listed: dict[str, dict[str, str]] = {}
     for kind in ("gitlab", "github"):
         if kind in wanted:
-            got, listed[kind] = issue_items(a.opsx_root, kind, a.state, repos, tally)
+            got, listed[kind] = issue_items(a.opsx_root, kind, a.state, repos, reported, tally)
             items += got
     if "debt" in wanted:
         snapshot, scanned = debt_snapshot(a.opsx_root, repos, tally)
