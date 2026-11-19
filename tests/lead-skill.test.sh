@@ -66,6 +66,10 @@ for s in 'git fetch' '--first-parent --no-merges' 'git show --remerge-diff --for
   case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 缺：$s" ;; esac
 done
 case "$T2" in *'git log --oneline <sha>..<head>'*) fail "類型 2 不能再用會混進 main commit 的 git log --oneline <sha>..<head>" ;; esac
+# GitHub 的卡寫 #號（design D7）；沒有 ## 邏輯表 那行當成沒有邏輯表（design D8）；自己只改測試或文件的 commit 不算改程式（design D10）
+for s in 'On GitHub write #' 'no `## 邏輯表` line' 'only test files or docs'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
 # 邏輯表落後且 PR 自己改了程式：六塊都照最新程式改（design D4）
 case "$T2" in *'功能說明, 誰設定什麼, 邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時六塊都要照最新程式改" ;; esac
 # reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
