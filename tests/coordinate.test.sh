@@ -1721,11 +1721,28 @@ cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"a
 round || fail "rc: $(cat "$FX/out")"; n1="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" > "$FX/merges"
 grep '^notification show \[demo/m\]' "$OPSX_FAKE_LOG" | grep -q '看板' || fail "可以合併要指到看板：$(cat "$OPSX_FAKE_LOG")"
 round || fail "rc: $(cat "$FX/out")"; n2="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" >> "$FX/merges"
-cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"${READY/abc/s2}"'}]'
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"${READY/abc/s2}"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
 round || fail "rc: $(cat "$FX/out")"; n3="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" >> "$FX/merges"
 assert_eq "$((n1 + n2 + n3))" 2 "同一個 sha 一次、新 sha 再一次"
 assert_eq "$(cat "$FX/merges")" "" "沒有任何 merge 指令"
 [ -n "$(memo_get _notified demo/m/ready/abc)" ] && [ -n "$(memo_get _notified demo/m/ready/s2)" ] || fail "_notified 要綁 head sha：$(cat "$MEMO")"
+rm -f "$MEMO"
+
+# --- MR ready 但 agent 還在改：不推可以合併，改完那輪補推（specs/opsx-coordinate「可以合併事件照 collect 的 waiting」） ---
+ready_said() { grep -c '\[demo/m\] 可以合併' "$OPSX_FAKE_LOG" || true; }
+cards '[{"slug":"m","section":"進行中","stage":"babysit","dispatch":'"$D"',"agent_status":"working","mr":'"$READY"'}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(ready_said) $(memo_get _notified demo/m/ready/abc)" "0 " "agent working 不推、不記鍵：$(cat "$OPSX_FAKE_LOG")"
+cards '[{"slug":"m","section":"進行中","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"'}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(ready_said) $(memo_get _notified demo/m/ready/abc)" "0 " "邏輯表不是最新 head（collect 給 waiting null）不推"
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"waiting":{"type":"等待決定","gate_id":"logic-map-undecided-r4","question":"邏輯表有兩項沒經過決定","recommended":"照現在","options":["照現在","改"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(ready_said) $(memo_get _notified demo/m/ready/abc)" "0 " "有 open gate 不推可以合併"
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(ready_said)" 1 "改完那輪補推一次：$(cat "$OPSX_FAKE_LOG")"
+grep '\[demo/m\] 可以合併' "$OPSX_FAKE_LOG" | grep -q 'https://github.com/o/r/pull/7' || fail "補推的內文要有 MR URL：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- MR 卡住：agent 不在 working 時推，同一件事只推一次，回到不卡住清鍵，查不到不清（agent-20261117-1122）---
@@ -1778,7 +1795,11 @@ stuck_quiet '"idle"' "$(mrj pipeline:canceling null)" "GitLab 取消中（mr_jso
 stuck_quiet '"idle"' "$(mrj state:locked null)" "GitLab 合併中（mr_json 給 null）"
 stuck_quiet '"idle"' "$(mrj pipeline:failed null)" "GitHub check 還是 IN_PROGRESS（mr_json 給 null）"
 stuck_quiet '"idle"' "$(mrj ready null)" "ready"
-assert_eq "$(count '^agent prompt opsx-coordinator \[demo/m\] 可以合併')" 1 "ready 照舊送可以合併：$(cat "$OPSX_FAKE_LOG")"
+# 可以合併照 collect 的 waiting 送（me-20261117-1421）：卡標了可以合併才送，MR 卡住的邏輯不擋它
+rm -f "$MEMO"
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$(mrj ready null)"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
+OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent prompt opsx-coordinator \[demo/m\] 可以合併') $(any_stuck)" "1 0" "ready 照舊送可以合併、不推卡住：$(cat "$OPSX_FAKE_LOG")"
 stuck_quiet '"idle"' "$(mrj none null '"glab mr view 9 沒回東西"')" "查不到"
 stuck_quiet '"idle"' "$(mrj pipeline:failed null)" "pipeline_status 是 null 且 pipeline 不過（mr_json 給 null）"
 stuck_quiet '"idle"' "$(mrj pipeline:failed absent)" "快取沒有 stuck 欄位"

@@ -105,12 +105,13 @@ PY
 
   # 讀卡的檔與全域狀態，組 JSON
   OPSX_C_WORK="$work" OPSX_C_STATE="$state" OPSX_C_HERDR_ERR="$herdr_err" OPSX_C_NOW="$now" OPSX_C_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - <<'PY'
-import datetime, json, os, re, sys, tomllib
+import datetime, glob, json, os, re, sys, tomllib
 sys.path.insert(0, os.environ["OPSX_C_LIB"])
 import chain
 import gaterule
 import gatetype
 import grantactions
+import mergeready
 
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib"))
 import inboxmerge
@@ -285,6 +286,20 @@ def kind_of(d):
     m = re.search(r"^kind:\s*(\S+)", read(os.path.join(d, ".openspec.yaml")), re.M)
     return m.group(1) if m else "dev"
 
+# 呼叫時主殼已經沒有 open gate。子殼的 open gate 也擋，跟 opsx merge 的 st_open_gates 同一個範圍。
+# report.md 讀不了只壞這一張卡（同 logic_map_of）：記 errors、不標可以合併
+def mergeable(card, agent_status):
+    d = card["dir"]
+    report_path = os.path.join(d, "report.md")
+    try:
+        report = read(report_path)
+    except (UnicodeDecodeError, OSError) as e:
+        errors.append({"source": report_path, "message": "%s 的 report.md 讀不了，不標可以合併：%s" % (card["slug"], e)})
+        return False
+    sub_open = any(g.get("status", "").strip() == "open"
+                   for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
+    return not mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
+
 # 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人
 def gates_in_force(gates, d):
     if os.path.exists(os.path.join(d, "tasks.md")): return gates
@@ -312,10 +327,9 @@ def waiting_of(card, gates, agent_status):
                 o = o.replace("(Recommended)", "").strip(); rec = rec or o
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
-    mr = card["mr"]
-    if mr and mr.get("state") == "ready":
+    if card["mr"] and mergeable(card, agent_status):
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
-                "evidence": mr["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
+                "evidence": card["mr"]["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
     if agent_status == "blocked":
         return {"type": "終端機等待輸入", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane", "停止", "重新指派"],
                 "question": "agent 在終端機等輸入，板上沒有對應的 gate", "recommended": "開啟 pane", "evidence": None, "risk": "照規則不該發生：要授權的動作應寫 gate",
@@ -350,11 +364,8 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     key = "%s/%s" % (c["repo"], c["slug"])
     disp = dispatch.get(key)
     if disp and disp.get("mode") == "stopped": disp = None
-    agent_status = None
-    if disp and agents is not None:
-        hit = [a for a in agents if str(a.get("pane_id")) == str(disp.get("pane"))]
-        agent_status = (hit[0].get("agent_status") or "unknown") if hit else "unknown"
-        if hit: matched_panes.add(str(hit[0].get("pane_id")))
+    agent_status = mergeready.agent_status_of(agents, disp.get("pane")) if disp else None
+    if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
     in_force = gates_in_force(gates, d)
@@ -470,8 +481,8 @@ ARCHIVED_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)$")
 def progress_class(c, top, prs):
     """由上往下取第一個符合的；不看協調者在不在跑、不看 agent_status。dispatch 為 None 包含 stopped。"""
     w = c["waiting"]
-    # 看 mr.state 不看 waiting：有 open gate 時 waiting 是那個 gate，協調者仍照 mr.state 發「可以合併」
-    if c["mr"] and c["mr"].get("state") == "ready": return "mergeable"
+    # 協調者推「可以合併」也照 waiting.type，計數器跟事件一致
+    if w and w["type"] == "可以合併": return "mergeable"
     if w:
         # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)

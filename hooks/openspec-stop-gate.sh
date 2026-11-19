@@ -209,18 +209,37 @@ wait_reason() { # <dir> <站>
   fi
 }
 
-# 只記不推：MR 卡住由 coordinate 送（它在 agent 停了之後還會再看），兩邊都推會重複。
+# MR 卡住只記不推：由 coordinate 送（它在 agent 停了之後還會再看），兩邊都推會重複。
+# MR 全綠但卡沒過（邏輯表舊、review 項沒處理）coordinate 不送，這裡要推。
 # 升級前寫的 MR 快取沒有 stuck 欄位，分不出卡住沒有，當查不到
 babysit_reason() {
-  local stuck="?"
+  local stuck="?" card
   [ "$mr_rc" -eq 0 ] && stuck="$(printf '%s' "$mr_out" | jq -r 'if .error != null or (has("stuck") | not) then "?" else .stuck // "" end' 2>/dev/null || printf '?')"
   case "$stuck" in
     "?") printf 'quiet|babysit 一輪做完，查不到 MR 狀態' ;;
-    "") printf 'quiet|babysit 一輪做完，等 MR 合併' ;;
+    "")
+      card="$(ready_card_blocker)"
+      if [ -n "$card" ]; then printf 'push|babysit 做完，%s' "$card"
+      else printf 'quiet|babysit 一輪做完，等 MR 合併'
+      fi ;;
     # 英文開頭的原因前面空一格，中文直接接「卡在」；coordinate.py 的 spaced 用同一條規則
     [A-Za-z]*) printf 'quiet|babysit 做完，MR 卡在 %s' "$stuck" ;;
     *) printf 'quiet|babysit 做完，MR 卡在%s' "$stuck" ;;
   esac
+}
+
+# MR 全綠，但邏輯表不是 MR head 產的、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
+# 印 mergeready.card_blockers 的第一條；判斷跟 collect 共用。MR JSON 讀不懂或沒有 python 時印空字串，照原本不推（hook 不能以非 0 結束）
+ready_card_blocker() {
+  printf '%s' "$mr_out" | OPSX_SLUG="$slug" OPSX_DIR="$d" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
+import json, os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import mergeready
+mr = json.load(sys.stdin)
+d = os.environ["OPSX_DIR"]
+with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
+    report = f.read()
+got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, os.path.isfile(os.path.join(d, "logic-map.md")), mr.get("head_sha"))
+print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
 
 # 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉
