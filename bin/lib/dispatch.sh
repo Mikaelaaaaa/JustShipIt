@@ -332,7 +332,7 @@ PY
 warn_slots_full() {
   # 這只是警告，不擋派工。數不成的原因也印 stdout：看板派工成功時只顯示 stdout
   OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR" <<'PY' || true
-import json, os, subprocess, sys
+import os, subprocess, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime
 state = sys.argv[1]
 p = subprocess.run(runtime.list_agents(), capture_output=True, text=True)
@@ -340,17 +340,12 @@ if p.returncode != 0:
     print("dispatch: 數不出名額：herdr agent list 失敗（rc %d）" % p.returncode)
     sys.exit(0)
 try:
-    status = {a.get("pane_id"): a.get("agent_status") for a in json.loads(p.stdout)["result"]["agents"]}
-except (json.JSONDecodeError, KeyError, TypeError) as e:
-    print("dispatch: herdr agent list 讀不懂，不數名額：%s" % e)
-    sys.exit(0)
-try:
+    agents = coordinate.parse_agents(p.stdout)
     limit = coordinate.read_max_working(os.path.join(state, "max-working"))
 except coordinate.CoordinateError as e:
     print("dispatch: 不數名額：%s" % e)
     sys.exit(0)
-entries = jsonfile.load(os.path.join(state, "dispatch.json")).values()
-n = len(coordinate.live_panes((e.get("pane"), status.get(e.get("pane"))) for e in entries if e.get("mode") != "stopped"))
+n = len(coordinate.live_panes(jsonfile.load(os.path.join(state, "dispatch.json")), agents))
 if n >= limit:
     print("dispatch: 已有 %d/%d 個 pane" % (n, limit))
 PY

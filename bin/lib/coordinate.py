@@ -89,6 +89,7 @@ class Round:
         self.now = datetime.datetime.now().astimezone()
         self.memo = None
         self.dispatch_file = None
+        self.agents = None
         self.plans = {}
         self.levels = {}
         self.level_errors = {}
@@ -136,6 +137,10 @@ class Round:
         herdr = [e["message"] for e in data["errors"] if e["source"] == "herdr"]
         if herdr:
             raise CoordinateError("herdr 讀不到，agent 狀態不可得，這輪不動：%s" % "；".join(herdr))
+        rc, out, err = self.run(runtime.list_agents())
+        if rc != 0:
+            raise CoordinateError("herdr agent list 失敗（rc %d），數不出名額：%s" % (rc, err[:300]))
+        self.agents = parse_agents(out)
         self.memo = read_json(self.memo_path, "coordinator memo")
         for k in ("_parked", "_redispatched", "_notified", "_relaunched"):
             self.memo.setdefault(k, {})   # 沒有這個 key 就是還沒記過任何一張
@@ -775,8 +780,9 @@ class Round:
         self.count_reopened(c)
 
     def count_reopened(self, c):
-        """重派成功開了新 pane。舊 pane 還活著（drive 死了）時它已在 busy_panes 裡，stop 關掉它再開一個，不多佔名額。"""
-        if c["agent_status"] not in LIVE_AGENT:
+        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還活著）時 stop 關掉它再開一個，不多佔名額；
+        不在 busy_panes 裡的（agent 死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
+        if c["dispatch"].get("pane") not in self.busy_panes:
             self.opened += 1
 
     def check_args(self, c, top):
@@ -1066,9 +1072,36 @@ class Round:
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
 
 
-def live_panes(pairs):
-    """(pane, agent_status) 裡佔派工名額的 pane 集合：agent 還在的才算，同一個 pane 代管幾張卡都只算一次。"""
-    return {pane for pane, status in pairs if pane and status in LIVE_AGENT}
+def parse_agents(out):
+    """herdr agent list 輸出裡的 result.agents。讀不懂（不是 JSON、沒有 result.agents、不是物件的 list）丟 CoordinateError。"""
+    try:
+        agents = json.loads(out)["result"]["agents"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：%s" % e) from e
+    if not isinstance(agents, list):
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 要是 list，拿到 %r" % (agents,))
+    for a in agents:
+        if not isinstance(a, dict):
+            raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 的元素要是物件，拿到 %r" % (a,))
+    return agents
+
+
+def live_panes(entries, agents):
+    """dispatch.json 的條目與 herdr agent list 裡佔派工名額的 pane 集合。協調者與 opsx dispatch 的警告共用這個數法。
+    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡，
+    agent 的 cwd 或 foreground_cwd 是那個 worktree 或在它底下。比 cwd 是因為 herdr 會重用 pane id，只憑 id 會把別人的 pane 算進來。
+    卡有沒有歸檔、是卡還是 session 的條目、repo 有沒有被 collect 掃到都不看；同一個 pane 代管幾張卡都只算一次。"""
+    live = {a.get("pane_id"): a for a in agents if a.get("agent_status") in LIVE_AGENT}
+    busy = set()
+    for e in entries.values():
+        a = live.get(e["pane"]) if e.get("pane") else None
+        if not a or not e.get("worktree") or not chain.session_alive(e):
+            continue
+        root = os.path.realpath(e["worktree"])
+        cwds = [os.path.realpath(a[k]) for k in ("cwd", "foreground_cwd") if a.get(k)]
+        if any(p == root or p.startswith(root + "/") for p in cwds):
+            busy.add(e["pane"])
+    return busy
 
 
 def read_max_working(path):
@@ -1368,8 +1401,7 @@ def one_round(state, dry):
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
-    # 已合併還沒收尾的卡 pane 還開著，照佔名額
-    r.busy_panes = live_panes((c["dispatch"].get("pane"), c["agent_status"]) for c in cards if c["dispatch"])
+    r.busy_panes = live_panes(r.dispatch_file, r.agents)
 
     merged = [c for c in cards if is_merged(c)]
     orphans = []
