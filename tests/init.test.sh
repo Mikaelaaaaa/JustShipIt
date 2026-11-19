@@ -351,6 +351,14 @@ outd="$(HOME="$PYH" CLAUDE_CONFIG_DIR="$FX/cc6" opsx init --check 2>&1)"; rc=$?
 assert_eq "$rc" 1 "缺 pnpm docs:api 時 --check 要失敗：$outd"
 case "$outd" in *"缺 sandbox.excludedCommands: pnpm docs:api"*) ;; *) fail "要印缺 pnpm docs:api：$outd" ;; esac
 assert_eq "$(cat "$FX/cc6/settings.json")" "$before" "--check 改了檔"
+# vitest worker 上限：init --global 寫進使用者層 env；缺 VITEST_MAX_FORKS 時 --check 指出、exit 1、不改檔（specs/vitest-worker-limit）
+assert_eq "$(cj "$CS" env)" '{"VITEST_MAX_FORKS": "2", "VITEST_MAX_THREADS": "1"}' "init --global 要寫 vitest worker 上限"
+python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));del d["env"]["VITEST_MAX_FORKS"];json.dump(d,open(p,"w"))' "$FX/cc6/settings.json"
+before="$(cat "$FX/cc6/settings.json")"
+outv="$(HOME="$PYH" CLAUDE_CONFIG_DIR="$FX/cc6" opsx init --check 2>&1)"; rc=$?
+assert_eq "$rc" 1 "缺 VITEST_MAX_FORKS 時 --check 要失敗：$outv"
+case "$outv" in *"缺 env.VITEST_MAX_FORKS: 2"*) ;; *) fail "要印缺 env.VITEST_MAX_FORKS：$outv" ;; esac
+assert_eq "$(cat "$FX/cc6/settings.json")" "$before" "--check 改了檔"
 assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c 'orca terminal send\|orca terminal create\|orca orchestration\|"orca \*"')" 0 "寫入類的 orca 子指令與整個 orca * 不進排除清單"
 assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c '"pnpm \*"\|"tsx \*"')" 0 "整個 pnpm * 與 tsx * 不進排除清單"
 cd "$FX"
