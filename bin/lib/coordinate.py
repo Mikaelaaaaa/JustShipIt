@@ -42,8 +42,8 @@ CLOCK_SKEW_MINUTES = 1
 PID_MAX = 2**31 - 1
 # 真實訊息是 `Usage limit reached[ again] · …`，前面只有 Claude Code 畫的 ⎿ │ 與空白；引用、清單、diff 行都不算
 USAGE_LIMIT_LINE = re.compile(r"[\s⎿│]*Usage limit reached(?: again)?\s*·")
-# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話
-AUTO_CONTINUE_LINE = re.compile(r"[\s⎿│]*Automatic continue stopped")
+# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話。只認從行首開始的：引用、清單、diff、縮排的都是別人轉述
+AUTO_CONTINUE_LINE = re.compile(r"Automatic continue stopped")
 USAGE_LIMIT_STALE_MINUTES = 30
 USAGE_LIMIT_WARNING = "grace allowance"   # 「還有一小段寬限」是警告，agent 還在跑，不算停下
 USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.IGNORECASE)
@@ -371,7 +371,7 @@ class Round:
             else:
                 self.args_checked.add(session_key)
                 if not self.dry:
-                    submit.check(self.state, session_key, text, self.run, self.act, time.sleep)
+                    self.confirm_sent(session_key, text)
 
     def close_session(self, top, repo, feature):
         """同 feature 沒有活成員了：停 session、移 worktree、刪已合併成員的分支、拿掉 session 條目。哪一步失敗就停在那一步，留給人。"""
@@ -574,7 +574,7 @@ class Round:
             if rc != 0:
                 self.log("?? %s 的畫面讀不到，用量上限看不了：%s" % (card_key(c), err[:200]))
                 continue
-            if any(AUTO_CONTINUE_LINE.match(line) for line in out.splitlines()):
+            if auto_continue_stopped(out):
                 self.auto_stopped.append(c)
             hit, resets_at = parse_usage_limit(out, self.now)
             if hit:
@@ -616,7 +616,8 @@ class Round:
 
     def send_continue(self):
         """停在 Automatic continue stopped 的 pane 送「繼續」，暫停中也送：這行只在換帳號或按 esc 後出現，等重置時刻不會自己續跑。
-        同一個 pane 不滿 REDISPATCH_MINUTES 不再送；_continued 只留還在 dispatch.json 裡的 pane。"""
+        同一個 pane 不滿 REDISPATCH_MINUTES 不再送；_continued 只留還在 dispatch.json 裡的 pane。
+        parked、被 opsx stop 停掉、有 open gate 的卡是在等人，不替它續跑。"""
         continued = self.memo["_continued"]
         known = {e.get("pane") for e in self.dispatch_file.values()}
         for pane in [p for p in continued if p not in known]:
@@ -624,6 +625,9 @@ class Round:
         path = os.path.join(self.state, "dispatch.json")
         for c in self.auto_stopped:
             key, pane = card_key(c), c["dispatch"]["pane"]
+            if key in self.memo["_parked"] or c["dispatch"].get("mode") == "stopped" or c["open_gates"]:
+                self.log("-- %s 的 pane %s 停在 Automatic continue stopped，卡在等人（parked、stopped 或有 open gate），不送「繼續」" % (key, pane))
+                continue
             if not continue_due(continued.get(pane), self.now):
                 self.log("-- %s 的 pane %s 停在 Automatic continue stopped，%s 才送過「繼續」，不再送" % (key, pane, continued[pane]))
                 continue
@@ -634,19 +638,32 @@ class Round:
             continued[pane] = self.now.isoformat(timespec="seconds")
             self.log("ok   %s 的 pane %s 停在 Automatic continue stopped，送了「繼續」" % (key, pane))
             if not self.dry:
-                submit.check(self.state, key, "繼續", self.run, self.act, time.sleep)
+                self.confirm_sent(key, "繼續")
+
+    def confirm_sent(self, key, text):
+        """送出後的輸入框檢查（submit.check）；補了 Enter 字仍在框裡時記一行 ?? 含 pane id。"""
+        result, pane = submit.check(self.state, key, text, self.run, self.act, time.sleep)
+        if result == "stuck":
+            self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是剛送的「%s」，到 pane 看一下" % (key, pane, text))
 
     def submit_sweep(self, live):
-        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter。一個 pane 一輪讀一次。
-        session 條目（<repo>/@<feature>）不是卡，pane 的狀態取自派在同一個 pane 的卡。"""
-        status = {c["dispatch"]["pane"]: c["agent_status"] for c in live if c["dispatch"] and c["dispatch"].get("pane")}
-        seen = set()
-        for entry in self.dispatch_file.values():
-            pane, text = entry.get("pane"), entry.get("last_prompt")
-            if not pane or not text or pane in seen or status.get(pane) not in ("idle", "done"):
+        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter，並清掉對上的 last_prompt。
+        一個 pane 一輪讀一次，跟同 pane 每個條目（session 與成員）的 last_prompt 比。
+        session 條目（<repo>/@<feature>）不是卡，pane 的狀態取自派在同一個 pane 的卡；其中一張不是 idle 或 done 就不補。"""
+        status = {}
+        for c in live:
+            if c["dispatch"] and c["dispatch"].get("pane"):
+                status.setdefault(c["dispatch"]["pane"], set()).add(c["agent_status"])
+        prompts = {}
+        for key, entry in self.dispatch_file.items():
+            if entry.get("pane") and entry.get("last_prompt"):
+                prompts.setdefault(entry["pane"], {})[key] = entry["last_prompt"]
+        for pane, texts in prompts.items():
+            if not status.get(pane) or not status[pane] <= {"idle", "done"}:
                 continue
-            seen.add(pane)
-            submit.nudge(pane, text, self.run, self.act)
+            matched = submit.nudge(pane, texts, self.run, self.act)
+            if matched and not self.dry:
+                jsonfile.update(os.path.join(self.state, "dispatch.json"), functools.partial(submit.forget, sent=matched))
 
     def handle_gate(self, c, top):
         """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
@@ -1137,6 +1154,16 @@ def parse_usage_limit(text, now):
         at = now.replace(hour=int(hour) % 12 + (12 if ampm.lower() == "pm" else 0), minute=int(minute or 0), second=0, microsecond=0)
         times.append(at if at > now else at + datetime.timedelta(days=1))
     return True, max(times) if times else None
+
+
+def auto_continue_stopped(text):
+    """畫面停在 Automatic continue stopped：那行是輸入框上面最後一行內容，之後只有空行、輸入框和狀態列。
+    之後還有內容（已送過繼續、agent 回了話）就是續上了。看不到輸入框時取整段畫面的最後一行內容。"""
+    lines = text.splitlines()
+    rules = [i for i, line in enumerate(lines) if coordq.RULE.match(line)]
+    above = lines[:rules[-2]] if len(rules) >= 2 else lines
+    content = [line for line in above if line.strip()]
+    return bool(content) and AUTO_CONTINUE_LINE.match(content[-1]) is not None
 
 
 def continue_due(last, now):

@@ -54,31 +54,46 @@ def remember(d, key, text):
         entry["last_prompt"] = text
 
 
+def forget(d, sent):
+    """jsonfile.update 的 mutate：sent 是 {條目 key: 確認送到的那句}。條目的 last_prompt 還是那句才清；之後又送了別句的留著。"""
+    for key, text in sent.items():
+        entry = d.get(key)
+        if entry and entry.get("last_prompt") == text:
+            del entry["last_prompt"]
+
+
 def check(state, key, text, read, act, sleep):
     """剛對卡 key 送出 text 之後叫：記 last_prompt、看輸入框，框裡是這句就補一次 Enter 再看。
-    回 sent（框裡不是這句）、entered（補了 Enter 送出去了）、stuck（補了仍在）、unknown（沒有 pane 或讀不出輸入框）。"""
+    回 (結果, pane)。結果是 sent（框裡不是這句）、entered（補了 Enter 送出去了）、stuck（補了仍在）、
+    unknown（沒有 pane 或讀不出輸入框）；sent 與 entered 清掉 last_prompt，另外兩種留給 coordinate 的 sweep。"""
     path = os.path.join(state, "dispatch.json")
     pane = (jsonfile.load(path).get(key) or {}).get("pane")
     if not pane:
-        return "unknown"
+        return "unknown", None
     jsonfile.update(path, functools.partial(remember, key=key, text=text))
     sleep(delay())
     first = box(pane, read)
     if first is None:
-        return "unknown"
-    if not same(first, text):
-        return "sent"
-    act(runtime.send_enter(pane))
-    sleep(delay())
-    return "stuck" if same(box(pane, read), text) else "entered"
+        return "unknown", pane
+    result = "sent"
+    if same(first, text):
+        act(runtime.send_enter(pane))
+        sleep(delay())
+        if same(box(pane, read), text):
+            return "stuck", pane
+        result = "entered"
+    jsonfile.update(path, functools.partial(forget, sent={key: text}))
+    return result, pane
 
 
-def nudge(pane, text, read, act):
-    """coordinate 每輪替閒著的 pane 看一次：框裡是 opsx 記下的那句才按 Enter。回有沒有按。"""
-    if not same(box(pane, read), text):
-        return False
-    act(runtime.send_enter(pane))
-    return True
+def nudge(pane, texts, read, act):
+    """coordinate 每輪替閒著的 pane 看一次輸入框。texts 是這個 pane 上各條目的 {key: last_prompt}。
+    框裡是其中一句才按 Enter；回對上的 {key: 那句}，沒按回空的。"""
+    current = box(pane, read)
+    matched = {key: text for key, text in texts.items() if same(current, text)}
+    if matched:
+        act(runtime.send_enter(pane))
+    return matched
 
 
 def main(argv):
@@ -86,9 +101,8 @@ def main(argv):
         print("usage: submit.py check <state dir> <卡片身分> <剛送的一行>", file=sys.stderr)
         return 64
     state, key, text = argv[2:]
-    result = check(state, key, text, run, run, time.sleep)
+    result, pane = check(state, key, text, run, run, time.sleep)
     if result == "stuck":
-        pane = jsonfile.load(os.path.join(state, "dispatch.json"))[key]["pane"]
         print("opsx: %s 的 pane %s 補按了 Enter，輸入框仍是剛送的「%s」，到 pane 看一下" % (key, pane, text), file=sys.stderr)
     print(result)
     return 0

@@ -27,6 +27,10 @@ LP=',"last_prompt":"跑完了"'
 # --- 閒著的 pane 框裡是 opsx 送的話（正例） ---
 row "$LP" idle "$(screen ours '❯ 跑完了')" 1 "idle、框裡是 last_prompt"
 grep ' ok ' "$LOG" | grep -q 'w5:pAG' || fail "log 要有一行 ok 含 pane id：$(cat "$LOG")"
+assert_eq "$(jq -r '."demo/c1".last_prompt // "（沒有）"' "$DISP")" "（沒有）" "補了 Enter 就清掉 last_prompt"
+# 送到之後人在框裡打了一樣的字：last_prompt 已清，不再補
+round || fail "第二輪 rc: $(cat "$FX/out")"
+assert_eq "$(enters)" 0 "last_prompt 清掉後，人打的同一句不送出：$(cat "$OPSX_FAKE_LOG")"
 row "$LP" done "$(screen ours '❯ 跑完了')" 1 "done 也補"
 
 # --- 哪些 pane 不補 Enter：一般場景 ---
@@ -57,6 +61,22 @@ cards '[{"slug":"c1","section":"進行中","dispatch":'"$SM"',"agent_status":"id
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(enters)" 1 "session 條目的 last_prompt 也要補 Enter：$(cat "$OPSX_FAKE_LOG")"
 
+# --- 同 pane 的 session 條目記舊句、成員條目記新句：框裡是新句也要補 ---
+rm -f "$MEMO"; export OPSX_TEST_AGENT_READ="$(screen ours '❯ 跑完了')"
+printf '{"demo/@g":{"mode":"autopilot","agent":"claude","pane":"w5:pAG","drive_pid":null,"last_prompt":"舊的那句"},"demo/c1":{"mode":"autopilot","agent":"claude","pane":"w5:pAG","herdr_name":"g","via":"@g","feature":"g","drive_pid":null,"last_prompt":"跑完了"}}' > "$DISP"
+cards '[{"slug":"c1","section":"進行中","dispatch":'"$SM"',"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^agent read w5:pAG --source visible')" 1 "同 pane 多個條目仍只讀一次：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(enters)" 1 "成員條目的新句對得上要補：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(jq -r '."demo/@g".last_prompt' "$DISP")" 舊的那句 "沒對上的條目 last_prompt 留著"
+
+# --- 共用 pane 的兩張卡一張 working 一張 idle：不補 ---
+rm -f "$MEMO"; export OPSX_TEST_AGENT_READ="$(screen ours '❯ 跑完了')"
+printf '{"demo/c1":%s,"demo/c2":%s}' "$E" "$E" > "$DISP"
+cards '[{"slug":"c1","section":"進行中","dispatch":'"$E"',"agent_status":"working"},{"slug":"c2","section":"進行中","dispatch":'"$E"',"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(enters)" 0 "pane 上有卡在 working 就不補：$(cat "$OPSX_FAKE_LOG")"
+
 # --- 用量上限暫停時不補（反例） ---
 card idle "$LP"; export OPSX_TEST_AGENT_READ="$(screen ours '❯ 跑完了')"
 printf '{"_usage_limit":{"seen_at":"%s","resets_at":"%s"}}' "$(ahead -10)" "$(ahead 60)" > "$MEMO"
@@ -84,14 +104,23 @@ features:
           - name: t4
             status: pending
 EOF
-mkcard m3 m4; mkdir -p "$R/.claude/worktrees/g"; rm -f "$MEMO"
-printf '{"demo/@g":{"workspace":"demo","workspace_id":"w1","tab":"w1:t9","pane":"w1:p9","agent":"claude","model":"claude-opus-5-5","mode":"autopilot","worktree":"%s","started_at":"2026-11-07T10:00:00+08:00","drive_pid":null},"demo/m3":{"mode":"autopilot","agent":"claude","pane":"w1:p9","herdr_name":"g","via":"@g","feature":"g","drive_pid":null,"branch":"feat/m3/u","worktree":"%s"}}' "$R/.claude/worktrees/g" "$R/.claude/worktrees/g" > "$DISP"
+mkcard m3 m4; mkdir -p "$R/.claude/worktrees/g"
 GM='{"mode":"autopilot","agent":"claude","pane":"w1:p9","herdr_name":"g","via":"@g","feature":"g","drive_pid":null}'
-cards '[{"slug":"m3","section":"進行中","stage":"babysit","dispatch":'"$GM"',"agent_status":"idle","mr":{"url":"https://github.com/o/r/pull/8","state":"state:MERGED","head_sha":"def","conditions":{},"merged_at":"2026-11-07T12:00:00Z"}},{"slug":"m4"}]'
+wake() { # m3 已合併、m4 等著被叫醒
+  rm -f "$MEMO"
+  printf '{"demo/@g":{"workspace":"demo","workspace_id":"w1","tab":"w1:t9","pane":"w1:p9","agent":"claude","model":"claude-opus-5-5","mode":"autopilot","worktree":"%s","started_at":"2026-11-07T10:00:00+08:00","drive_pid":null},"demo/m3":{"mode":"autopilot","agent":"claude","pane":"w1:p9","herdr_name":"g","via":"@g","feature":"g","drive_pid":null,"branch":"feat/m3/u","worktree":"%s"}}' "$R/.claude/worktrees/g" "$R/.claude/worktrees/g" > "$DISP"
+  cards '[{"slug":"m3","section":"進行中","stage":"babysit","dispatch":'"$GM"',"agent_status":"idle","mr":{"url":"https://github.com/o/r/pull/8","state":"state:MERGED","head_sha":"def","conditions":{},"merged_at":"2026-11-07T12:00:00Z"}},{"slug":"m4"}]'
+  round || fail "rc: $(cat "$FX/out")"
+  assert_grep '^agent prompt g \[m4\] /opsx-workflow:apply m4$' "$OPSX_FAKE_LOG"
+  assert_eq "$(count '^pane send-keys w1:p9 enter$')" 1 "叫醒後框裡是送的那句要補 Enter：$(cat "$OPSX_FAKE_LOG")"
+}
 export OPSX_TEST_AGENT_READ="$SAMPLE" OPSX_TEST_AGENT_READ_ONCE="$FX/once"
 cp "$(screen woke '❯ [m4] \/opsx-workflow:apply m4')" "$FX/once"
-round || fail "rc: $(cat "$FX/out")"
-assert_grep '^agent prompt g \[m4\] /opsx-workflow:apply m4$' "$OPSX_FAKE_LOG"
-assert_eq "$(count '^pane send-keys w1:p9 enter$')" 1 "叫醒後框裡是送的那句要補 Enter：$(cat "$OPSX_FAKE_LOG")"
+wake
+assert_eq "$(jq -r '."demo/@g".last_prompt // "（沒有）"' "$DISP")" "（沒有）" "補了 Enter 送出去，session 條目的 last_prompt 清掉"
+# 補了 Enter 仍在框裡：log 一行 ?? 含 pane id，last_prompt 留在 session 條目給 sweep
+export OPSX_TEST_AGENT_READ="$(screen woke '❯ [m4] \/opsx-workflow:apply m4')"
+wake
+grep ' ?? ' "$LOG" | grep -q 'w1:p9' || fail "stuck 要記一行 ?? 含 pane id：$(cat "$LOG")"
 assert_eq "$(jq -r '."demo/@g".last_prompt' "$DISP")" "[m4] /opsx-workflow:apply m4" "last_prompt 記在 session 條目"
 echo ok

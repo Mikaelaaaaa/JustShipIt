@@ -11,7 +11,7 @@ screen() { # <檔名> <輸入框那一行換成什麼>：從實跑樣本做出�
   sed "s/^❯\$/$2/" "$SAMPLE" > "$FX/$1"; printf '%s' "$FX/$1"
 }
 reset() {
-  : > "$OPSX_FAKE_LOG"; rm -f "$FX/once"; unset OPSX_TEST_AGENT_READ OPSX_TEST_PROMPT_ERR
+  : > "$OPSX_FAKE_LOG"; rm -f "$FX/once"; unset OPSX_TEST_AGENT_READ OPSX_TEST_PROMPT_ERR OPSX_TEST_ON_SEND_KEYS
   printf '## g1\ntype: decision\nstatus: open\n問題: 怎麼做\n選項: 照建議 (Recommended) | 不要\n建議: 照建議\n' > "$C/gates.md"
   printf '{"r/c1":{"mode":"autopilot","agent":"claude","pane":"w5:pAE"}}' > "$DISP"
 }
@@ -20,12 +20,13 @@ reads() { grep -c '^agent read' "$OPSX_FAKE_LOG" || true; }
 last_prompt() { jq -r '."r/c1".last_prompt // "（沒有）"' "$DISP"; }
 answer() { ( cd "$R" && opsx answer c1 --gate g1 照建議 ) > "$FX/out" 2> "$FX/err"; }
 export OPSX_TEST_AGENT_READ_ONCE="$FX/once"
-# row <送出後第一次讀到的畫面檔> <send-keys 次數> <說明>：之後的讀都是空輸入框（補了 Enter 就送出去了）
+# row <送出後第一次讀到的畫面檔> <send-keys 次數> <說明> [last_prompt]：之後的讀都是空輸入框（補了 Enter 就送出去了）
+# 確認送到（框裡不是這句、或補了 Enter 送出去）就清掉 last_prompt；讀不出輸入框時留著給 coordinate 的 sweep
 row() {
   reset; cp "$1" "$FX/once"
   answer || fail "$3：answer rc：$(cat "$FX/err")"
   assert_eq "$(enters)" "$2" "$3：$(cat "$OPSX_FAKE_LOG")"
-  assert_eq "$(last_prompt)" 照建議 "$3 的 last_prompt"
+  assert_eq "$(last_prompt)" "${4:-（沒有）}" "$3 的 last_prompt"
   assert_grep '^agent read w5:pAE --source visible --format ansi$' "$OPSX_FAKE_LOG"
 }
 
@@ -39,7 +40,7 @@ row "$(screen other '❯ 我自己打的字')" 0 "框裡是別的字"
 
 # --- 邊界場景 ---
 printf 'Do you want to proceed?\n  1. Yes\n  2. No\n' > "$FX/dialog"
-row "$FX/dialog" 0 "畫面上沒有輸入框（對話框）"
+row "$FX/dialog" 0 "畫面上沒有輸入框（對話框）" 照建議
 awk '/^❯$/ && !d { print "❯ 照建"; print "  議"; d=1; next } { print }' "$SAMPLE" > "$FX/wrapped"
 row "$FX/wrapped" 1 "長句折行，去空白後相同"
 printf '────\n\e[38;2;138;144;149m❯ \e[0m\e[2mPress up to edit queued messages\e[22m\n────\n' > "$FX/dim"
@@ -51,6 +52,19 @@ reset; export OPSX_TEST_AGENT_READ="$(screen typed '❯ 照建議')"
 answer; assert_eq "$?" 0 "仍留在框裡，送話本身仍算成功：$(cat "$FX/err")"
 assert_eq "$(enters)" 1 "只補一次 Enter：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(grep -c 'w5:pAE' "$FX/err")" 1 "stderr 一行含 pane id：$(cat "$FX/err")"
+assert_eq "$(last_prompt)" 照建議 "仍留在框裡，last_prompt 留給 sweep"
+
+# --- 檢查本身出錯不算送話失敗：answer 照樣 exit 0、說已送進 agent ---
+reset
+OPSX_SUBMIT_SLEEP=abc answer; assert_eq "$?" 0 "OPSX_SUBMIT_SLEEP 寫壞，送話仍算成功：$(cat "$FX/err")"
+assert_grep '已送進 agent' "$FX/out"
+assert_grep 'OPSX_SUBMIT_SLEEP' "$FX/err"
+# 補 Enter 時條目被拿掉（opsx stop 之類），印警告時不能再去 dispatch.json 找 pane
+reset; export OPSX_TEST_AGENT_READ="$(screen typed '❯ 照建議')"
+printf 'printf "{}" > "%s"\n' "$DISP" > "$FX/drop-entry.sh"; export OPSX_TEST_ON_SEND_KEYS="$FX/drop-entry.sh"
+answer; assert_eq "$?" 0 "條目在補 Enter 時被拿掉，送話仍算成功：$(cat "$FX/err")"
+assert_grep '已送進 agent' "$FX/out"
+assert_eq "$(grep -c 'w5:pAE' "$FX/err")" 1 "警告仍含 pane id：$(cat "$FX/err")"
 
 # --- 送話失敗不讀畫面 ---
 reset; printf 'agent_not_found\n' > "$FX/perr"; export OPSX_TEST_PROMPT_ERR="$FX/perr"
@@ -75,7 +89,7 @@ cp "$(screen stalled '❯ \/opsx-workflow:apply c1')" "$FX/once"
 herdr_step c1 runtime_prompt r/c1 "/opsx-workflow:apply c1" wait > "$FX/out" 2>&1 || fail "herdr_step rc：$(cat "$FX/out")"
 assert_eq "$HERDR_STEP_OK" 1 "stalled 算送過"
 assert_eq "$(enters)" 1 "stalled 後框裡是剛送的指令要補 Enter：$(cat "$OPSX_FAKE_LOG")"
-assert_eq "$(last_prompt)" "/opsx-workflow:apply c1" "stalled 也記 last_prompt"
+assert_eq "$(last_prompt)" "（沒有）" "stalled 補了 Enter 送出去，last_prompt 清掉"
 # wait 模式送成功不檢查：herdr 等 agent 做完才回
 reset; cp "$(screen waited '❯ \/opsx-workflow:apply c1')" "$FX/once"
 herdr_step c1 runtime_prompt r/c1 "/opsx-workflow:apply c1" wait > "$FX/out" 2>&1 || fail "herdr_step rc：$(cat "$FX/out")"

@@ -98,6 +98,53 @@ cards "[$(c1)]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(memo_get _continued w9:gone)" "" "pane 不在了就拿掉：$(cat "$MEMO")"
 
+# --- 停住訊息要是輸入框上面最後一行內容、從行首開始才算 ---
+BOX="$(printf '%.0s─' 1 2 3 4 5 6 7 8 9 10)"
+stop_screen() { # <停住訊息那一行> [之後的內容行]：後面接輸入框與狀態列
+  printf '%s\n' "$@" > "$AR"; printf '\n%s\n❯ \n%s\n  ⏵⏵ auto mode on (shift+tab to cycle)\n' "$BOX" "$BOX" >> "$AR"
+}
+cards "[$(c1)]"
+once() { # <說明> <預期次數>：上次送繼續在 30 分鐘前，節流不擋
+  printf '{"_continued":{"w5:pAP":"%s"}}' "$(ago 30)" > "$MEMO"
+  round || fail "$1 rc: $(cat "$FX/out")"
+  assert_eq "$(conts)" "$2" "$1：$(cat "$OPSX_FAKE_LOG")"
+}
+stop_screen "$STOP"; once "停住訊息後只有輸入框與狀態列" 1
+stop_screen "$STOP" '' '❯ 繼續' '' '⏺ 好，接著做 R1.2。'; once "停住訊息後已送過繼續、有回話" 0
+stop_screen "> $STOP"; once "引用的停住訊息" 0
+stop_screen "- $STOP"; once "清單裡的停住訊息" 0
+stop_screen "+$STOP"; once "diff 加行的停住訊息" 0
+# Round.run 會 strip 整段輸出，縮排的那行放第一行會被剝掉縮排；真畫面上面還有別的行
+stop_screen '⏺ 上一段回話' "  $STOP"; once "縮排的停住訊息" 0
+
+# --- parked、mode stopped、有 open gate 的卡不送繼續 ---
+stop_screen "$STOP"
+ES='{"mode":"stopped","agent":"claude","pane":"w5:pAP","drive_pid":null}'
+printf '{"demo/c1":%s}' "$ES" > "$DISP"
+cards "[{\"slug\":\"c1\",\"section\":\"進行中\",\"dispatch\":$ES,\"agent_status\":\"idle\"}]"
+once "dispatch 條目是 mode stopped" 0
+printf '{"demo/c1":%s}' "$E" > "$DISP"
+cards "[{\"slug\":\"c1\",\"section\":\"進行中\",\"dispatch\":$E,\"agent_status\":\"idle\",\"open_gates\":[{\"id\":\"g1\"}]}]"
+once "有 open gate" 0
+cards "[$(c1)]"
+# parked 的卡：settle_parked 會把又派出去的卡移出 _parked，所以直接叫 send_continue
+python3 -I - "$OPSX_ROOT/bin/lib" <<'PY' || fail "parked 的卡不該送繼續"
+import datetime, sys
+sys.path.insert(0, sys.argv[1])
+import coordinate
+r = coordinate.Round.__new__(coordinate.Round)
+r.now = datetime.datetime.now().astimezone()
+r.state, r.dry, r.dispatch_file = "/nonexistent", False, {"demo/c1": {"pane": "w5:pAP"}}
+r.memo = {"_continued": {}, "_parked": {"demo/c1": {"gate": "g1"}}}
+c = {"repo": "demo", "slug": "c1", "dispatch": {"pane": "w5:pAP"}, "agent_status": "idle", "open_gates": []}
+r.auto_stopped = [c]
+sent = []
+r.act = lambda args, cwd=None: sent.append(args) or (0, "", "")
+r.log = lambda msg: None
+r.send_continue()
+sys.exit(1 if sent else 0)
+PY
+
 # --- --dry：只記 DRY，不送 ---
 rm -f "$MEMO"; printf '%s\n' "$STOP" > "$AR"
 round --dry || fail "rc: $(cat "$FX/out")"

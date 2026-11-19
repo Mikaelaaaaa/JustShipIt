@@ -39,13 +39,15 @@ runtime_need() { # <pane|tab> <值>
 }
 
 # 模式必填：漏寫時看不出呼叫者要不要等 agent 做完。
-# nowait 送給有 pane 的卡之後看輸入框（runtime_submit_check）；wait 等 agent 做完才回，字不會留在框裡
+# nowait 送給有 pane 的卡之後看輸入框（runtime_submit_check）；wait 等 agent 做完才回，字不會留在框裡。
+# 回的是 herdr 送話的結束碼：話已送出，檢查本身出錯只警告
 runtime_prompt() { # <對象> <一行> <wait|nowait>
   runtime_target "$@" || return; shift "$RT_ARGC"
   case "$#:${2:-}" in
     2:wait) herdr agent prompt "$RT_NAME" "$1" --wait ;;
     2:nowait) herdr agent prompt "$RT_NAME" "$1" || return
-      [ -z "$RT_PANE" ] || runtime_submit_check "$RT_WHO" "$1" ;;
+      [ -z "$RT_PANE" ] || runtime_submit_check "$RT_WHO" "$1" || warn "runtime_prompt: 話已送給 ${RT_WHO}，送出後的輸入框檢查失敗（見上面的錯誤）"
+      return 0 ;;
     *) warn "runtime_prompt: ${RT_WHO} 的模式只有 wait、nowait，收到：${2-（漏寫）}"; return 2 ;;
   esac
 }
