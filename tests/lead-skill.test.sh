@@ -80,6 +80,23 @@ case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
 
+# 三個節點（specs/opsx-lead「① 一直追要使用者做的事」「可授權的 approval gate 給一次性授權指令」「閒時派待指派」「收件匣派去 explore」）：
+# 各是 Duties 裡一條，用編號切出那一條，別條的字不算
+duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
+D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"
+for s in '①' '`!`' '下一輪' '--grant repo' 'push' 'mr' 'install' 'delete'; do
+  case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac
+done
+for s in 'working' '待指派' 'P2' 'max-working' 'opsx dispatch'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
+done
+for s in '收件匣' 'explore' 'P0/P1' 'max-working' 'dispatch-<main>'; do
+  case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
+done
+# 授權指令由使用者自己答：職責 2 的不代答不變，Duties 裡沒有自動採用
+duty 2 | grep -qF 'never answer them' || fail "職責 2 要保留 never answer them"
+case "$DUTIES" in *自動採用*) fail "Duties 不能有「自動採用」" ;; esac
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 echo ok
