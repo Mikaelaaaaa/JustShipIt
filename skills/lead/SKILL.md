@@ -102,7 +102,7 @@ Then one table per repo, headed by the repo name in bold and its milestone besid
 
 The first line of 類型 2 gives the merge order, checked with `git merge-tree` from the latest main (duty 4): 合併順序是 !101 → !102，從最新 main 依序疊過不會衝突。With one card, write 只有 !101，沒有要排的順序。Then one section per MR or PR in that order, with `---` between sections. Every field is required; the full example, including a card with no logic map, is in `references/mergeable-report.md` next to this SKILL.md.
 
-- A card with no logic map yet: when the MR's diff touches only test files, 狀態 says so, and you write 功能說明 and a short 邏輯圖 from the diff yourself, both marked 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表, and ⚠ is 無. Any other card with no logic map (product code changed, or 產表失敗) writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠, and 狀態 says the logic map has to be produced before merging. Either way the link line is labelled 卡的 report： and points at the card's `report.md`.
+- A card with no logic map yet: when the MR's diff touches only test files, 狀態 says so, and you write 功能說明 and a short 邏輯圖 from the diff yourself, both marked 照 diff 寫; 誰設定什麼, 舉例 and 條件表重點 write 還沒有邏輯表, and ⚠ is 無. Any other card with no logic map (product code changed) writes 還沒有邏輯表 in 功能說明, 誰設定什麼, 舉例, 邏輯圖, 條件表重點 and ⚠, and 狀態 says the logic map has to be produced before merging. Either way the link line is labelled 卡的 report： and points at the card's `report.md`.
 - 邏輯圖 is always 直接貼 in the reply, never only a link.
 
 ---

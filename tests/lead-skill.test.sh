@@ -52,6 +52,8 @@ NOMAP="$(printf '%s\n' "$T2" | grep -F 'no logic map')"
 for s in 'only test files' '功能說明' '邏輯圖' '照 diff 寫' '還沒有邏輯表' '卡的 report'; do
   case "$NOMAP" in *"$s"*) ;; *) fail "沒有邏輯表那條缺：$s — $NOMAP" ;; esac
 done
+# 產表失敗只在狀態寫邏輯表沒產出，照 diff 寫與否仍看只改測試（design D5）
+case "$NOMAP" in *'or 產表失敗'*) fail "產表失敗不能一律歸成其他沒邏輯表的卡（design D5）" ;; esac
 # 只有合 main：看 PR 自己的 commit 與解衝突的改動，不用會混進 main 的 <sha>..<head>
 for s in '--first-parent --no-merges' '--remerge-diff'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 要用：$s" ;; esac
