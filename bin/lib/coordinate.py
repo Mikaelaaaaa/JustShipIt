@@ -155,13 +155,18 @@ class Round:
             self.plans[top] = read_prs(os.path.join(top, "openspec", "workplan.yaml"))
         return self.plans[top]
 
-    def level(self, top, slug):
-        """卡的 {level, reason, overridden}，算不出來是 {error}。workplan 的 milestone 欄位不合格時那個 repo 每張卡都是 error。"""
+    def repo_levels(self, top):
+        """priority.levels(top)，每輪每個 repo 算一次。workplan 的 milestone 欄位不合格時是空 dict，每張卡都當成算不出來。"""
         if top not in self.levels and top not in self.level_errors:
             try:
                 self.levels[top] = priority.levels(top)
             except priority.PriorityError as e:
                 self.level_errors[top] = str(e)
+        return self.levels.get(top, {})
+
+    def level(self, top, slug):
+        """卡的 {level, reason, overridden}，算不出來是 {error}。workplan 的 milestone 欄位不合格時那個 repo 每張卡都是 error。"""
+        self.repo_levels(top)
         if top in self.level_errors:
             return {"error": self.level_errors[top]}
         if slug not in self.levels[top]:
@@ -979,7 +984,7 @@ class Round:
 
     def session_feature_of(self, top, slug):
         pr = pr_of(self.workplan(top), slug)
-        for f in session_features(read_features(os.path.join(top, "openspec", "workplan.yaml"))):
+        for f in session_features(top, read_features(os.path.join(top, "openspec", "workplan.yaml")), self.repo_levels(top)):
             if pr is not None and any(p.get("name") == pr.get("name") for p in f.get("prs") or []):
                 return f.get("name")
         return None
@@ -992,10 +997,11 @@ class Round:
             prs = self.workplan(top)
             status = {p.get("name"): p.get("status") for p in prs}
             features = read_features(os.path.join(top, "openspec", "workplan.yaml"))
+            levels = self.repo_levels(top)
             for f in features:
-                if not chain.session_managed(f) and (len(f.get("prs") or []) >= 2 or f.get("depends-on")):
+                if not AGENT_NAME.match(f.get("name") or "") and (chain.counted_prs(top, f, levels) >= 2 or f.get("depends-on")):
                     self.log("?? %s 的 feature %s 不是合法的 agent 名，開不了 session，它的卡照單卡派" % (repo, f.get("name")))
-            for f in session_features(features):
+            for f in session_features(top, features, levels):
                 name = f.get("name")
                 if all(p.get("status") == "merged" for p in f.get("prs") or []):
                     continue
@@ -1202,9 +1208,9 @@ def pr_of(prs, slug):
     return chain.find_pr(prs, slug)
 
 
-def session_features(features):
+def session_features(top, features, levels):
     """由 session 代管的 feature（chain.session_managed）：依賴合了才由 coordinate 開 session，它的卡不單獨派。"""
-    return [f for f in features if chain.session_managed(f)]
+    return [f for f in features if chain.session_managed(top, f, levels)]
 
 
 def deps_unmerged(slug, prs, features):
