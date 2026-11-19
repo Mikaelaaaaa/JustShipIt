@@ -43,8 +43,26 @@ assert_not_fixed 'post a new comment' "$STEP"
 assert_not_fixed 'no `## 邏輯表` line' "$STEP"
 assert_fixed 'overwrite' "$STEP"
 
-# --- 不重產的情況（Scenario「沒有 push 不重產」）---
-assert_fixed 'Only a `threads-only` run that pushed' "$STEP"
-for k in '`check`' '`merge <sha>`' 'did not push'; do
-  grep -F 'never regenerate it' "$STEP" | grep -qF -- "$k" || fail "不重產清單缺 $k"
+# --- 步 8 只在 push 後重產；merge 模式永不重產（「merge 模式不重產」）---
+assert_fixed 'only a `threads-only` run that pushed regenerates the map' "$STEP"
+assert_fixed 'The `merge <sha>` mode never regenerates it;' "$STEP"
+assert_fixed 'regenerates it only through the comparison in step 1' "$STEP"
+assert_not_fixed 'the `check` mode, the `merge <sha>` mode' "$STEP"
+assert_not_fixed 'never regenerate it' "$STEP"
+
+# --- 步 8 重產停在 gate 時不回 thread（「push 之後重產失敗不回 thread」）---
+assert_not_fixed 'Wherever step 1b ends' "$STEP"
+assert_fixed 'When step 1b stops at a gate, stop there and reply to no thread' "$STEP"
+
+# --- 一進來比對 HEAD（specs/pr-logic-map「babysit 一進來比對 HEAD」）---
+ENTRY="$FX/step1"
+awk '/^1\. /{on=1} /^2\. /{on=0} on' "$SK" > "$ENTRY"
+[ -s "$ENTRY" ] || fail "skills/babysit/SKILL.md 沒有步 1"
+grep -F '**Logic map first.**' "$ENTRY" > "$FX/entry"; [ -s "$FX/entry" ] || fail "步 1 缺 Logic map first"
+for k in 'In `check` and `threads-only`' 'before step 5' '## 邏輯表' 'equal to the first 7 characters of `git rev-parse HEAD`' \
+  'or starts with `skip：`' 'spawn nothing' 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' \
+  'When step 1b stops at a gate, stop: write no mergeable verdict and reply to no thread' \
+  'A `check` run that pushed in step 5 compares again the same way before the forge query of step 6' \
+  'The `merge <sha>` mode does none of this'; do
+  grep -qF -- "$k" "$FX/entry" || fail "入口比對缺 $k"
 done
