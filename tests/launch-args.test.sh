@@ -52,6 +52,9 @@ python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["al
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"].get("allow",[]);assert not [r for r in a if "orca" in r],a' "$SI" || fail "interactive 不放行 orca"
 assert_eq "$(grep -c '://' "$S")" 0 "settings 不含連線字串（任何 scheme://）"
 
+# --- D11：glab ci 只放行唯讀子指令，不放行整個 glab ci（run、delete、cancel 在沙盒外會真的打到 forge）---
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];w=["Bash(glab ci view:*)","Bash(glab ci status:*)","Bash(glab ci list:*)","Bash(glab ci get:*)","Bash(glab ci trace:*)"];assert [r for r in a if r.startswith("Bash(glab ci")]==w,a' "$S" || fail "autopilot allow 的 glab ci 規則要剛好是五條唯讀子指令"
+
 # --- docs-api-autopilot-allow：主 checkout 根目錄 package.json 的 scripts 有 docs:api 才放行；不放行整個 pnpm、tsx 與其他 tsx script；interactive 不放行 ---
 # 邊界：沒有 package.json（上面那張卡的 TOP）
 assert_eq "$(grep -c 'pnpm docs:api' "$S")" 0 "沒有 package.json 的 repo 不放行 pnpm docs:api"
@@ -119,7 +122,7 @@ ROWS
 rm -f "$SD/grants.toml"
 
 # Scenario：沒有 mr 授權不放行 MR 留言（反例）：g-push 那列只有 push 授權
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert "Bash(glab mr note:*)" not in a,a;assert not [x for x in a if "glab api" in x],a' "$SD/settings/Forge-g-push-autopilot.json" || fail "只有 push 授權不放行 glab mr note 與 glab api"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert not [x for x in a if "glab mr note" in x],a;assert not [x for x in a if "glab api" in x],a' "$SD/settings/Forge-g-push-autopilot.json" || fail "只有 push 授權不放行 glab mr note 與 glab api"
 
 # Scenario：沒有 gitlab remote 時用 origin 的主機
 printf '[repos.Forge]\npush = true\n' > "$SD/grants.toml"
@@ -135,6 +138,17 @@ printf '[repos.Forge]\npush = true\nmr = true\n' > "$SD/grants.toml"
 forge_repo "$FX/forge-none"
 assert_rc 0 launch_args claude claude-sonnet-5-5 autopilot Forge no-remote "$FX/forge-none"
 assert_eq "$(sandbox_of "$SD/settings/Forge-no-remote-autopilot.json")" '"MISSING"' "沒有 remote 不寫 sandbox"
+
+# D6、D7：remote URL 取不到主機名（file://、本機路徑）時當作沒有主機，不報錯、不寫 sandbox
+forge_repo "$FX/forge-file" gitlab=file:///srv/app.git
+assert_rc 0 launch_args claude claude-sonnet-5-5 autopilot Forge file-remote "$FX/forge-file"
+assert_eq "$(sandbox_of "$SD/settings/Forge-file-remote-autopilot.json")" '"MISSING"' "file:// remote 不寫 sandbox"
+forge_repo "$FX/forge-path" gitlab=/srv/app.git
+assert_rc 0 launch_args claude claude-sonnet-5-5 autopilot Forge path-remote "$FX/forge-path"
+assert_eq "$(sandbox_of "$SD/settings/Forge-path-remote-autopilot.json")" '"MISSING"' "本機路徑 remote 不寫 sandbox"
+forge_repo "$FX/forge-rel" gitlab=../app.git
+assert_rc 0 launch_args claude claude-sonnet-5-5 autopilot Forge rel-remote "$FX/forge-rel"
+assert_eq "$(sandbox_of "$SD/settings/Forge-rel-remote-autopilot.json")" '"MISSING"' "相對路徑 remote 不寫 sandbox"
 
 # Scenario：interactive 不寫沙盒設定（反例）
 forge_repo "$FX/forge-inter" gitlab=https://gitlab.example.com/acme/app.git

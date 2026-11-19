@@ -29,15 +29,15 @@ import json,os,subprocess,sys,tomllib,urllib.parse
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib")); import safefile
 
 def remote_host(top):
-    """主要 remote（gitlab，沒有就 origin）的主機名；兩個都沒有回 None。"""
+    """主要 remote（gitlab，沒有就 origin）的主機名；兩個都沒有，或主要 remote 是 file:// 或本機路徑時回 None。"""
     for name in ("gitlab", "origin"):
         r = subprocess.run(["git", "-C", top, "config", "--get", f"remote.{name}.url"], capture_output=True, text=True)
         if r.returncode == 1: continue   # 這個 remote 不存在
         if r.returncode != 0: raise SystemExit(f"{top}: 讀 remote.{name}.url 失敗：{r.stderr.strip()}")
         url = r.stdout.strip()
-        host = urllib.parse.urlsplit(url).hostname if "://" in url else url.split("@", 1)[-1].split(":", 1)[0]   # 沒有 scheme 的是 scp 寫法 user@host:path
-        if not host: raise SystemExit(f"{top}: remote.{name}.url 取不到主機名：{url!r}")
-        return host
+        if "://" in url: return urllib.parse.urlsplit(url).hostname   # file:// 沒有主機，回 None
+        if ":" in url.split("/", 1)[0]: return url.split("@", 1)[-1].split(":", 1)[0]   # git 的規則：第一個 / 之前有 : 才是 scp 寫法 user@host:path
+        return None   # 本機路徑
     return None
 sd=os.environ["OPSX_SD"]; repo=os.environ["OPSX_REPO"]
 dirs=[sys.argv[2],sd]
@@ -50,7 +50,7 @@ allow=["Read","Edit","Write","Glob","Grep","Bash(git status:*)","Bash(git diff:*
        "Bash(openspec:*)","Bash(opsx:*)","Bash(ls:*)","Bash(cat:*)","Bash(grep:*)","Bash(rg:*)","Bash(find:*)","Bash(node:*)","Bash(python3:*)",
        "Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(diff:*)","Bash(sort:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(herdr pane read:*)","Bash(orca status:*)","Bash(orca repo list:*)","Bash(orca repo add:*)","Bash(orca repo set:*)","Bash(orca worktree list:*)","Bash(orca tab create:*)","Bash(orca terminal read:*)",
        "Bash(git show:*)","Bash(git branch:*)","Bash(git rev-parse:*)","Bash(git fetch:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)","Bash(mkdir:*)",
-       "Bash(glab mr view:*)","Bash(glab mr list:*)","Bash(glab mr diff:*)","Bash(glab ci:*)","Bash(gh pr view:*)","Bash(gh pr checks:*)","Bash(gh pr list:*)"]
+       "Bash(glab mr view:*)","Bash(glab mr list:*)","Bash(glab mr diff:*)","Bash(glab ci view:*)","Bash(glab ci status:*)","Bash(glab ci list:*)","Bash(glab ci get:*)","Bash(glab ci trace:*)","Bash(gh pr view:*)","Bash(gh pr checks:*)","Bash(gh pr list:*)"]
 # merge 不在 deny：settings 的 deny 蓋得過 hook 的放行，所以 merge 交給 opsx-grant-gate.sh 的 merge_gate 單獨把關；
 # 放進 allow 是為了閘門放行那一次不再跳 Claude Code 自己的權限框。
 allow += ["Bash(glab mr merge:*)", "Bash(gh pr merge:*)"]
@@ -71,7 +71,7 @@ try:
     g=tomllib.load(open(os.path.join(sd,"grants.toml"),"rb")).get("repos",{}).get(repo,{})
 except FileNotFoundError: g={}
 if g.get("push"): allow.append("Bash(git push:*)")
-if g.get("mr"): allow+=["Bash(glab mr create:*)","Bash(glab mr update:*)","Bash(glab mr note:*)","Bash(gh pr create:*)","Bash(gh pr edit:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"]   # gh pr comment 與 glab api 不進 allow：規則放行形狀之外的寫法（-R other/repo、merge?x=/notes/1）
+if g.get("mr"): allow+=["Bash(glab mr create:*)","Bash(glab mr update:*)","Bash(glab mr note create:*)","Bash(glab mr note list:*)","Bash(gh pr create:*)","Bash(gh pr edit:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"]   # gh pr comment 與 glab api 不進 allow：規則放行形狀之外的寫法（-R other/repo、merge?x=/notes/1）
 if g.get("migrate"): allow+=["Bash(pnpm db:migrate:*)","Bash(pnpm --filter * run db:migrate:*)","Bash(alembic upgrade:*)"]
 settings={"env":env,"permissions":{"allow":allow,"deny":deny,"additionalDirectories":dirs}}
 # dontAsk 下沒列進 allowedDomains 的網域一律被沙盒拒絕。git 在沙盒內連主機；

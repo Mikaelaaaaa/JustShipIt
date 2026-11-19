@@ -63,7 +63,7 @@ assert_not_grep '^workspace create' "$OPSX_FAKE_LOG"
 S="$OPSX_STATE_DIR/settings/Acmecorp-CS-retry-backoff-autopilot.json"; assert_file "$S"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert "Bash(git push:*)" in d["allow"],d;assert "Bash(glab mr merge:*)" in d["allow"] and "Bash(gh pr merge:*)" in d["allow"],d;assert not any("merge" in x for x in d["deny"]),d;assert not any("glab mr create" in a for a in d["allow"]),d;assert "Bash(glab issue note:*)" not in d["allow"] and "Bash(gh issue comment:*)" not in d["allow"],d;assert not any("gh pr comment" in x or "glab api" in x for x in d["allow"]),d' "$S"
 # dontAsk 下不在 allow 的指令直接被拒：常用唯讀與測試指令要在 allow 裡，不然 agent 連跑測試都不行
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(glab mr view:*)","Bash(glab ci:*)","Bash(gh pr view:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)"] if x not in a];assert not miss,miss' "$S" || fail "allow 少了常用指令"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(glab mr view:*)","Bash(glab ci view:*)","Bash(gh pr view:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)"] if x not in a];assert not miss,miss' "$S" || fail "allow 少了常用指令"
 # 重啟 / resume 後旗標不在，可寫目錄還要由 settings 供應
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert d["additionalDirectories"]==[sys.argv[2],sys.argv[3]],d' "$S" "$R/openspec" "$OPSX_STATE_DIR" || fail "autopilot settings 缺 additionalDirectories"
 # dispatch.json
@@ -226,8 +226,9 @@ cp "$FX/ws.real" "$OPSX_STATE_DIR/workspaces.toml"   # 下面再測一次沒掛 
 : > "$OPSX_FAKE_LOG"
 printf '[repos."scam-guard"]\nmr = true\n' >> "$OPSX_STATE_DIR/grants.toml"
 opsx dispatch rdap-timeout --agent claude --mode autopilot --kind dev >/dev/null 2>&1 || fail "dispatch unmapped repo"
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(glab mr create:*)","Bash(glab mr note:*)","Bash(gh pr create:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"] if x not in a];assert not miss,miss' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 要含 issue 留言"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(glab mr create:*)","Bash(glab mr note create:*)","Bash(glab mr note list:*)","Bash(gh pr create:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"] if x not in a];assert not miss,miss' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 要含 issue 留言"
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert not any("gh pr comment" in x or "glab api" in x for x in a),a;assert "Bash(git -C:*)" not in a,a' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 不含任何 gh pr comment、glab api 規則與 git -C"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];n=[x for x in a if x.startswith("Bash(glab mr note")];assert n==["Bash(glab mr note create:*)","Bash(glab mr note list:*)"],n' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 glab mr note 只放行 create 與 list，不放行裸的 note、delete、update"
 assert_grep '^workspace create --label scam-guard' "$OPSX_FAKE_LOG"
 assert_grep '^"scam-guard" = "scam-guard"$' "$OPSX_STATE_DIR/workspaces.toml"   # 記 label，id 在 dispatch.json
 assert_grep '^tab create --workspace w9 ' "$OPSX_FAKE_LOG"
