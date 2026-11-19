@@ -53,6 +53,14 @@ answer; assert_eq "$?" 0 "仍留在框裡，送話本身仍算成功：$(cat "$F
 assert_eq "$(enters)" 1 "只補一次 Enter：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(grep -c 'w5:pAE' "$FX/err")" 1 "stderr 一行含 pane id：$(cat "$FX/err")"
 assert_eq "$(last_prompt)" 照建議 "仍留在框裡，last_prompt 留給 sweep"
+assert_eq "$(jq -r '."r/c1".last_prompt_at // "（沒有）"' "$DISP" | cut -c1-2)" 20 "last_prompt 連同送出時刻一起記：$(cat "$DISP")"
+
+# --- 補了 Enter 後讀不到輸入框（跳出對話框）：不算送出，last_prompt 留給 sweep，也不警告 ---
+reset; cp "$(screen typed '❯ 照建議')" "$FX/once"; export OPSX_TEST_AGENT_READ="$FX/dialog"
+answer || fail "補 Enter 後讀不到框：answer rc：$(cat "$FX/err")"
+assert_eq "$(enters)" 1 "補一次 Enter：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(last_prompt)" 照建議 "讀不到框，last_prompt 留著"
+assert_eq "$(grep -c 'w5:pAE' "$FX/err")" 0 "讀不到框不是 stuck，不警告：$(cat "$FX/err")"
 
 # --- 檢查本身出錯不算送話失敗：answer 照樣 exit 0、說已送進 agent ---
 reset

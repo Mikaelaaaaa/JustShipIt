@@ -114,8 +114,24 @@ stop_screen "$STOP" '' '❯ 繼續' '' '⏺ 好，接著做 R1.2。'; once "停�
 stop_screen "> $STOP"; once "引用的停住訊息" 0
 stop_screen "- $STOP"; once "清單裡的停住訊息" 0
 stop_screen "+$STOP"; once "diff 加行的停住訊息" 0
-# Round.run 會 strip 整段輸出，縮排的那行放第一行會被剝掉縮排；真畫面上面還有別的行
-stop_screen '⏺ 上一段回話' "  $STOP"; once "縮排的停住訊息" 0
+# 跟上限訊息一樣，前面可以是空白、⎿、│
+stop_screen '⏺ 上一段回話' "  $STOP"; once "縮排的停住訊息" 1
+stop_screen '⏺ 上一段回話' "  ⎿  $STOP"; once "⎿ 開頭的停住訊息" 1
+
+# --- 上限、停住、再一行 toast：停住判斷不成立，就照上限暫停，不送繼續 ---
+rm -f "$MEMO"
+stop_screen 'Usage limit reached · limit resets 7pm' "$STOP" '                                   copied 49 chars to clipboard'
+round || fail "rc: $(cat "$FX/out")"
+[ -n "$(memo_get _usage_limit seen_at)" ] || fail "停住判斷不成立要照上限暫停：$(cat "$MEMO")"
+assert_eq "$(conts)" 0 "停住判斷不成立不送繼續：$(cat "$OPSX_FAKE_LOG")"
+
+# --- 共用 pane 的另一張卡有 open gate：不送繼續 ---
+mkcard c2; stop_screen "$STOP"
+printf '{"demo/c1":%s,"demo/c2":%s}' "$E" "$E" > "$DISP"
+cards "[$(c1),{\"slug\":\"c2\",\"section\":\"進行中\",\"dispatch\":$E,\"agent_status\":\"idle\",\"open_gates\":[{\"id\":\"g1\"}]}]"
+once "同 pane 另一張卡有 open gate" 0
+assert_eq "$(count '繼續$')" 0 "共用 pane 的任何一張都不送：$(cat "$OPSX_FAKE_LOG")"
+printf '{"demo/c1":%s}' "$E" > "$DISP"; cards "[$(c1)]"
 
 # --- parked、mode stopped、有 open gate 的卡不送繼續 ---
 stop_screen "$STOP"
@@ -141,7 +157,7 @@ r.auto_stopped = [c]
 sent = []
 r.act = lambda args, cwd=None: sent.append(args) or (0, "", "")
 r.log = lambda msg: None
-r.send_continue()
+r.send_continue([c])
 sys.exit(1 if sent else 0)
 PY
 

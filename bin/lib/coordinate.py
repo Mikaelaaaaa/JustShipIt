@@ -42,8 +42,8 @@ CLOCK_SKEW_MINUTES = 1
 PID_MAX = 2**31 - 1
 # 真實訊息是 `Usage limit reached[ again] · …`，前面只有 Claude Code 畫的 ⎿ │ 與空白；引用、清單、diff 行都不算
 USAGE_LIMIT_LINE = re.compile(r"[\s⎿│]*Usage limit reached(?: again)?\s*·")
-# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話。只認從行首開始的：引用、清單、diff、縮排的都是別人轉述
-AUTO_CONTINUE_LINE = re.compile(r"Automatic continue stopped")
+# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話。跟上限訊息一樣只容許 Claude Code 畫的空白、⎿、│ 在前面
+AUTO_CONTINUE_LINE = re.compile(r"[\s⎿│]*Automatic continue stopped")
 USAGE_LIMIT_STALE_MINUTES = 30
 USAGE_LIMIT_WARNING = "grace allowance"   # 「還有一小段寬限」是警告，agent 還在跑，不算停下
 USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.IGNORECASE)
@@ -614,10 +614,10 @@ class Round:
             del self.memo["_usage_limit"]
         return False
 
-    def send_continue(self):
+    def send_continue(self, live):
         """停在 Automatic continue stopped 的 pane 送「繼續」，暫停中也送：這行只在換帳號或按 esc 後出現，等重置時刻不會自己續跑。
         同一個 pane 不滿 REDISPATCH_MINUTES 不再送；_continued 只留還在 dispatch.json 裡的 pane。
-        parked、被 opsx stop 停掉、有 open gate 的卡是在等人，不替它續跑。"""
+        pane 上任一張卡 parked、被 opsx stop 停掉、有 open gate，就是在等人，不替它續跑。"""
         continued = self.memo["_continued"]
         known = {e.get("pane") for e in self.dispatch_file.values()}
         for pane in [p for p in continued if p not in known]:
@@ -625,7 +625,8 @@ class Round:
         path = os.path.join(self.state, "dispatch.json")
         for c in self.auto_stopped:
             key, pane = card_key(c), c["dispatch"]["pane"]
-            if key in self.memo["_parked"] or c["dispatch"].get("mode") == "stopped" or c["open_gates"]:
+            on_pane = [x for x in live if x["dispatch"] and x["dispatch"].get("pane") == pane]
+            if any(card_key(x) in self.memo["_parked"] or x["dispatch"].get("mode") == "stopped" or x["open_gates"] for x in on_pane):
                 self.log("-- %s 的 pane %s 停在 Automatic continue stopped，卡在等人（parked、stopped 或有 open gate），不送「繼續」" % (key, pane))
                 continue
             if not continue_due(continued.get(pane), self.now):
@@ -647,23 +648,35 @@ class Round:
             self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是剛送的「%s」，到 pane 看一下" % (key, pane, text))
 
     def submit_sweep(self, live):
-        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter，並清掉對上的 last_prompt。
-        一個 pane 一輪讀一次，跟同 pane 每個條目（session 與成員）的 last_prompt 比。
+        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter，再看一次：框不再是那句才清 last_prompt，
+        還是那句記一行 ??。超過 REDISPATCH_MINUTES 的 last_prompt 不補、直接清，免得之後人打出同一句被送出。
+        一個 pane 一輪比對讀一次，跟同 pane 每個條目（session 與成員）的 last_prompt 比。
         session 條目（<repo>/@<feature>）不是卡，pane 的狀態取自派在同一個 pane 的卡；其中一張不是 idle 或 done 就不補。"""
         status = {}
         for c in live:
             if c["dispatch"] and c["dispatch"].get("pane"):
                 status.setdefault(c["dispatch"]["pane"], set()).add(c["agent_status"])
-        prompts = {}
+        path = os.path.join(self.state, "dispatch.json")
+        prompts, expired = {}, {}
         for key, entry in self.dispatch_file.items():
-            if entry.get("pane") and entry.get("last_prompt"):
+            if not entry.get("pane") or not entry.get("last_prompt"):
+                continue
+            if prompt_fresh(entry.get("last_prompt_at"), self.now):
                 prompts.setdefault(entry["pane"], {})[key] = entry["last_prompt"]
+            else:
+                expired[key] = entry["last_prompt"]
+        if expired and not self.dry:
+            jsonfile.update(path, functools.partial(submit.forget, sent=expired))
         for pane, texts in prompts.items():
             if not status.get(pane) or not status[pane] <= {"idle", "done"}:
                 continue
-            matched = submit.nudge(pane, texts, self.run, self.act)
-            if matched and not self.dry:
-                jsonfile.update(os.path.join(self.state, "dispatch.json"), functools.partial(submit.forget, sent=matched))
+            result, matched = submit.nudge(pane, texts, self.run, self.act, time.sleep)
+            if self.dry:
+                continue
+            if result == "entered":
+                jsonfile.update(path, functools.partial(submit.forget, sent=matched))
+            elif result == "stuck":
+                self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是 opsx 送的那句，到 pane 看一下" % ("、".join(matched), pane))
 
     def handle_gate(self, c, top):
         """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
@@ -1141,11 +1154,11 @@ def read_max_working(path):
 def parse_usage_limit(text, now):
     """畫面文字裡有沒有用量上限訊息，以及它說的重置時刻：(有沒有, 時刻或 None)。
     訊息只寫時刻（7pm），沒有日期：取 now 之後的下一個該時刻。多個時刻取最晚的。
-    Automatic continue stopped 在最後一個上限訊息之後：那個 pane 已經不在等重置，不算。"""
-    lines = text.splitlines()
-    limits = [i for i, line in enumerate(lines) if USAGE_LIMIT_LINE.match(line) and USAGE_LIMIT_WARNING not in line]
-    stops = [i for i, line in enumerate(lines) if AUTO_CONTINUE_LINE.match(line)]
-    if not limits or (stops and stops[-1] > limits[-1]):
+    畫面停在 Automatic continue stopped（auto_continue_stopped）：那個 pane 已經不在等重置，不算。
+    跟送「繼續」用同一個判斷，pane 不是暫停就是收到繼續。"""
+    if auto_continue_stopped(text):
+        return False, None
+    if not any(USAGE_LIMIT_LINE.match(line) and USAGE_LIMIT_WARNING not in line for line in text.splitlines()):
         return False, None
     times = []
     for hour, minute, ampm in USAGE_LIMIT_RESET.findall(text):
@@ -1164,6 +1177,11 @@ def auto_continue_stopped(text):
     above = lines[:rules[-2]] if len(rules) >= 2 else lines
     content = [line for line in above if line.strip()]
     return bool(content) and AUTO_CONTINUE_LINE.match(content[-1]) is not None
+
+
+def prompt_fresh(at, now):
+    """last_prompt 的送出時刻（ISO 字串）距 now 還不滿 REDISPATCH_MINUTES。沒記時刻的是舊版留下的，算過期。"""
+    return at is not None and now - datetime.datetime.fromisoformat(at) < datetime.timedelta(minutes=REDISPATCH_MINUTES)
 
 
 def continue_due(last, now):
@@ -1456,7 +1474,7 @@ def one_round(state, dry):
     live = [c for c in cards if c not in merged]
     r.settle_parked(live)
     paused = r.usage_limit_paused(live)
-    r.send_continue()
+    r.send_continue(live)
     if not paused:
         r.submit_sweep(live)
 

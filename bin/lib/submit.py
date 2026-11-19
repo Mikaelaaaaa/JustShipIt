@@ -6,6 +6,7 @@ bash 的 runtime_prompt（nowait）與 drive 的 agent_prompt_stalled 走命令�
 用法：submit.py check <state dir> <卡片身分> <剛送的一行>
 規則：openspec/specs/prompt-submit-check/spec.md。
 """
+import datetime
 import functools
 import os
 import subprocess
@@ -47,19 +48,21 @@ def box(pane, read):
     return coordq.box_text(out) if rc == 0 else None
 
 
-def remember(d, key, text):
-    """jsonfile.update 的 mutate：有 pane 的條目記下剛送的話。讀與寫之間條目可能被拿掉。"""
+def remember(d, key, text, at):
+    """jsonfile.update 的 mutate：有 pane 的條目記下剛送的話與送出時刻（ISO 字串）。讀與寫之間條目可能被拿掉。"""
     entry = d.get(key)
     if entry and entry.get("pane"):
         entry["last_prompt"] = text
+        entry["last_prompt_at"] = at
 
 
 def forget(d, sent):
-    """jsonfile.update 的 mutate：sent 是 {條目 key: 確認送到的那句}。條目的 last_prompt 還是那句才清；之後又送了別句的留著。"""
+    """jsonfile.update 的 mutate：sent 是 {條目 key: 那句}。條目的 last_prompt 還是那句才清（連同時刻）；之後又送了別句的留著。"""
     for key, text in sent.items():
         entry = d.get(key)
         if entry and entry.get("last_prompt") == text:
             del entry["last_prompt"]
+            entry.pop("last_prompt_at", None)
 
 
 def check(state, key, text, read, act, sleep):
@@ -70,7 +73,8 @@ def check(state, key, text, read, act, sleep):
     pane = (jsonfile.load(path).get(key) or {}).get("pane")
     if not pane:
         return "unknown", None
-    jsonfile.update(path, functools.partial(remember, key=key, text=text))
+    at = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    jsonfile.update(path, functools.partial(remember, key=key, text=text, at=at))
     sleep(delay())
     first = box(pane, read)
     if first is None:
@@ -79,21 +83,32 @@ def check(state, key, text, read, act, sleep):
     if same(first, text):
         act(runtime.send_enter(pane))
         sleep(delay())
-        if same(box(pane, read), text):
+        after = box(pane, read)
+        if after is None:
+            return "unknown", pane
+        if same(after, text):
             return "stuck", pane
         result = "entered"
     jsonfile.update(path, functools.partial(forget, sent={key: text}))
     return result, pane
 
 
-def nudge(pane, texts, read, act):
+def nudge(pane, texts, read, act, sleep):
     """coordinate 每輪替閒著的 pane 看一次輸入框。texts 是這個 pane 上各條目的 {key: last_prompt}。
-    框裡是其中一句才按 Enter；回對上的 {key: 那句}，沒按回空的。"""
+    框裡是其中一句才按 Enter，等一下再看一次。回 (結果, 對上的 {key: 那句})；結果是 none（沒對上、沒按）、
+    entered（框裡不再是那句）、stuck（還是那句）、unknown（按了之後讀不到輸入框）。"""
     current = box(pane, read)
     matched = {key: text for key, text in texts.items() if same(current, text)}
-    if matched:
-        act(runtime.send_enter(pane))
-    return matched
+    if not matched:
+        return "none", matched
+    act(runtime.send_enter(pane))
+    sleep(delay())
+    after = box(pane, read)
+    if after is None:
+        return "unknown", matched
+    if any(same(after, text) for text in matched.values()):
+        return "stuck", matched
+    return "entered", matched
 
 
 def main(argv):
