@@ -142,10 +142,56 @@ for k in 'spec' 'proposal' 'report' 'tasks' 'explore' 'grill' 'conversation' 'PR
   grep -qF -- "$k" "$FX/map-deny" || fail "產表步禁止清單缺 $k"
 done
 for k in 'never build the map in this session' '產表失敗：無 Agent 工具' '`產表失敗：<reason>`' \
-  'replaces the one line under `## 邏輯表`' 'openspec/changes/<slug>/logic-map.md · <head sha 前 7 碼>' 'overwrite the whole line' \
-  "go on to the caller's next step"; do
+  'replaces the one line under `## 邏輯表`' 'openspec/changes/<slug>/logic-map.md · <head sha 前 7 碼>' 'overwrite the whole line'; do
   assert_fixed "$k" "$MAP"
 done
+
+# --- 產表失敗停在 gate，不回呼叫端（specs/review-logic-map「產表失敗停在 gate」）---
+assert_not_fixed 'A failed map stops nothing' "$MAP"
+assert_not_fixed 'Then end this step and go on to the caller' "$MAP"
+assert_fixed 'Then write a gate in gates.md and stop' "$MAP"
+assert_fixed 'the caller'"'"'s next step does not run' "$MAP"
+assert_fixed 'Never fall back to the `<remote>/main` already on disk' "$MAP"
+assert_fixed '`logic-map-failed-<n>`' "$MAP"
+assert_fixed 'one more than the number of `## logic-map-failed-` gates already in gates.md' "$MAP"
+# Examples 表每列：失敗行 → type、選項
+grep -F -- '- `產表失敗：fetch 失敗`:' "$MAP" > "$FX/gate-fetch"
+for k in '`type: decision`' '`needs: run`' 'git -C <absolute path of this checkout> fetch <remote> main'; do
+  grep -qF -- "$k" "$FX/gate-fetch" || fail "fetch gate 缺 $k"
+done
+grep -F -- '- `產表失敗：無 Agent 工具`:' "$MAP" > "$FX/gate-noagent"
+for k in '`type: decision`' '派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行'; do
+  grep -qF -- "$k" "$FX/gate-noagent" || fail "無 Agent 工具 gate 缺 $k"
+done
+grep -F -- '- any other `產表失敗：<reason>`' "$MAP" > "$FX/gate-other"
+for k in '`type: decision`' '重跑產表 (Recommended)' '這張不要表，直接放行'; do
+  grep -qF -- "$k" "$FX/gate-other" || fail "subagent 失敗 gate 缺 $k"
+done
+! grep -qF 'needs: run' "$FX/gate-noagent" "$FX/gate-other" || fail "只有 fetch gate 帶 needs: run"
+
+# --- gate 答完的接續（「使用者跑過 fetch」「使用者沒跑或跑錯目錄」「選放行」「選重跑不寫 skip」）---
+grep -F -- '- fetch gate:' "$MAP" > "$FX/ans-fetch"
+for k in 'git rev-parse --git-path FETCH_HEAD' '`opened_at`' 'skip the fetch of sub-step 1' 'write another fetch gate' 'FETCH_HEAD 不存在'; do
+  grep -qF -- "$k" "$FX/ans-fetch" || fail "fetch gate 答完的接續缺 $k"
+done
+grep -F -- '- 重跑產表:' "$MAP" | grep -qF 'start again from sub-step 1' || fail "重跑產表要從子步 1 重來"
+grep -F -- '- 派一個 claude pane 重產:' "$MAP" | grep -qF 'opsx log' || fail "派 claude pane 要 opsx log 後停"
+grep -F -- '- 這張不要表，直接放行:' "$MAP" > "$FX/ans-skip"
+for k in 'skip：使用者放行（logic-map-failed-<n>）' "go on to the caller's next step"; do
+  grep -qF -- "$k" "$FX/ans-skip" || fail "放行缺 $k"
+done
+
+# --- mr: none 空 diff 卡不產表（「只動 openspec 的卡」「mr: none 但有 commit」）---
+grep -F 'skip：mr: none' "$MAP" > "$FX/mrnone"; [ -s "$FX/mrnone" ] || fail "缺 mr: none 不產表"
+for k in '`mr: none`' 'git log --oneline <remote>/main..HEAD' 'prints nothing' 'spawn nothing and open no gate'; do
+  grep -qF -- "$k" "$FX/mrnone" || fail "mr: none 段缺 $k"
+done
+python3 -I - "$MAP" <<'PY' || fail "mr: none 判斷要在子步 1 之前"
+import sys
+t = open(sys.argv[1], encoding="utf-8").read()
+if not t.index("skip：mr: none") < t.index("1. `git fetch <remote> main`"):
+    sys.exit("順序")
+PY
 for k in 'comment' '留言' 'gh pr' 'glab api'; do assert_not_fixed "$k" "$MAP"; done
 assert_fixed '## 邏輯表' "$STEP5"
 
