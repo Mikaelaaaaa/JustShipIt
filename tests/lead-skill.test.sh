@@ -93,6 +93,10 @@ done
 for s in '收件匣' 'explore' 'P0/P1' 'max-working' 'dispatch-<main>'; do
   case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
 done
+D11="$(duty 11)"
+for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv'; do
+  case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
+done
 # 授權指令由使用者自己答：職責 2 的不代答不變，Duties 裡沒有自動採用
 duty 2 | grep -qF 'never answer them' || fail "職責 2 要保留 never answer them"
 case "$DUTIES" in *自動採用*) fail "Duties 不能有「自動採用」" ;; esac
