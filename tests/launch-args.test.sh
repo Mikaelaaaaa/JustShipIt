@@ -93,7 +93,7 @@ python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["al
 rm -f "$SD/grants.toml"
 
 # --- autopilot-local-ops：本地小操作不看授權都放行；interactive 不放行；不放過寬的寫法 ---
-LOCAL_OPS='["Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)"]'
+LOCAL_OPS='["Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)","Bash(git mv:*)","Bash(git rm:*)"]'
 has_local_ops() { python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];m=[r for r in json.loads(sys.argv[2]) if r not in a];assert not m,m' "$1" "$LOCAL_OPS"; }
 printf '[repos.Other]\npush = true\n' > "$SD/grants.toml"
 launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI no-entry "$TOP"

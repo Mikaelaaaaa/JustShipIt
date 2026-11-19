@@ -108,9 +108,12 @@ done
 for c in 'rm .env.example' 'rm foo.envrc' 'rm a..b.txt'; do
   out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "範例檔或只含 env 字樣的檔照舊放行（${c}）: $(reason "$out")"
 done
-for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'git status && rm -rf build'; do
+for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'git status && rm -rf build' 'git rm -f old.txt' 'git rm -r old-dir' 'git rm -rf old-dir' 'git status && git rm -f old.txt'; do
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的 rm -r／-f 要擋（${c}）: $(reason "$out")"
   reason "$out" | grep -qF 'action: delete' || fail "deny 要是 delete 授權（${c}）: $(reason "$out")"
+done
+for c in 'git rm -q old.txt' 'git mv a.txt b.txt' 'git rm --cached old.txt'; do
+  out="$(gg "$c")"; [ "$(decision "$out")" != deny ] || fail "普通 git rm 與 git mv 閘門不擋（${c}）: $(reason "$out")"
 done
 for card in interactive-card no-such-card; do
   export OPSX_CARD="$card"
