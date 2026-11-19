@@ -23,13 +23,14 @@ launch_args() { # <agent> <model> <mode> <repo> <herdr 名> <主 repo>
   fi
 }
 
-write_settings() { # <file> <repo> <主 repo openspec 目錄> <mode> <herdr 名>：autopilot 直接做那級 allow，永遠要人那級 deny；repo 永遠的授權也進 allow。interactive 只寫可寫目錄。兩種模式都寫 env OPSX_CARD，opsx new 靠它認出 dispatch 的 agent
+write_settings() { # <file> <repo> <主 repo openspec 目錄> <mode> <herdr 名>：autopilot 直接做那級 allow，永遠要人那級 deny；repo 永遠的授權也進 allow。interactive 只寫可寫目錄。兩種模式都寫 env OPSX_CARD（opsx new 靠它認出 dispatch 的 agent）與 vitest worker 上限
   OPSX_REPO="$2" OPSX_SD="$OPSX_STATE_DIR" OPSX_MODE="$4" OPSX_NAME="$5" "$OPSX_PY" -I - "$1" "$3" <<'PY'
 import json,os,sys,tomllib
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib")); import safefile
 sd=os.environ["OPSX_SD"]; repo=os.environ["OPSX_REPO"]
 dirs=[sys.argv[2],sd]
-env={"OPSX_CARD":os.environ["OPSX_NAME"]}
+# vitest 的 worker 上限：多張卡同時跑測試時，每個 worker 約 4GB，不設上限會把記憶體吃滿
+env={"OPSX_CARD":os.environ["OPSX_NAME"],"VITEST_MAX_FORKS":"2","VITEST_MAX_THREADS":"1"}
 if os.environ["OPSX_MODE"]=="interactive":
     safefile.write_atomic(sys.argv[1], json.dumps({"env":env,"permissions":{"additionalDirectories":dirs}},indent=2))
     sys.exit(0)
