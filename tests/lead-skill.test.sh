@@ -48,19 +48,26 @@ order="$(t2_line '合併順序是 !101 → !102')"; s1="$(t2_line '### 1. !101')
 printf '%s\n' "$T2" | sed -n "$((warn + 1)),$((s2 - 1))p" | grep -qx -- '---' || fail "### 1. 段結束到 ### 2. 之間要有 ---"
 case "$T2" in *'建議合併順序'*) fail "類型 2 不能再把建議合併順序放最後" ;; esac
 # 沒有邏輯表那條：只動測試檔才照 diff 寫功能說明與邏輯圖，其他卡照 D6 寫還沒有邏輯表（spec「沒有邏輯表時照 diff 寫邏輯圖」正反例）
-NOMAP="$(printf '%s\n' "$T2" | grep -F 'no logic map')"
-for s in 'only test files' '功能說明' '邏輯圖' '照 diff 寫' '還沒有邏輯表' '卡的 report'; do
+NOMAP="$(printf '%s\n' "$T2" | grep -E '^- A card with no logic map yet')"
+[ "$(printf '%s\n' "$NOMAP" | grep -c .)" -eq 1 ] || fail "沒有邏輯表那條要剛好一行 — $NOMAP"
+for s in 'only test files' '功能說明' '邏輯圖' '照 diff 寫' '還沒有邏輯表' '卡的 report' 'produced before merging' \
+  'git diff --name-only' '*.test.*' 'ring'; do
   case "$NOMAP" in *"$s"*) ;; *) fail "沒有邏輯表那條缺：$s — $NOMAP" ;; esac
 done
-# 產表失敗只在狀態寫邏輯表沒產出，照 diff 寫與否仍看只改測試（design D5）
-case "$NOMAP" in *'or 產表失敗'*) fail "產表失敗不能一律歸成其他沒邏輯表的卡（design D5）" ;; esac
-# 只有合 main：看 PR 自己的 commit 與解衝突的改動，不用會混進 main 的 <sha>..<head>
-for s in '--first-parent --no-merges' '--remerge-diff'; do
-  case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 要用：$s" ;; esac
+# 只改測試的卡 ⚠ 寫無（design D1）：那句的 ⚠ is 無 要在 only test files 之後、Any other card 之前
+case "$NOMAP" in *'only test files'*'⚠ is 無'*'Any other card'*) ;; *) fail "只改測試那句要寫 ⚠ is 無（design D1）" ;; esac
+# 產表失敗不併進「其他沒邏輯表的卡」那句（design D5）
+OTHER="${NOMAP#*Any other card}"; OTHER="${OTHER%%.*}"
+case "$OTHER" in *'產表失敗'*) fail "產表失敗不能跟 Any other card 同句（design D5）— $OTHER" ;; esac
+# 產表失敗時就算舊 logic-map.md 還在也當成沒有邏輯表（design D5）
+case "$T2" in *'產表失敗'*'even if `.logic_map` is not null'*) ;; *) fail "產表失敗要寫就算 .logic_map 不是 null 也當成沒有邏輯表" ;; esac
+# 只有合 main：先 fetch、看 PR 自己的 commit、merge 要是合 main、解衝突用不印標頭的 remerge-diff、兩個都空才算（design D2、D3）
+for s in 'git fetch' '--first-parent --no-merges' 'git show --remerge-diff --format=' '--is-ancestor' '抓不到 commit' 'When both are empty'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 缺：$s" ;; esac
 done
 case "$T2" in *'git log --oneline <sha>..<head>'*) fail "類型 2 不能再用會混進 main commit 的 git log --oneline <sha>..<head>" ;; esac
-# 邏輯表落後且 PR 自己改了程式：四塊都照最新程式改
-case "$T2" in *'邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時邏輯圖、條件表重點、舉例、⚠ 都要照最新程式改" ;; esac
+# 邏輯表落後且 PR 自己改了程式：六塊都照最新程式改（design D4）
+case "$T2" in *'功能說明, 誰設定什麼, 邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時六塊都要照最新程式改" ;; esac
 # reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
 R="$OPSX_ROOT/skills/lead/references/mergeable-report.md"
 assert_file "$R"
@@ -69,6 +76,9 @@ grep -niE 'ts''g-navigator|/Users/|agen''tory' "$R" && fail "reference 不能帶
 grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
 grep -qF '邏輯表是舊 head' "$R" || fail "reference 的落後 head 範例要用跟 SKILL.md 一樣的「邏輯表是舊 head」"
 grep -qF 'PR 自己改了程式' "$R" || fail "reference 的落後規則要跟 SKILL.md 一樣看 PR 自己有沒有改程式"
+grep -F '邏輯表落後 head' "$R" | grep -F '只多了合 main' | grep -qF '還是準的' || fail "reference 落後規則那條要寫只合 main 時邏輯表還是準的（design D4）"
+grep -qF '**功能說明**（照 diff 寫）' "$R" || fail "reference 只改測試的範例，功能說明也要標照 diff 寫"
+grep -qF '**誰設定什麼**（照最新程式改）' "$R" || fail "reference 落後 head 的範例，誰設定什麼也要標照最新程式改"
 # 類型 6 也照沒事不回報（design D36）
 T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T6" in *'沒事不回報'*) ;; *) fail "類型 6 要照沒事不回報（design D36）" ;; esac
