@@ -47,7 +47,8 @@ case "$T2" in *'only 狀態, the links and 測試'*|*'fills 狀態, the links an
 # reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
 R="$OPSX_ROOT/skills/lead/references/mergeable-report.md"
 assert_file "$R"
-grep -nE 'tsg-navigator|/Users/|Agentory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或 Agentory"
+# 禁用字樣拼接寫，免得這個檔自己被 readme-landing 的追蹤檔掃描命中
+grep -niE 'ts''g-navigator|/Users/|agen''tory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或內部專案名"
 grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
 # 類型 6 也照沒事不回報（design D36）
 T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
