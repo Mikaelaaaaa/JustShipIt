@@ -1063,6 +1063,14 @@ printf -- '---\ntype: 功能\nsource: me\npriority: P1\npriority_reason: 人升�
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch --feature s ')" 1 "s2 升 P1 後開一次 session：$(cat "$OPSX_FAKE_LOG")"
 assert_not_grep "^opsx dispatch s1 " "$OPSX_FAKE_LOG"
+rm -f "$MEMO"
+# session @s 還活著時 s2 降回 P2：維持 session 代管，不改成單卡派 s1（workplan-attach D13）
+printf '{"demo/@s":{"mode":"autopilot","agent":"claude","pane":"w1:p9","drive_pid":null,"worktree":"%s"}}' "$R/.claude/worktrees/s" > "$DISP"
+printf -- '---\ntype: 功能\nsource: me\npriority: P2\npriority_reason: 人降的\n---\n' > "$R/openspec/changes/s2/inbox.md"
+round || fail "rc: $(cat "$FX/out")"
+assert_not_grep "^opsx dispatch s1 " "$OPSX_FAKE_LOG"
+assert_not_grep "^opsx dispatch --feature s " "$OPSX_FAKE_LOG"
+printf '{}' > "$DISP"
 rm -rf "$R/openspec/changes/s1" "$R/openspec/changes/s2"; rm -f "$MEMO"
 
 # feature 名稱不是合法的 agent 名、底下 2 個 PR：不算 session 代管，照單卡派，log 記 ?? 與名稱

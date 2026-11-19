@@ -142,12 +142,19 @@ def counted_prs(top: str, feature: dict, levels: dict) -> int:
     return n
 
 
-def session_managed(top: str, feature: dict, levels: dict) -> bool:
-    """feature 由 session 代管：名稱能當 herdr agent 名，且有 depends-on 或算數的 PR 有 2 個以上（counted_prs）。
-    已合的 PR 也算，代管方式才不會做到一半切換。名稱不合法的 feature 開不了 session，照單卡派（feature 的 depends-on 由 feature_waits 擋）。"""
+def session_managed(top: str, feature: dict, levels: dict, live: bool) -> bool:
+    """feature 由 session 代管：名稱能當 herdr agent 名，且有 depends-on、算數的 PR 有 2 個以上（counted_prs），
+    或它的 session 還活著（live，session_live 的結果）。已合的 PR 也算；卡的等級變了，session 還活著時也維持代管，
+    session 結束後才照等級重算（workplan-attach D13）。名稱不合法的 feature 開不了 session，照單卡派（feature 的 depends-on 由 feature_waits 擋）。"""
     if not AGENT_NAME.match(feature.get("name") or ""):
         return False
-    return bool(feature.get("depends-on")) or counted_prs(top, feature, levels) >= 2
+    return live or bool(feature.get("depends-on")) or counted_prs(top, feature, levels) >= 2
+
+
+def session_live(dispatch: dict, repo: str, feature: str) -> bool:
+    """dispatch.json 有這個 feature 的 session 條目 <repo>/@<feature>，而且它還活著。"""
+    entry = dispatch.get("%s/@%s" % (repo, feature))
+    return bool(entry) and session_alive(entry)
 
 
 def children(top: str, repo: str, parent: str, dispatch_path: str, feature: str = None) -> list:
@@ -181,7 +188,7 @@ def children(top: str, repo: str, parent: str, dispatch_path: str, feature: str 
         lv = priority.levels(top)
     except priority.PriorityError as e:
         return [("skip", "等級算不出來，不自動續接：%s" % e)]
-    gated = {f.get("name") for f in features if session_managed(top, f, lv)}
+    gated = {f.get("name") for f in features if session_managed(top, f, lv, session_live(dispatch, repo, f.get("name")))}
     waits = feature_waits(features, prs)
     status = {pr.get("name"): pr.get("status") for pr in prs}
     out = []

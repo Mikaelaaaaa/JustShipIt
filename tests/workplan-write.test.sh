@@ -97,6 +97,40 @@ pr_at="$(grep -n 'branch: "feat/p2/m"' "$WP" | cut -d: -f1)"; note_at="$(grep -n
 [ "$pr_at" -lt "$note_at" ] || fail "新 PR 要在尾註之前：p2 在第 $pr_at 行、尾註在第 $note_at 行"
 assert_eq "$(sed -n "$((note_at - 2)),$((note_at - 1))p" "$WP")" '            status: "pending"' "新 PR 的最後一行之後是原本的空行與尾註"
 
+# --- 空清單 `features: []`、`prs: []`、`changes: []`：換成區塊清單再插第一項，其他行逐字不變（workplan-attach D10）---
+# empty_ok <key>：原檔只把第一個 `<key>: []` 改成 `<key>:`，其餘只有插入
+empty_ok() { awk -v k="$1" '!d && $0 ~ "^ *" k ": \\[\\]$" { sub(/ \[\]$/, ""); d = 1 } 1' "$FX/orig" > "$FX/orig2"; cp "$FX/orig2" "$FX/orig"; only_inserts; }
+reset 'created: 2026-11-18
+
+features: []
+'
+add add_feature "$F2" || fail "features: [] 時 add_feature rc"
+assert_eq "$(empty_ok features)" ok "features: [] 只改那一行、其餘插入"
+assert_eq "$(wp 'w["features"][0]["name"]')" f2
+reset 'features:
+  - name: f1
+    status: active
+    prs: []
+  - name: f3
+    status: active
+    prs: []
+'
+add add_pr f1 "$P2" || fail "prs: [] 時 add_pr rc"
+assert_eq "$(empty_ok prs)" ok "prs: [] 只改那一行、其餘插入"
+assert_eq "$(wp 'f1["prs"][0]["name"]')" p2
+assert_eq "$(wp 'w["features"][1]["prs"]')" "[]" "另一個 feature 的 prs: [] 不動"
+reset 'features:
+  - name: f1
+    status: active
+    prs:
+      - name: p1
+        branch: feat/p1/m
+        changes: []
+'
+add add_change p1 "$C2" || fail "changes: [] 時 add_change rc"
+assert_eq "$(empty_ok changes)" ok "changes: [] 只改那一行、其餘插入"
+assert_eq "$(wp 'p1["changes"][0]["name"]')" c2
+
 # --- Scenario「名字已存在就拒絕」 ---
 reset "$BASE"
 add add_feature '{"name":"f1","status":"active"}' 2> "$FX/err"; rc=$?

@@ -359,6 +359,24 @@ features:
         changes:
           - name: pc
             status: done
+  - name: fp
+    milestone: "1.0"
+    status: pending
+    prs:
+      - name: pp
+        branch: feat/pp/t
+        status: pending
+        changes:
+          - name: pp
+            status: pending
+  - name: fn
+    prs:
+      - name: pn
+        branch: feat/pn/t
+        status: pending
+        changes:
+          - name: pn
+            status: pending
 EOF
 }
 where() { # where <repo> <slug>：印「<feature>\t<milestone，沒有是 ->\t<branch>」；workplan 沒有以 slug 命名、底下一個同名 change 的 PR 印 none
@@ -380,7 +398,9 @@ assert_eq "$(where "$WP" "$s")" "$s	2.0	feat/$s/mika" "source me 自成 feature�
 assert_not_grep '沒掛進' "$FX/wp.err"
 assert_grep '^priority: P2$' "$WP/openspec/changes/$s/inbox.md"
 assert_grep '^priority_reason: 自動掛進 workplan，維持 P2$' "$WP/openspec/changes/$s/inbox.md"
+assert_grep '^priority_auto: true$' "$WP/openspec/changes/$s/inbox.md"
 assert_eq "$(opsx priority "$s" --repo "$WP" | cut -f1)" P2 "掛進目前 milestone 仍是 P2"
+opsx priority "$s" --repo "$WP" | cut -f2 | grep -q '系統：自動掛進 workplan' || fail "理由要顯示系統：$(opsx priority "$s" --repo "$WP")"
 python3 -I - "$OPSX_ROOT/bin/lib" "$WP/openspec/workplan.yaml" "$s" <<'PY' || fail "新 feature 要是 active、depends-on 空、PR pending"
 import sys
 sys.path.insert(0, sys.argv[1]); import chain
@@ -393,6 +413,10 @@ s="$(wnew --type 功能 --source agent:pa --kind-of-work planned -- 父 feature 
 assert_eq "$(where "$WP" "$s")" "fa	1.0	feat/$s/mika" "父卡 feature active 時加 PR"
 s="$(wnew --type 功能 --source agent:pc --kind-of-work planned -- 父 feature complete)"
 assert_eq "$(where "$WP" "$s")" "$s	1.0	feat/$s/mika" "父 feature complete 時自成 feature、沿用它的 milestone"
+s="$(wnew --type 功能 --source agent:pp --kind-of-work planned -- 父 feature pending)"
+assert_eq "$(where "$WP" "$s" | cut -f1)" fp "只有 complete 才自成 feature，pending 掛進父 feature"
+s="$(wnew --type 功能 --source agent:pn --kind-of-work planned -- 父 feature 沒寫 status)"
+assert_eq "$(where "$WP" "$s" | cut -f1)" fn "沒寫 status 的父 feature 也掛進去"
 s="$(wnew --type 功能 --source agent:pa--sub1 --kind-of-work planned -- 子殼開的)"
 assert_eq "$(where "$WP" "$s" | cut -f1)" fa "子殼 agent 取主殼"
 s="$(wnew --type 功能 --source agent:zz --kind-of-work planned -- 父卡不在 workplan)"

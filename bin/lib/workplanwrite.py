@@ -25,6 +25,8 @@ import safefile  # noqa: E402
 NAME = re.compile(r"""^ *- name:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))""")
 # 每一層的子清單鍵與子項目的種類
 CHILD = {"feature": ("prs", "PR"), "PR": ("changes", "change"), "change": (None, None)}
+# 分支前綴，跟 dispatch.sh 沒有 workplan 時的對照相同；沒列的 kind 是 feat
+KIND_PREFIX = {"bug-fix": "fix", "refactoring": "refactor", "ops": "chore", "chore": "chore"}
 
 
 class WorkplanError(ValueError):
@@ -91,11 +93,24 @@ def _children(lines: list, item: tuple, kind: str):
     return None if h is None else _items(lines, h, "%s %s 的 %s:" % (kind, item[3], key))
 
 
+def _open_empty(lines: list, key: str, start: int, end: int, indent: int):
+    """`<key>: []` 那一行改成 `<key>:`（之後插入第一項），回它的 index；沒有這種行回 None。"""
+    pat = re.compile(r"^ {%d}%s:\s*\[\]\s*(#.*)?$" % (indent, re.escape(key)))
+    i = next((i for i in range(start, end) if pat.match(lines[i])), None)
+    if i is not None:
+        lines[i] = re.sub(r"\[\]\s*", "", lines[i], count=1).rstrip()
+    return i
+
+
 def _target(lines: list, path: str, kind: str, owner):
-    """新項目要插入的 (行 index, 縮排)：目標清單最後一項的最後一行之後。"""
+    """新項目要插入的 (行 index, 縮排)：目標清單最後一項的最後一行之後；清單是 `[]` 時就在清單頭之後。
+    清單是 `[]` 時會先把 lines 裡那一行改成區塊清單的頭。"""
     h = _header(lines, "features", 0, len(lines), 0)
     if h is None:
-        raise WorkplanError("%s 沒有 features:" % path)
+        e = _open_empty(lines, "features", 0, len(lines), 0) if kind == "feature" else None
+        if e is None:
+            raise WorkplanError("%s 沒有 features:" % path)
+        return e + 1, 2
     features = _items(lines, h, "features:")
     if kind == "feature":
         return features[-1][1], features[-1][2]
@@ -104,6 +119,9 @@ def _target(lines: list, path: str, kind: str, owner):
     for item in owners:
         if item[3] != owner:
             continue
+        e = _open_empty(lines, CHILD[parent][0], item[0], item[1], item[2] + 2)
+        if e is not None:
+            return e + 1, item[2] + 4
         sibs = _children(lines, item, parent)
         if sibs is None:
             raise WorkplanError("workplan 的 %s %s 沒有 %s:" % (parent, owner, CHILD[parent][0]))
@@ -191,12 +209,12 @@ def add_change(top: str, pr: str, item: dict) -> None:
     _add(top, "change", pr, item)
 
 
-def attach(top: str, slug: str, parent: str, user: str) -> None:
-    """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D4；母卡 me-20261118-1113 D7–D9）。
+def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
+    """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D7–D9；母卡 me-20261118-1113 D7–D9）。
     repo 沒有 workplan、或卡已在 workplan 就不動。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼；
-    父卡不在 workplan 當成沒有父卡。父卡的 feature 是 active 就在它底下加 PR，否則自成 feature，
-    milestone 沿用父 feature 的，沒有父卡用 current_milestone。掛入前是 P2 就先寫 priority: P2 覆寫再寫 workplan，
-    中間不會有一刻卡變成 P1 被協調者派走。"""
+    父卡不在 workplan 當成沒有父卡。父卡的 feature 不是 complete 就在它底下加 PR，否則自成 feature，
+    milestone 沿用父 feature 的，沒有父卡用 current_milestone。掛入前是 P2 就先寫自動的 P2 覆寫再寫 workplan，
+    中間不會有一刻卡變成 P1 被協調者派走。kind 空字串時讀卡的 .openspec.yaml，還沒有 kind 就照 type 定前綴。"""
     if not os.path.exists(os.path.join(top, "openspec", "workplan.yaml")):
         return
     plan = priority.load_plan(top)
@@ -205,7 +223,7 @@ def attach(top: str, slug: str, parent: str, user: str) -> None:
         return
     if not user:
         raise WorkplanError("分支尾巴沒有名字：OPSX_USER 沒設，git config user.name 是空的或占位字「Your Name」")
-    inbox = os.path.join(top, "openspec", "changes", slug, "inbox.md")
+    inbox =os.path.join(top, "openspec", "changes", slug, "inbox.md")
     fm, _ = priority.frontmatter(priority.read_text(inbox))
     if not parent and (fm.get("source") or "").startswith("agent:"):
         parent = fm["source"][len("agent:"):]
@@ -214,10 +232,14 @@ def attach(top: str, slug: str, parent: str, user: str) -> None:
     if "error" in got:
         raise WorkplanError(got["error"])
     if got["level"] == "P2" and not fm.get("priority"):
-        priority.set_override(inbox, "P2", "自動掛進 workplan，維持 P2")
-    pr = {"name": slug, "branch": "%s/%s/%s" % ("fix" if fm.get("type") == "bug" else "feat", slug, user),
+        priority.set_override(inbox, "P2", "自動掛進 workplan，維持 P2", True)
+    if not kind:
+        m = re.search(r"^kind:\s*(\S+)", priority.read_text(os.path.join(top, "openspec", "changes", slug, ".openspec.yaml")), re.M)
+        kind = m.group(1) if m else ""
+    prefix = KIND_PREFIX.get(kind, "feat") if kind else ("fix" if fm.get("type") == "bug" else "feat")
+    pr = {"name": slug, "branch": "%s/%s/%s" % (prefix, slug, user),
           "status": "pending", "depends-on": [], "changes": [{"name": slug, "status": "pending"}]}
-    if owner is not None and owner[0].get("status") == "active":
+    if owner is not None and owner[0].get("status") != "complete":
         add_pr(top, owner[0]["name"], pr)
         return
     feature = {"name": slug}
@@ -229,8 +251,8 @@ def attach(top: str, slug: str, parent: str, user: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 6 or sys.argv[1] != "attach":
-        sys.exit("用法：workplanwrite.py attach <top> <卡 slug> <父卡 slug 或空字串> <分支尾巴的名字>")
+    if len(sys.argv) != 7 or sys.argv[1] != "attach":
+        sys.exit("用法：workplanwrite.py attach <top> <卡 slug> <父卡 slug 或空字串> <分支尾巴的名字> <kind 或空字串>")
     try:
         attach(*sys.argv[2:])
     except (WorkplanError, priority.PriorityError) as e:

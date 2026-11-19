@@ -131,9 +131,11 @@ PY
   # model：沒給就照 kind
   [ -n "$model" ] || model="$(default_model "$agent" "$kind")"
 
-  # 不在 workplan 的卡先掛進去（workplan-attach「派工時補掛」）；feature session 的卡本來就在 workplan
+  # 不在 workplan 的卡先掛進去（workplan-attach「派工時補掛」）；feature session 的卡本來就在 workplan。
+  # 掛不進去只警告，下面照 kind 的預設 branch 派，跟建卡時一樣（workplan-attach D11）
   if [ -z "$feature" ]; then
-    "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$top" "$card" "" "$(branch_user "$top")" || die "dispatch: ${card} 掛不進 workplan（上面是原因）"
+    "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$top" "$card" "" "$(branch_user "$top")" "$kind" \
+      || warn "dispatch: ${card} 沒掛進 workplan（上面是原因），照 kind 的預設 branch 派"
   fi
   # branch：workplan 有就用，沒有（repo 沒有 workplan）就 {type}/{slug}/{user}
   local branch; branch="$(workplan_branch "$top" "$card")"

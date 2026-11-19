@@ -263,7 +263,7 @@ class Round:
         shared = self.session_siblings(key, top)
         # 單卡派的卡屬於 session 代管的 feature、session 還活著：依賴它的下一個主 change 要叫醒。
         # chain.children 從磁碟讀這張的條目，opsx stop 標 stopped 之前叫醒，不然它會當成人停的而不接
-        owner = self.session_feature_of(top, c["slug"])
+        owner = self.session_feature_of(top, c["repo"], c["slug"])
         session = self.dispatch_file.get("%s/@%s" % (c["repo"], owner)) if owner and not shared else None
         wake_session = bool(session) and chain.session_alive(session)
         stop = entry and entry.get("mode") != "stopped" and not shared
@@ -908,7 +908,7 @@ class Round:
             if not os.path.isfile(os.path.join(c["path"], "tasks.md")) or c["mr"]:
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session
-            owner = None if parked else self.session_feature_of(top, c["slug"])
+            owner = None if parked else self.session_feature_of(top, c["repo"], c["slug"])
             if owner:
                 self.log("-- %s 屬於 feature %s，由那個 session 做，不單獨派" % (key, owner))
                 continue
@@ -982,9 +982,9 @@ class Round:
                 return k, v
         return None
 
-    def session_feature_of(self, top, slug):
+    def session_feature_of(self, top, repo, slug):
         pr = pr_of(self.workplan(top), slug)
-        for f in session_features(top, read_features(os.path.join(top, "openspec", "workplan.yaml")), self.repo_levels(top)):
+        for f in session_features(top, repo, read_features(os.path.join(top, "openspec", "workplan.yaml")), self.repo_levels(top), self.dispatch_file):
             if pr is not None and any(p.get("name") == pr.get("name") for p in f.get("prs") or []):
                 return f.get("name")
         return None
@@ -1001,7 +1001,7 @@ class Round:
             for f in features:
                 if not AGENT_NAME.match(f.get("name") or "") and (chain.counted_prs(top, f, levels) >= 2 or f.get("depends-on")):
                     self.log("?? %s 的 feature %s 不是合法的 agent 名，開不了 session，它的卡照單卡派" % (repo, f.get("name")))
-            for f in session_features(top, features, levels):
+            for f in session_features(top, repo, features, levels, self.dispatch_file):
                 name = f.get("name")
                 if all(p.get("status") == "merged" for p in f.get("prs") or []):
                     continue
@@ -1208,9 +1208,9 @@ def pr_of(prs, slug):
     return chain.find_pr(prs, slug)
 
 
-def session_features(top, features, levels):
+def session_features(top, repo, features, levels, dispatch):
     """由 session 代管的 feature（chain.session_managed）：依賴合了才由 coordinate 開 session，它的卡不單獨派。"""
-    return [f for f in features if chain.session_managed(top, f, levels)]
+    return [f for f in features if chain.session_managed(top, f, levels, chain.session_live(dispatch, repo, f.get("name")))]
 
 
 def deps_unmerged(slug, prs, features):

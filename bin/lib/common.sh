@@ -116,7 +116,7 @@ new_shell() { # <top> <slug> <inbox 內容檔> [<父卡>]
   ( cd "$top" && openspec new change "$slug" --schema opsx >/dev/null ) || { rmdir "$res"; die "openspec new change $slug 失敗（${top}）"; }
   cp "$3" "$top/openspec/changes/$slug/inbox.md" || { rmdir "$res"; die "寫不進 $top/openspec/changes/$slug/inbox.md"; }
   rmdir "$res"
-  "$OPSX_PY" -I "$(dirname "${BASH_SOURCE[0]}")/workplanwrite.py" attach "$top" "$slug" "${4:-}" "$(branch_user "$top")" \
+  "$OPSX_PY" -I "$(dirname "${BASH_SOURCE[0]}")/workplanwrite.py" attach "$top" "$slug" "${4:-}" "$(branch_user "$top")" "" \
     || warn "已建 ${slug}，但沒掛進 workplan（上面是原因）"
   printf '%s\n' "$slug"
 }
