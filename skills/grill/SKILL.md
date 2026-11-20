@@ -56,6 +56,7 @@ Read all of these before the first question. A dispatch worktree has no `openspe
 Explore writes facts into 已知 and exclusions into 不做, but some of them were choices the user never saw. A plan that drops a role check because 已知 called it unused, or skips a channel because 不做 listed it, has made a product decision without asking. So:
 
 - **Every 不做 item is a branch.** Confirm it with the user, even when it looks obvious. Leaving something out is a choice.
+- **Every new behaviour has failure branches.** For each new path the card adds, list what happens when it does not succeed: the tool or call returns an error, a precondition is not met (the account is not connected, the record is gone, the user lost access), whether the failure is logged or audited, and what the user sees (including in another UI language). Each one the code cannot answer is a bucket-3 branch. Asked here, it becomes a D and a negative Scenario; left out, it surfaces only when the logic map reads the finished code, after review and CI.
 - **An 已知 entry that hides a choice is a branch.** It hides a choice when the state it describes could be kept or changed, and this card's scope touches it. "role_gate has no reader at runtime" hides a choice: the card has to decide whether to wire a reader or delete it.
 - **A pure fact in 已知 is not asked.** It says where code lives or how it works, and the card does not have to decide whether to change it.
 
