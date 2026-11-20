@@ -86,5 +86,54 @@ for c in 'git config alias.ci commit; git config --list' 'git config alias.ci co
 done
 # commit 訊息只是提到別名的字樣：不是設別名，照 branch 判斷（wt 在卡的 branch、tasks 已勾）
 out="$(cgin "$FX/wt" 'git commit -m "docs: never run git config alias.ci commit"')"; assert_eq "$(decision "$out")" allow "訊息提到別名字樣不能被當成設別名: $(reason "$out")"
+# cd-command-position：cd、pushd 只在命令開頭算數，旗標略過，沒有參數讀不出目錄（$R 在 main，$FX/wt 在卡的 branch、tasks 已勾）
+for c in "cd -P $R && git commit -m x" "cd -- $R && git commit -m x" "cd -L $R && git commit -m x" 'pushd && git commit -m x' 'cd && git commit -m x'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "cd 的旗標或沒有參數：${c}｜$(reason "$out")"
+done
+for c in "cd -P $FX/wt && git commit -m x" "cd -L -- $FX/wt ; git commit -m x" "cd $FX/wt && git commit -m x" "git status; cd $FX/wt && git commit -m x"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "命令開頭的 cd 照後面的目錄判：${c}｜$(reason "$out")"
+done
+for c in "echo cd $R; git commit -m x" "git log --grep cd $R; git commit -m x"; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "參數位置的 cd 不算：${c}｜$(reason "$out")"
+done
+out="$(cgin "$R" "echo cd $FX/wt; git commit -m x")"; assert_eq "$(decision "$out")" deny "echo 的 cd 不能把目標換到卡的 worktree: $(reason "$out")"
+# CDPATH 讓相對 cd 的目錄讀不出來：commit 前面有 CDPATH 賦值就擋
+for c in "CDPATH=$FX cd wt && git commit -m x" "export CDPATH=$FX; cd wt && git commit -m x" "env CDPATH=$FX git commit -m x"; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "CDPATH 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'CDPATH' || fail "deny 要點名 CDPATH: $(reason "$out")"
+done
+N="$FX/nowp"; mkdir -p "$N/sub"; git -C "$N" init -q
+out="$(cgin "$N" 'CDPATH=/x cd sub && git commit -m x')"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 的 repo 不因 CDPATH 被擋: $(reason "$out")"
+# every-commit-checked：兩個以上 git commit 就 deny，訊息請分成兩個 Bash 呼叫
+for c in "git commit -m a; git -C $R commit -m b" "git commit -m a; cd $R && git commit -m b" "git commit -m a && git commit --amend -m b"; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要請分成兩個 Bash 呼叫: $(reason "$out")"
+done
+out="$(cgin "$R" "git -C $FX/wt commit -m a; git commit -m b")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋（session 在 main）: $(reason "$out")"
+for c in 'git add f && git commit -m x' 'git commit -m "fix git commit message"' 'git commit-tree x && git commit -m y'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "一個 commit 照常判：${c}｜$(reason "$out")"
+done
+out="$(cgin "$N" 'git commit -m a; git commit -m b')"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 的 repo 不因多個 commit 被擋: $(reason "$out")"
+# alias-env-bypass：帶路徑的 git、--config-env、GIT_CONFIG_* 賦值都當別名寫入擋
+for c in '/usr/bin/git config alias.ci commit' 'FOO=commit git --config-env alias.ci=FOO ci -m x' 'git --config-env=alias.ci=FOO ci -m x' 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.ci GIT_CONFIG_VALUE_0=commit git ci -m x' "GIT_CONFIG_PARAMETERS=\"'alias.ci'='commit'\" git ci -m x" 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=a git status'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別名寫入要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '別名' || fail "deny 要說別名: $(reason "$out")"
+done
+for c in '/usr/bin/git config --get alias.ci' 'git log --oneline'; do
+  out="$(cgin "$R" "$c")"; [ "$(decision "$out")" != deny ] || fail "讀別名不擋：${c}｜$(reason "$out")"
+done
+out="$(cgin "$N" 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.ci GIT_CONFIG_VALUE_0=commit git ci -m x')"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 的 repo 不因 GIT_CONFIG_* 被擋: $(reason "$out")"
+# subshell-gitdir：子程序裡有 cd 就擋，GIT_DIR 這組環境變數就擋
+for c in "cd $R && (cd $N) && git commit -m x" "echo \$(cd /tmp) && git commit -m x" 'bash -c "cd /tmp" ; git commit -m x' 'eval "cd /tmp"; git commit -m x' 'echo `cd /tmp`; git commit -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "子程序裡的 cd 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
+done
+for c in "GIT_DIR=$R/.git git commit -m x" "export GIT_WORK_TREE=$R; git commit -m x" "env GIT_COMMON_DIR=$R/.git git commit -m x" "declare -x GIT_DIR=$R/.git; git commit -m x"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "git 目錄環境變數要擋：${c}｜$(reason "$out")"
+done
+out="$(cgin "$N" 'git commit -m x')"; [ "$(decision "$out")" != deny ] || fail "沒有子程序照常判: $(reason "$out")"
+out="$(cgin "$N" "(cd $N && git status)")"; [ "$(decision "$out")" != deny ] || fail "git status 不是 commit，不擋: $(reason "$out")"
+out="$(cgin "$N" "(cd $N) && git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "作用的 repo 沒有 workplan，不擋: $(reason "$out")"
+out="$(cgin "$N" "GIT_DIR=$N/.git git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 時 GIT_DIR 不擋: $(reason "$out")"
 git -C "$R" worktree remove --force "$FX/wt"
 echo "commit-gate-detect ok"

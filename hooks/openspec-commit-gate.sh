@@ -18,14 +18,17 @@ alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+alias\\."
 # 在 git 設定寫入別名（git config alias.ci …）：別名的值可以用 bash 與 git 的引號、跳脫寫成 commit（com\mit、'c""ommit'、!f() { git commit; }），
 # 之後用別名 commit 時骨架裡沒有 commit，閘門看不到，所以任何別名的寫入在設定當下就擋（--get、--unset、--list 這類讀取與刪除不擋）。
 # 看骨架：commit 訊息之類引號裡只是提到這串字，不是在命令位置，不算
-persist_re='(^|[[:space:];&|(])git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
+persist_re='(^|[[:space:];&|(])(/[^[:space:];&|()`$]*/)?git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
 readonly_re='(^|[[:space:]])--(get|get-all|get-regexp|unset|unset-all|list)([[:space:]]|$)'
+# --config-env 與 GIT_CONFIG_* 賦值也能寫入別名；值在環境變數裡讀不出來，出現就當別名寫入（寧可誤擋）
+env_alias_re='(^|[[:space:]])(--config-env([[:space:]=]|$)|GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)=)'
 is_alias=0
-# 唯讀旗標只看 config 與 alias. 之間那一段（BASH_REMATCH[3]）；alias.<名> 後面沒有值就只是讀
+# 唯讀旗標只看 config 與 alias. 之間那一段（BASH_REMATCH[4]）；alias.<名> 後面沒有值就只是讀
 if [[ "$sk" =~ $persist_re ]]; then
-  alias_span="${BASH_REMATCH[3]}"
+  alias_span="${BASH_REMATCH[4]}"
   [[ "$alias_span" =~ $readonly_re ]] || is_alias=1
 fi
+[[ "$sk" =~ $env_alias_re ]] && is_alias=1
 m0=''; opts=''
 if [[ "$sk" =~ $commit_re ]]; then
   m0="${BASH_REMATCH[0]}"; opts="${BASH_REMATCH[3]}"
@@ -49,13 +52,36 @@ unset OPSX_CWD
 bad_dirs=''
 before=" ${sk%%"$m0"*}"
 # commit 前面的 cd 與 pushd 照順序疊起來（cd a && cd b 的 b 是相對 a）
+# 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過，目錄在第 8 組
+# ( 不算命令開頭：子程序裡的 cd 不改外層目錄，由 sub_cd 擋
 dtok='(\\.|[^[:space:];&|)\\])+'
-cd_re="(^|[[:space:];&|(])(cd|pushd)[[:space:]]+(${dtok})"
+asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+'
+cd_re="(^|[;&|{]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?[[:space:]]*([;&|)]|\$)"
 cd_dirs=()
 rest_cd="$before"
 while [[ "$rest_cd" =~ $cd_re ]]; do
-  check_dir "${BASH_REMATCH[3]}"; cd_dirs+=("${BASH_REMATCH[3]}")
+  if [ -z "${BASH_REMATCH[8]}" ]; then
+    bad_dirs="$bad_dirs '${BASH_REMATCH[3]}'（沒有參數，回到哪個目錄讀不出來）"
+  else
+    check_dir "${BASH_REMATCH[8]}"; cd_dirs+=("${BASH_REMATCH[8]}")
+  fi
   rest_cd="${rest_cd#*"${BASH_REMATCH[0]}"}"
+done
+# CDPATH 會改變相對 cd 的落點；GIT_DIR、GIT_WORK_TREE、GIT_COMMON_DIR 直接換掉 repo，都讀不出來
+env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
+bad_env=''
+[[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
+# 子程序（( )、$( )、反引號、bash -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來；看 commit 前面的原文
+sub_re='(\(|`|bash[[:space:]]+-c|eval[[:space:]])'
+cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
+raw_before="${cmd%commit*}"
+sub_cd=0
+[[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
+# 兩個以上 commit 只判得了第一個
+commit_n=0
+rest_n="$sk"
+while [[ "$rest_n" =~ $commit_re ]]; do
+  commit_n=$((commit_n + 1)); rest_n="${rest_n#*"${BASH_REMATCH[0]}"}"
 done
 # popd 回到哪個目錄要追目錄堆疊，讀不出來
 popd_re='(^|[[:space:];&|(])popd([[:space:];&|)]|$)'
@@ -103,6 +129,12 @@ if [ -z "$bad_dirs" ]; then
 fi
 
 top="$(repo_top)"
+# 子程序裡的 cd 會被骨架算進作用目錄（bash -c "cd /tmp"），所以 session 所在的 repo 也要看：有 workplan 就擋
+if [ "$sub_cd" = 1 ]; then
+  for t in "$top" "$(OPSX_CWD= repo_top)"; do
+    [ -n "$t" ] && [ -f "$t/openspec/workplan.yaml" ] && deny "opsx commit 閘門：commit 前面的子程序（( )、\$( )、反引號、bash -c、eval）裡有 cd，外層的作用目錄讀不出來。改成 cd /abs/path && git commit 或 git -C /abs/path commit。"
+  done
+fi
 [ -n "$top" ] || exit 0
 if [ ! -f "$top/openspec/workplan.yaml" ]; then
   ctx PreToolUse "opsx commit 閘門未啟用：這個 repo 還沒有 openspec/workplan.yaml（第一次 /opsx-workflow:propose 後自動生效）"; exit 0
@@ -110,6 +142,14 @@ fi
 
 if [ "$is_alias" = 1 ]; then
   deny "opsx commit 閘門：指令把 commit 設成 git 別名，之後用別名 commit 時骨架裡沒有 commit，會繞過閘門。直接寫 git commit，不要設別名。"
+fi
+
+if [ -n "$bad_env" ]; then
+  deny "opsx commit 閘門：指令在 commit 前面設了 ${bad_env}，commit 實際作用的 repo 讀不出來。拿掉 ${bad_env}，改用 cd /abs/path && git commit、git -C /abs/path commit，或 git --git-dir=<repo>/.git commit。"
+fi
+
+if [ "$commit_n" -ge 2 ]; then
+  deny "opsx commit 閘門：一個指令裡有 ${commit_n} 個 git commit，閘門只判得了第一個。分成兩個 Bash 呼叫，一個呼叫一個 commit。"
 fi
 
 if [ -n "$bad_dirs" ]; then
