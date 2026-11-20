@@ -75,6 +75,12 @@ case "$T2" in *'git log --oneline <sha>..<head>'*) fail "類型 2 不能再用�
 for s in 'On GitHub write #' 'no `## 邏輯表` line' 'only test files or docs'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
+# 邏輯表 r3、r4 的答案（design D11–D15、D22）：fixture 在 tests/ 底下也算產品程式；skills/ 與 AGENTS.md、CLAUDE.md 的 .md 算程式；
+# <remote> 照 pr skill 規則；抓不到 head 照沒邏輯表寫；合進別的分支也套只動測試或文件那條；head 用前綴比
+for s in 'even under `tests/`' '`*.md` outside `skills/` other than `AGENTS.md` and `CLAUDE.md`' 'pr skill'"'"'s step 1 rule' \
+  'instead of pasting the old map' 'its own commits and the merges of other branches' '`mr.head_sha` starts with the sha'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
 # 邏輯表落後且 PR 自己改了程式：六塊都照最新程式改（design D4）
 case "$T2" in *'功能說明, 誰設定什麼, 邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時六塊都要照最新程式改" ;; esac
 # reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
@@ -83,6 +89,7 @@ assert_file "$R"
 # 禁用字樣拼接寫，免得這個檔自己被 readme-landing 的追蹤檔掃描命中
 grep -niE 'ts''g-navigator|/Users/|agen''tory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或內部專案名"
 grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
+grep -qF '就算在 `tests/` 底下也算產品程式' "$R" || fail "reference 的測試檔規則要寫 fixture 在 tests/ 底下也算產品程式（design D11）"
 grep -qF '邏輯表是舊 head' "$R" || fail "reference 的落後 head 範例要用跟 SKILL.md 一樣的「邏輯表是舊 head」"
 grep -qF 'PR 自己改了程式' "$R" || fail "reference 的落後規則要跟 SKILL.md 一樣看 PR 自己有沒有改程式"
 grep -F '邏輯表落後 head' "$R" | grep -F '只多了合 main' | grep -qF '還是準的' || fail "reference 落後規則那條要寫只合 main 時邏輯表還是準的（design D4）"
@@ -145,16 +152,21 @@ for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
 # 使用者 2026-11-20 裁示的 gate 規則（gate merge-main-227-contradiction）：職責 2 寫 opsx-workflow 的 gate 照 Recommended 自答、
-# 加 ponytail 註、記自動採用；其他 repo（Agentory 等）的 gate 一律問使用者；needs: run 自己跑
+# 加 ponytail 註、記自動採用；其他 repo 的 gate 一律問使用者；needs: run 自己跑
 D2="$(printf '%s\n' "$DUTIES" | grep '^2\. ')"
 for s in 'opsx-workflow you answer yourself with its Recommended option' '套用 ponytail 原則' '自動採用' \
-  'any other repo'"'"'s card (the Agentory repos and the rest) is the user'"'"'s' 'never run `opsx answer` on it on your own judgment' \
+  'any other repo'"'"'s card, whatever the repo, is the user'"'"'s' 'never run `opsx answer` on it on your own judgment' \
   'needs: run' '怎麼問 gate'; do
   case "$D2" in *"$s"*) ;; *) fail "職責 2 缺：$s — $D2" ;; esac
 done
 case "$D2" in *"Every gate is the user's"*|*'never answer them'*) fail "職責 2 不能再寫每個 gate 都是使用者的 — $D2" ;; esac
+# 邏輯表 r4（design D16–D18）：merge 授權與沒有 Recommended 的題仍轉使用者；needs: run 先跑再答
+for s in '`action:` is merge, because duty 7 comes first' 'no Recommended option' 'you run before you answer its gate'; do
+  case "$D2" in *"$s"*) ;; *) fail "職責 2 缺：$s — $D2" ;; esac
+done
 PANES="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx relaunch')"
-for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續'; do
+for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續' \
+  '`section` is not 已完成 and that has no open gate' 'after two relaunches in a row, stop relaunching'; do
   case "$PANES" in *"$s"*) ;; *) fail "掃 pane 職責缺：$s — $PANES" ;; esac
 done
 # 絕不合併是職責 7（#227 的編號）
@@ -190,6 +202,8 @@ case "$ASK" in *自動採用*) fail "怎麼問 gate 段不能有「自動採用�
 # compare 在段裡只出現一次，就是「不用 compare 選」那一處
 assert_eq "$(printf '%s\n' "$ASK" | grep -o 'compare' | wc -l | tr -d ' ')" 1 "怎麼問 gate 段 compare 只能出現一次"
 case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要寫「不用 \`compare\` to choose」" ;; esac
+# 邏輯表 r4（design D21）：彈窗回來後把 ready 的卡補進類型 2
+case "$ASK" in *'each time the pop-up returns, run collect and put every card whose `mr.state` is `ready` into 類型 2'*) ;; *) fail "怎麼問 gate 段要寫彈窗回來後補進 ready 的卡" ;; esac
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '類型 3' || fail "職責 2 要指向類型 3"
@@ -222,6 +236,8 @@ for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate' \
   '沒事不回報'; do
   case "$PROSE" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
 done
+# 邏輯表 r4（design D19、D20）：使用者要回報、或有要人介入的停住，都不算沒事
+case "$PROSE" in *'no 停住 line from duty 1 that needs a person, and the user did not ask for a report'*) ;; *) fail "沒事不回報要排除停住事件與使用者要回報" ;; esac
 # 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class；同名卡重開時只取活的那張
 LM="$(printf '%s\n' "$PROSE" | grep -F '.logic_map')"
 case "$LM" in *'mr.state'*'ready'*) ;; *) fail "取 logic_map 那行要以 mr.state ready 判斷 — $LM" ;; esac
