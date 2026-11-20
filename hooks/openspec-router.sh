@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart / UserPromptSubmit：看 changes/<slug>/ 的狀態，注入一行「階段 · slug · kind · Read 清單」，
-# 卡派出去過的話後面再接這張卡模式的行為規則。沒對到卡時那一行改列進行中 change 與各自的 `/<stage> <slug>`。
+# 卡派出去過的話後面再接這張卡模式的行為規則。沒對到卡時那一行只印進行中 change 的張數：
+# 這行每句 prompt、每個背景通知都會注入且留在上下文，列出每張卡的 `/<stage> <slug>` 會讓協調者 session 每輪多背上千 token。
 # 平行流程關鍵詞優先；prompt 說 tdd → apply 3b 只寫測試。要求檔 §8.3 Router 表、§8.5、§3.6 自主程度表。
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 # shellcheck source=/dev/null
@@ -21,8 +22,18 @@ if [ -n "$slug" ] && [ -n "${OPSX_PY:-}" ]; then
   case "$mode" in
     autopilot|drive)
       # 測試在 agent 所在的 worktree 跑，主 checkout 可能在別的分支，所以看 cwd 的 toplevel 不看 $top。
-      # cwd 在 git 目錄裡（例 .git/）時沒有 work tree，--show-toplevel 失敗，那時改看主 checkout
-      test_root="$(git -C "$(hook_cwd)" rev-parse --show-toplevel 2>/dev/null)" || test_root="$top"
+      # cwd 在 git 目錄裡時沒有 work tree，--show-toplevel 失敗。worktree 的 git 目錄（.git/worktrees/<名>/）有 gitdir 檔，
+      # 內容是那棵 worktree 的 .git 檔路徑（--relative-paths 建的是相對於 git 目錄），用它找回 worktree 根；
+      # 主 checkout 的 .git/ 沒有這個檔、或 worktree 目錄已刪還沒 prune 時，看主 checkout
+      if ! test_root="$(git -C "$(hook_cwd)" rev-parse --show-toplevel 2>/dev/null)"; then
+        gd="$(git -C "$(hook_cwd)" rev-parse --absolute-git-dir 2>/dev/null || true)"
+        test_root="$top"
+        if [ -n "$gd" ] && [ -f "$gd/gitdir" ]; then
+          wt_git="$(cat "$gd/gitdir")"
+          case "$wt_git" in /*) ;; *) wt_git="$gd/$wt_git" ;; esac
+          [ -d "$(dirname "$wt_git")" ] && test_root="$(dirname "$wt_git")"
+        fi
+      fi
       rule=" · $(rule_autopilot "$test_root")"
       if [ "$ev" = SessionStart ]; then
         lost_rc=0; lost_why="$(args_lost_status "$(basename "$top")" "$slug" "$mode")" || lost_rc=$?
@@ -56,7 +67,7 @@ fi
 
 if [ -n "$card" ]; then stage="$(card_stage)"
 else
-  stage="$(active_changes "$top" | awk '{ s = s (NR == 1 ? "：" : " · ") $0 } END { printf "explore · 沒有對到卡 · 進行中 %d 張%s · 新工作先建殼 · skills/explore/SKILL.md", NR, s }')"
+  stage="$(active_changes "$top" | awk 'END { printf "explore · 沒有對到卡 · 未封存 %d 張 · 新工作先建殼 · skills/explore/SKILL.md", NR }')"
 fi
 case " $lower " in *" tdd "*|*"/tdd"*|*"tdd "*)
   ctx "$ev" "opsx：tdd · ${slug:-?} · 只做 apply 骨架 3b（照 tasks.md 的 驗收 / 測試 兩行寫測試含邊界，跑一次確認紅，不單獨 commit，測試留在工作區，之後跟實作同進該 change 的一個 commit），寫完停，不實作 · Read skills/apply/SKILL.md · skills/tdd/SKILL.md$rule"; exit 0 ;;

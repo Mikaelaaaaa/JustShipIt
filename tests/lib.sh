@@ -17,6 +17,7 @@ printf '#!/usr/bin/env bash\necho "orca: test isolation, no real orca" >&2\nexit
 # 每個測試的 nohup 都是假的、一律失敗：agent 沙盒 pane 裡的真 nohup 就是這樣，產品程式不能靠它起背景程序
 printf '#!/usr/bin/env bash\nexec bash "%s/tests/fakes/nohup" "$@"\n' "$OPSX_ROOT" > "$FX/failbin/nohup"; chmod +x "$FX/failbin/nohup"
 export OPSX_NONINTERACTIVE=1 # init 不問問題
+export OPSX_SUBMIT_SLEEP=0   # 送話給卡之後讀輸入框前不等（bin/lib/submit.py）
 export TZ=Asia/Taipei
 # init --global 會裝 launchd job：測試永遠不寫真的 ~/Library/LaunchAgents、不叫真的 launchctl。
 # 預設當成沒有 launchctl（略過）；要測安裝的檔案自己 use_fakes launchctl 再設 OPSX_LAUNCHCTL=launchctl。
