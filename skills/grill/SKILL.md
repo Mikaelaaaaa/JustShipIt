@@ -81,6 +81,8 @@ Every branch goes into exactly one bucket. Only the third bucket reaches the use
 
 If you are unsure which bucket a branch belongs to, try bucket 1 for a few minutes before defaulting to bucket 3.
 
+A problem you find while grilling that is outside this card's scope (`../review/SKILL.md` Step 3, 範圍內／範圍外) is not a branch and goes in no bucket. Open a card for it with `opsx new`, with the same flags as `../apply/SKILL.md` skeleton row 6; then, only when the printed slug is a fresh card, run `opsx note <slug> --repo <top> -- "做到 propose 完成就停（留在待指派），不要 apply"` (skip `opsx note` when it merged). Whether to handle it here or open another card is never asked: 「另開卡」 is never a gate option. 範圍內的產品取捨, whether or how to change something inside this card's scope, is still bucket 3.
+
 ## How to ask
 
 - Use the **AskUserQuestion** tool for every question. Never ask in plain prose. The popup is what lets the user answer in one click or type their own.

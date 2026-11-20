@@ -59,7 +59,7 @@ has '待修（範圍內）' "$OPSX_ROOT/skills/pr/SKILL.md"
 has '/opsx-workflow:apply <slug>' "$OPSX_ROOT/skills/pr/SKILL.md"
 
 # --- 範圍外開卡一律走 opsx new，帶 --type 與 path:line，slug 可能是既有的卡（specs/card-auto-merge「apply 的範圍外開卡」）---
-grep -F "A problem outside this task's scope" "$SK" > "$FX/row6"
+grep -F "A problem outside this card's scope" "$SK" > "$FX/row6"
 [ "$(wc -l < "$FX/row6" | tr -d ' ')" = 1 ] || fail "skeleton 第 6 列要剛好一行"
 for k in 'opsx new' '--kind-of-work' '--type' 'path:line' 'existing card' 'never dispatch'; do has "$k" "$FX/row6"; done
 for k in 'openspec new change' '--area' 'areas.txt'; do ! grep -qF -- "$k" "$FX/row6" || fail "第 6 列不能再提 $k"; done

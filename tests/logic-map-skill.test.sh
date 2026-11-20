@@ -233,7 +233,7 @@ assert_fixed 'product decision' "$FX/rule3"
 assert_fixed '2 to 4 options' "$FX/rule3"
 assert_fixed 'You never decide for the user. Do not mark any option as settled.' "$FX/rule3"
 # 第 3 部分依分類回答：沒經過決定與未分類當產品決定，bug 說違反哪個 design Dn，照 design D 的不列
-assert_fixed '`沒經過決定` item, and every item of a map marked 沒有 design.md，未分類' "$FX/rule3"
+assert_fixed '`沒經過決定` item, and every other item of a map marked 沒有 design.md，未分類' "$FX/rule3"
 assert_fixed 'For a `bug：違反 design Dn` item, say which design Dn it contradicts' "$FX/rule3"
 assert_fixed 'Do not list what the map records under 照 design D' "$FX/rule3"
 assert_fixed 'path:line' "$FX/rule4"
