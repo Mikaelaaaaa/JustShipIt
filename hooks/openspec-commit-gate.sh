@@ -18,10 +18,11 @@ alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+alias\\."
 # 在 git 設定寫入別名（git config alias.ci …）：別名的值可以用 bash 與 git 的引號、跳脫寫成 commit（com\mit、'c""ommit'、!f() { git commit; }），
 # 之後用別名 commit 時骨架裡沒有 commit，閘門看不到，所以任何別名的寫入在設定當下就擋（--get、--unset、--list 這類讀取與刪除不擋）。
 # 看骨架：commit 訊息之類引號裡只是提到這串字，不是在命令位置，不算
-persist_re='(^|[[:space:];&|(])(/[^[:space:];&|()`$]*/)?git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
+persist_re='(^|[[:space:];&|(])(\\|/[^[:space:];&|()`$]*/)?git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
 readonly_re='(^|[[:space:]])--(get|get-all|get-regexp|unset|unset-all|list)([[:space:]]|$)'
 # --config-env 與 GIT_CONFIG_* 賦值也能寫入別名；值在環境變數裡讀不出來，出現就當別名寫入（寧可誤擋）
-env_alias_re='(^|[[:space:]])(--config-env([[:space:]=]|$)|GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)=)'
+env_alias_re="(${git_word}([[:space:]]+[^;&|]*)?[[:space:]]--config-env([[:space:]=]|\$))"
+env_alias_re+=$'|((^|[;&|({]|\n)[[:space:]]*((export|env|declare[[:space:]]+-x)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+)*GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)=)'
 is_alias=0
 # 唯讀旗標只看 config 與 alias. 之間那一段（BASH_REMATCH[4]）；alias.<名> 後面沒有值就只是讀
 if [[ "$sk" =~ $persist_re ]]; then
@@ -55,8 +56,8 @@ before=" ${sk%%"$m0"*}"
 # 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過，目錄在第 8 組
 # ( 不算命令開頭：子程序裡的 cd 不改外層目錄，由 sub_cd 擋
 dtok='(\\.|[^[:space:];&|)\\])+'
-asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+'
-cd_re="(^|[;&|{]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?[[:space:]]*([;&|)]|\$)"
+asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|command[[:space:]]+|builtin[[:space:]]+'
+cd_re="(^|[;&|{]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?([[:space:];&|)]|\$)"
 cd_dirs=()
 rest_cd="$before"
 while [[ "$rest_cd" =~ $cd_re ]]; do
@@ -71,12 +72,18 @@ done
 env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
 bad_env=''
 [[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
-# 子程序（( )、$( )、反引號、bash -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來；看 commit 前面的原文
+# 子程序（( )、$( )、反引號、bash -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來；看骨架 commit 前面那段（commit 訊息的文字骨架已拿掉）
 sub_re='(\(|`|bash[[:space:]]+-c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
-raw_before="${cmd%commit*}"
 sub_cd=0
-[[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
+[[ "$before" =~ $sub_re && "$before" =~ $cd_word_re ]] && sub_cd=1
+# 管線裡與背景（單一 &）的 cd 在子程序執行，不改後面 commit 的目錄；先把 2>&1 的 & 去掉
+pipe_cd_re='(^|[^|])\|[[:space:]]*(cd|pushd)([[:space:]]|$)'
+bg_cd_re='(^|[;&|{]|'$'\n'')[[:space:]]*(cd|pushd)[[:space:]][^;&|]*(\|([^|]|$)|&([^&>]|$))'
+before_s="${before//>&/>}"
+if [[ "$before_s" =~ $pipe_cd_re || "$before_s" =~ $bg_cd_re ]]; then
+  bad_dirs="$bad_dirs 'cd'（在管線或背景裡執行，不改後面 commit 的目錄）"
+fi
 # 兩個以上 commit 只判得了第一個
 commit_n=0
 rest_n="$sk"

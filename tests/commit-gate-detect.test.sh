@@ -128,11 +128,34 @@ for c in "cd $R && (cd $N) && git commit -m x" "echo \$(cd /tmp) && git commit -
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "子程序裡的 cd 要擋：${c}｜$(reason "$out")"
   reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
 done
+out="$(cgin "$N" "cd $R && (cd $N) && git commit -m x")"; assert_eq "$(decision "$out")" deny "session 在 N：外層 cd 到 R，括號裡的 cd 不算: $(reason "$out")"
+reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
+# 從卡的 worktree 跑：沒有這條規則就會 allow，所以刪掉 env_re 會變紅
 for c in "GIT_DIR=$R/.git git commit -m x" "export GIT_WORK_TREE=$R; git commit -m x" "env GIT_COMMON_DIR=$R/.git git commit -m x" "declare -x GIT_DIR=$R/.git; git commit -m x"; do
-  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "git 目錄環境變數要擋：${c}｜$(reason "$out")"
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "git 目錄環境變數要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -Eq 'GIT_(DIR|WORK_TREE|COMMON_DIR)' || fail "deny 要點名變數: $(reason "$out")"
 done
 out="$(cgin "$N" 'git commit -m x')"; [ "$(decision "$out")" != deny ] || fail "沒有子程序照常判: $(reason "$out")"
-out="$(cgin "$N" "(cd $N && git status)")"; [ "$(decision "$out")" != deny ] || fail "git status 不是 commit，不擋: $(reason "$out")"
+out="$(cgin "$FX/wt" "git log --format='%h (%s)' -1 && git commit -m x")"; assert_eq "$(decision "$out")" allow "有括號沒有 cd 照常判: $(reason "$out")"
+# review R1.1：cd 後面接重導向、前綴關鍵字、管線或背景時，作用目錄照樣讀得出來或擋下
+for c in "cd $R 2>/dev/null && git commit -m x" "cd $R > /dev/null; git commit -m x" "command cd $R && git commit -m x" "if true; then cd $R; git commit -m x; fi" "builtin cd $R && git commit -m x"; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "cd 到 main 的寫法不能放行：${c}｜$(reason "$out")"
+done
+for c in "cd $FX/wt & git commit -m x" "cd $FX/wt | git commit -m x" "echo a | cd $FX/wt && git commit -m x"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "背景或管線裡的 cd 不改目前目錄：${c}｜$(reason "$out")"
+done
+for c in "cd $FX/wt 2>/dev/null && git commit -m x" "cd $FX/wt 2>&1 && git commit -m x" "cd $FX/wt > /dev/null; git commit -m x"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "有重導向的 cd 照後面的目錄判：${c}｜$(reason "$out")"
+done
+# review R1.2：commit 訊息裡的括號、cd、commit 字樣不是子程序
+for c in "cd $FX/wt && git commit -m \"fix(scope): x\"" 'git commit -m "feat(gate): cd into repo before commit"' $'git commit -m "$(cat <<\'EOF\'\nfix: cd (x) before commit\nEOF\n)"'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "訊息文字不算子程序：${c}｜$(reason "$out")"
+done
+# review R1.3：只是搜尋這些字串不是寫別名；\git 的寫法照擋
+for c in 'grep -rn GIT_CONFIG_COUNT= hooks' 'echo --config-env'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "沒有 git 的指令不算別名寫入：${c}｜$(reason "$out")"
+done
+out="$(cgin "$R" '\git config alias.ci commit')"; assert_eq "$(decision "$out")" deny "\\git 寫別名要擋: $(reason "$out")"
 out="$(cgin "$N" "(cd $N) && git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "作用的 repo 沒有 workplan，不擋: $(reason "$out")"
 out="$(cgin "$N" "GIT_DIR=$N/.git git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 時 GIT_DIR 不擋: $(reason "$out")"
 git -C "$R" worktree remove --force "$FX/wt"
