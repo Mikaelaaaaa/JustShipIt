@@ -21,8 +21,13 @@ alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+alias\\."
 persist_re='(^|[[:space:];&|(])(\\|/[^[:space:];&|()`$]*/)?git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
 readonly_re='(^|[[:space:]])--(get|get-all|get-regexp|unset|unset-all|list)([[:space:]]|$)'
 # --config-env 與 GIT_CONFIG_* 賦值也能寫入別名；值在環境變數裡讀不出來，出現就當別名寫入（寧可誤擋）
+# 賦值只在命令位置算：export 這類設定指令不用管後面有沒有 git，前綴賦值與 env 要在同一個指令裡接著 git
+cfg_re='GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)='
+nv_re='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+'
+pre_re="(^|[;&|({]|"$'\n'")[[:space:]]*((then|do|else|elif|if|while|until|time|command|builtin|!)[[:space:]]+)*"
 env_alias_re="(${git_word}([[:space:]]+[^;&|]*)?[[:space:]]--config-env([[:space:]=]|\$))"
-env_alias_re+=$'|((^|[;&|({]|\n)[[:space:]]*((export|env|declare[[:space:]]+-x)[[:space:]]+|[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+)*GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)=)'
+env_alias_re+="|(${pre_re}(export|declare|typeset|readonly|local)[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*(${nv_re})*${cfg_re})"
+env_alias_re+="|(${pre_re}(env[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*)?(${nv_re})*${cfg_re}[^;&|]*${git_word})"
 is_alias=0
 # 唯讀旗標只看 config 與 alias. 之間那一段（BASH_REMATCH[4]）；alias.<名> 後面沒有值就只是讀
 if [[ "$sk" =~ $persist_re ]]; then
@@ -55,9 +60,9 @@ before=" ${sk%%"$m0"*}"
 # commit 前面的 cd 與 pushd 照順序疊起來（cd a && cd b 的 b 是相對 a）
 # 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過，目錄在第 8 組
 # ( 不算命令開頭：子程序裡的 cd 不改外層目錄，由 sub_cd 擋
-dtok='(\\.|[^[:space:];&|)\\])+'
+dtok='(\\.|[^[:space:];&|)<>\\])+'
 asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|command[[:space:]]+|builtin[[:space:]]+'
-cd_re="(^|[;&|{]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?([[:space:];&|)]|\$)"
+cd_re="(^|[;&|{)]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?([[:space:];&|)<>]|\$)"
 cd_dirs=()
 rest_cd="$before"
 while [[ "$rest_cd" =~ $cd_re ]]; do
@@ -72,11 +77,15 @@ done
 env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
 bad_env=''
 [[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
-# 子程序（( )、$( )、反引號、bash -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來；看骨架 commit 前面那段（commit 訊息的文字骨架已拿掉）
-sub_re='(\(|`|bash[[:space:]]+-c|eval[[:space:]])'
+# 子程序（( )、$( )、反引號、sh -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來（雙引號裡的 $( ) 沒有括號，sh -c 的內容被攤平成外層的 cd），
+# 所以看原文第一個 commit 之前那段；commit 訊息在 commit 之後，不受影響
+sub_re='(\(|`|(^|[^[:alnum:]_])(ba|z|k|da)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]+-[[:alnum:]]*c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
+raw_m=''
+[[ "$cmd" =~ $commit_re ]] && raw_m="${BASH_REMATCH[0]}"
+raw_before="${cmd%%"$raw_m"*}"
 sub_cd=0
-[[ "$before" =~ $sub_re && "$before" =~ $cd_word_re ]] && sub_cd=1
+[[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
 # 管線裡與背景（單一 &）的 cd 在子程序執行，不改後面 commit 的目錄；先把 2>&1 的 & 去掉
 pipe_cd_re='(^|[^|])\|[[:space:]]*(cd|pushd)([[:space:]]|$)'
 bg_cd_re='(^|[;&|{]|'$'\n'')[[:space:]]*(cd|pushd)[[:space:]][^;&|]*(\|([^|]|$)|&([^&>]|$))'
@@ -136,10 +145,13 @@ if [ -z "$bad_dirs" ]; then
 fi
 
 top="$(repo_top)"
-# 子程序裡的 cd 會被骨架算進作用目錄（bash -c "cd /tmp"），所以 session 所在的 repo 也要看：有 workplan 就擋
-if [ "$sub_cd" = 1 ]; then
+# 子程序裡的 cd 會被骨架算進作用目錄（sh -c "cd /tmp"），第二個 commit 的目標也沒人算，
+# 所以第一個目標之外，session 所在的 repo 也要看：有 workplan 就擋
+if [ "$sub_cd" = 1 ] || [ "$commit_n" -ge 2 ]; then
   for t in "$top" "$(OPSX_CWD= repo_top)"; do
-    [ -n "$t" ] && [ -f "$t/openspec/workplan.yaml" ] && deny "opsx commit 閘門：commit 前面的子程序（( )、\$( )、反引號、bash -c、eval）裡有 cd，外層的作用目錄讀不出來。改成 cd /abs/path && git commit 或 git -C /abs/path commit。"
+    [ -n "$t" ] && [ -f "$t/openspec/workplan.yaml" ] || continue
+    [ "$sub_cd" = 1 ] && deny "opsx commit 閘門：commit 前面的子程序（( )、\$( )、反引號、sh -c、eval）裡有 cd，外層的作用目錄讀不出來。改成 cd /abs/path && git commit 或 git -C /abs/path commit。"
+    deny "opsx commit 閘門：一個指令裡有 ${commit_n} 個 git commit，閘門只判得了第一個。分成兩個 Bash 呼叫，一個呼叫一個 commit。"
   done
 fi
 [ -n "$top" ] || exit 0
@@ -153,10 +165,6 @@ fi
 
 if [ -n "$bad_env" ]; then
   deny "opsx commit 閘門：指令在 commit 前面設了 ${bad_env}，commit 實際作用的 repo 讀不出來。拿掉 ${bad_env}，改用 cd /abs/path && git commit、git -C /abs/path commit，或 git --git-dir=<repo>/.git commit。"
-fi
-
-if [ "$commit_n" -ge 2 ]; then
-  deny "opsx commit 閘門：一個指令裡有 ${commit_n} 個 git commit，閘門只判得了第一個。分成兩個 Bash 呼叫，一個呼叫一個 commit。"
 fi
 
 if [ -n "$bad_dirs" ]; then
