@@ -82,6 +82,10 @@ st_mr_url() {
   return 0
 }
 st_mr_in_report() { [ -n "$(st_mr_url "$1")" ]; }
+st_ruling_pending() { [ -f "$1/inbox.md" ] && grep -q '^## 裁示修正（待處理）' "$1/inbox.md"; }
+st_ruling_tasks_open() { # tasks.md 的「## 裁示修正」段裡還有沒勾的 task
+  [ -f "$1/tasks.md" ] && awk '/^## /{in_r = ($0 ~ /^## 裁示修正/)} in_r && /^- \[ \]/{found=1} END{exit !found}' "$1/tasks.md"
+}
 # 一張卡的 open gate 數：主殼加每個子殼（subs/<子>/gates.md，apply 把 NEEDS-USER 寫在那）
 st_open_gates() {
   local f n=0
@@ -211,6 +215,11 @@ stage_of() { # <top> <slug>
   split="$(st_split_into "$d")"
   if [ -n "$split" ]; then printf 'split · %s · %s · 已拆成 %s，這張不再往下做\n' "$slug" "$kind" "$split"; return; fi
   if st_workplan_merged "$top" "$slug"; then printf 'archive · %s · %s · skills/archive/SKILL.md\n' "$slug" "$kind"; return; fi
+  # 使用者對邏輯表 ⚠ 裁示「修」、而且在本卡範圍內：同一張卡加 task，不另開卡。協調者把裁示寫成 inbox 的
+  # 「## 裁示修正（待處理）」段；propose 排進 tasks.md 的「## 裁示修正」段後把標題改成（已排入 tasks）。
+  # 跳過 grill：裁示本身就是 grill 的結果。這兩條排在 report.md 之前，MR 已開的卡也照這裡走。
+  if st_ruling_pending "$d"; then printf 'propose · %s · %s · skills/propose/SKILL.md（裁示修正：explore 只看爆炸半徑，跳過 grill；tasks 寫進 ## 裁示修正 段後把 inbox 的標題改成（已排入 tasks））\n' "$slug" "$kind"; return; fi
+  if st_ruling_tasks_open "$d"; then printf 'apply · %s · %s · %s（裁示修正的 task 還沒做完）\n' "$slug" "$kind" "$reads"; return; fi
   if [ -f "$d/report.md" ]; then
     if st_mr_in_report "$d"; then printf 'babysit · %s · %s · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）\n' "$slug" "$kind"
     elif [ -f "$d/tasks.md" ] && [ "$(st_tasks_open "$d")" -gt 0 ]; then printf 'apply · %s · %s · %s（review 退回了 task，先做完）\n' "$slug" "$kind" "$reads"

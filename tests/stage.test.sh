@@ -42,6 +42,9 @@ card pr-notasks dev; printf '# report\n' > "$C/pr-notasks/report.md"
 card apply-back dev; tasks_open apply-back; printf '# report\n' > "$C/apply-back/report.md"
 card babysit-gl dev; tasks_open babysit-gl; printf '# report\n\nMR: https://gitlab.example.com/g/p/-/merge_requests/42 (draft)\n' > "$C/babysit-gl/report.md"
 card babysit-gh chore; printf 'see (https://github.com/o/r/pull/7) and https://github.com/o/r/pull/8\nhttps://github.com/o/r/pull/9\n' > "$C/babysit-gh/report.md"
+card ruling-pending dev; tasks_open ruling-pending; printf '# report\n\nMR: https://gitlab.example.com/g/p/-/merge_requests/43\n' > "$C/ruling-pending/report.md"; printf '\n## 裁示修正（待處理）\n- 1 修\n' >> "$C/ruling-pending/inbox.md"
+card ruling-tasks dev; printf '## 1\n- [x] 1.1 a\n\n## 裁示修正\n- [ ] R.1 b\n' > "$C/ruling-tasks/tasks.md"; printf '# report\n\nMR: https://gitlab.example.com/g/p/-/merge_requests/44\n' > "$C/ruling-tasks/report.md"
+card ruling-done dev; printf '## 1\n- [x] 1.1 a\n\n## 裁示修正\n- [x] R.1 b\n' > "$C/ruling-done/tasks.md"; printf '# report\n\nMR: https://gitlab.example.com/g/p/-/merge_requests/45\n' > "$C/ruling-done/report.md"; printf '\n## 裁示修正（已排入 tasks）\n' >> "$C/ruling-done/inbox.md"
 card archive-pr dev; tasks_open archive-pr
 card archive-child dev
 card notmerged dev; tasks_open notmerged
@@ -122,6 +125,9 @@ pr-notasks|pr · pr-notasks · dev · skills/pr/SKILL.md · skills/pr/references
 apply-back|apply · apply-back · dev · skills/apply/SKILL.md · skills/apply/references/playbooks/dev.md · skills/tdd/SKILL.md（review 退回了 task，先做完）
 babysit-gl|babysit · babysit-gl · dev · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）
 babysit-gh|babysit · babysit-gh · chore · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）
+ruling-pending|propose · ruling-pending · dev · skills/propose/SKILL.md（裁示修正：explore 只看爆炸半徑，跳過 grill；tasks 寫進 ## 裁示修正 段後把 inbox 的標題改成（已排入 tasks））
+ruling-tasks|apply · ruling-tasks · dev · skills/apply/SKILL.md · skills/apply/references/playbooks/dev.md · skills/tdd/SKILL.md（裁示修正的 task 還沒做完）
+ruling-done|babysit · ruling-done · dev · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）
 archive-pr|archive · archive-pr · dev · skills/archive/SKILL.md
 archive-child|archive · archive-child · dev · skills/archive/SKILL.md
 notmerged|apply · notmerged · dev · skills/apply/SKILL.md · skills/apply/references/playbooks/dev.md · skills/tdd/SKILL.md
