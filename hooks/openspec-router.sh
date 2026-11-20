@@ -67,7 +67,7 @@ fi
 
 if [ -n "$card" ]; then stage="$(card_stage)"
 else
-  stage="$(active_changes "$top" | awk 'END { printf "explore · 沒有對到卡 · 進行中 %d 張 · 新工作先建殼 · skills/explore/SKILL.md", NR }')"
+  stage="$(active_changes "$top" | awk 'END { printf "explore · 沒有對到卡 · 未封存 %d 張 · 新工作先建殼 · skills/explore/SKILL.md", NR }')"
 fi
 case " $lower " in *" tdd "*|*"/tdd"*|*"tdd "*)
   ctx "$ev" "opsx：tdd · ${slug:-?} · 只做 apply 骨架 3b（照 tasks.md 的 驗收 / 測試 兩行寫測試含邊界，跑一次確認紅，不單獨 commit，測試留在工作區，之後跟實作同進該 change 的一個 commit），寫完停，不實作 · Read skills/apply/SKILL.md · skills/tdd/SKILL.md$rule"; exit 0 ;;
