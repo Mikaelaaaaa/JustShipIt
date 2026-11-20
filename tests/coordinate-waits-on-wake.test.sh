@@ -111,6 +111,21 @@ cards '[{"slug":"card-a","section":"進行中","open_gates":[{"id":"g9","opened_
 round || fail "rc: $(cat "$FX/out")"
 woken "parked 的卡在進行中"
 
+# collect 把只等別張卡的 parked 卡分在等待中：等的那張合併，照樣通知人回 gate
+wp merged merged; parked ',"waits_on":"x-pr"'
+cards '[{"slug":"card-a","section":"等待中","hold":"等 x-pr 合併","open_gates":[{"id":"g9","opened_at":null}],"waiting":{"type":"等待決定","waits_on":"x-pr","gate_id":"g9","question":"等 x-pr","recommended":null,"options":["等"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+woken "parked 的卡在等待中"
+
+# report 待你決定不是 gate：不停 pane、不發 gate 通知（Stop hook 停下時已推過）
+wp pending pending; rm -f "$MEMO"; printf '{}' > "$DISP"
+cards '[{"slug":"card-a","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"report 待你決定","waits_on":null,"gate_id":null,"needs":null,"action":null,"question":"report.md 有留給人決定的項目","recommended":null,"options":["開啟 pane"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx (stop|answer|dispatch)')" 0 "report 待你決定不停 pane、不答、不派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count 'gate None')" 0 "不當成 gate 通知：$(cat "$OPSX_FAKE_LOG")"
+grep -q "card-a.*gate" "$LOG" && fail "不走 handle_gate：$(cat "$LOG")"
+printf '{"demo/card-a":{"mode":"stopped","agent":"claude","pane":"w1:p9","drive_pid":null}}' > "$DISP"
+
 # 沒有 parked 記錄的進行中卡不派
 wp merged merged; rm -f "$MEMO"
 cards '[{"slug":"card-a","section":"進行中"}]'

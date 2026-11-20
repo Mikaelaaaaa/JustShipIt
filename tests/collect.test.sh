@@ -71,7 +71,7 @@ D=$(mkcard b y1); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 # x8：explore 過（有 explore.md）沒派出 → 待指派；x9：上游已關閉、註解已刪，仍在收件匣
 D=$(mkcard a x8); printf '## 已知\n\n## 待決\n\n## 不做\n' > "$D/explore.md"
 D=$(mkcard a x9 "關掉的"); printf -- '---\ntype: 功能\nsource: gitlab:a#412\nfound: 2026-11-04\nupstream: closed\nstale: true\n---\n\n## 一句話\n\n關掉的\n' > "$D/inbox.md"
-# y3：只有 inbox，但已派出 → 進行中
+# y3：只有 inbox，但已派出 → 待指派（還沒到 apply）
 mkcard b y3 >/dev/null
 # y2：MR pipeline 紅、已派出
 D=$(mkcard b y2); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
@@ -123,13 +123,13 @@ assert_eq "$(q "$C" source)" me; assert_eq "$(q "$C" upstream)" null; assert_eq 
 assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" dispatch)" null; assert_eq "$(q "$C" agent_status)" null; assert_eq "$(q "$C" kind)" dev
 C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" grill; assert_eq "$(q "$C" section)" 待指派
 C="$(card "$J" a x9)"; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" upstream)" closed; assert_eq "$(q "$C" stale)" true; assert_eq "$(q "$C" source)" "gitlab:a#412"
-C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 進行中
-# 排序：待處理 · 進行中 · 待指派 · 收件匣 · 已完成
+C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 待指派
+# 排序：待處理 · 進行中 · 等待中 · 待指派 · 收件匣 · 已完成
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys
 s=[]
 for c in json.load(sys.stdin)["cards"]:
     s.append(c["section"]) if not s or s[-1]!=c["section"] else None
-print(" ".join(s))')" "待處理 進行中 待指派 收件匣 已完成"
+print(" ".join(s))')" "待處理 進行中 等待中 待指派 收件匣 已完成"
 C="$(card "$J" a x5)"; assert_eq "$(q "$C" stage)" archive; assert_eq "$(q "$C" section)" 已完成
 
 # 等待授權
@@ -152,8 +152,8 @@ assert_eq "$(q "$C" agent_status)" working; assert_eq "$(q "$C" status.phase)" p
 # 最後輸出不在卡上：抽屜向 /api/output 取，collect 的卡沒有 last_output 鍵
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(sorted(c["slug"] for c in json.load(sys.stdin)["cards"] if "last_output" in c))')" "[]"
 
-# 少一個條件 → 進行中
-C="$(card "$J" b y2)"; assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" section)" 進行中
+# 少一個條件 → 不進待處理；pipeline 已經失敗、pane 沒在工作，等協調者
+C="$(card "$J" b y2)"; assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" section)" 等待中; assert_eq "$(q "$C" hold)" 等協調者
 assert_eq "$(q "$C" mr.conditions.pipeline)" false; assert_eq "$(q "$C" mr.blocked_on)" pipeline; assert_eq "$(q "$C" agent_status)" unknown
 
 # 終端機等待輸入
@@ -709,13 +709,13 @@ assert_eq "$(printf '%s' "$F" | python3 -I -c 'import json,sys;print([s["slug"] 
 assert_eq "$(printf '%s\n%s' "$F" "$(card "$J" s bt)" | python3 -I -c 'import json,sys
 m,c=[json.loads(l) for l in sys.stdin.read().split("\n")]; m=m["mains"][1]
 ks=["stage","section","dispatch","agent_status","open_gates","waiting"]
-print([k for k in ks if m[k]!=c[k]], m["slug"], m["pr_status"], m["stage"], m["section"], m["dispatch"]["pane"])')" "[] bt in-progress review 進行中 p-bt"
+print([k for k in ks if m[k]!=c[k]], m["slug"], m["pr_status"], m["stage"], m["section"], m["dispatch"]["pane"])')" "[] bt in-progress review 等待中 p-bt"
 assert_eq "$(q "$F" mains.1.subs.1.open_gates)" '[{"id": "g1", "opened_at": null}]'
 assert_eq "$(q "$F" mains.1.subs.1.waiting.type) $(q "$F" mains.1.subs.1.waiting.recommended) $(q "$F" mains.1.subs.1.stage)" "等待決定 B inbox"
 assert_eq "$(q "$F" mains.1.subs.0.stage) $(q "$F" mains.1.subs.0.worker) $(q "$F" mains.1.subs.0.status)" "apply null in-progress"
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(sum(1 for e in json.load(sys.stdin)["errors"] if e["source"].endswith("/subs/ct/status.json")))')" 2 "status.json 不是 object 記 errors（bt/ct 在 fb 與 fdup 各讀一次），站點改由檔推"
 assert_eq "$(q "$F" mains.1.subs.2.stage) $(q "$F" mains.1.subs.2.worker)" "apply subagent-2"
-# 1.3 一行：計數、目前站、section（子 change 的 gate 讓 session 進待處理，主 change 卡本身是進行中）
+# 1.3 一行：計數、目前站、section（子 change 的 gate 讓 session 進待處理，主 change 卡本身是等待中）
 assert_eq "$(q "$F" main_done)/$(q "$F" main_total) $(q "$F" sub_done)/$(q "$F" sub_total)" "1/2 5/7"
 assert_eq "$(q "$F" current)" '{"slug": "bt", "stage": "review"}'
 assert_eq "$(q "$F" section)" 待處理
@@ -773,9 +773,9 @@ J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --stat
 mwait() { q "$(card "$J" m "$1")" "$2"; }
 # 三個條件都成立
 assert_eq "$(mwait ok waiting.type) $(mwait ok section)" "可以合併 待處理"
-# 少一個條件：waiting null、進行中
+# 少一個條件：waiting null、不進待處理（working 是進行中，閒著的是等待中）
 assert_eq "$(mwait working waiting) $(mwait stale waiting) $(mwait failed waiting) $(mwait nosec waiting) $(mwait short waiting)" "null null null null null"
-assert_eq "$(mwait working section) $(mwait stale section) $(mwait failed section) $(mwait nosec section) $(mwait short section)" "進行中 進行中 進行中 進行中 進行中"
+assert_eq "$(mwait working section) $(mwait stale section) $(mwait failed section) $(mwait nosec section) $(mwait short section)" "進行中 等待中 等待中 等待中 等待中"
 # herdr 讀不到、agent 不在、done：不擋
 assert_eq "$(mwait unknown agent_status) $(mwait nodisp agent_status) $(mwait done agent_status)" "unknown null done" "fixture 真的是三種狀態"
 assert_eq "$(mwait unknown waiting.type) $(mwait nodisp waiting.type) $(mwait done waiting.type)" "可以合併 可以合併 可以合併"
@@ -784,8 +784,9 @@ assert_eq "$(mwait ok agent_status) $(mwait ok waiting.type)" "null 可以合併
 J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"
 # 有 open gate：waiting 是那個 gate
 assert_eq "$(mwait gate waiting.type) $(mwait gate waiting.gate_id)" "等待決定 logic-map-undecided-r4"
-# 邏輯表檔不在、review 留給人決定的項沒處理：不是可以合併；開卡或接受過的算處理了
-assert_eq "$(mwait nomap waiting) $(mwait consider waiting) $(mwait pending waiting)" "null null null"
+# 邏輯表檔不在、review 留給人決定的項沒處理：不是可以合併，後者是 report 待你決定；開卡或接受過的算處理了
+assert_eq "$(mwait nomap waiting)" "null"
+assert_eq "$(mwait consider waiting.type) $(mwait pending waiting.type)" "report 待你決定 report 待你決定"
 assert_eq "$(mwait carded waiting.type) $(mwait accepted waiting.type)" "可以合併 可以合併"
 # R1：pane blocked 是終端機等待輸入；子殼 open gate 擋；描述含「接受」不算處理過；縮排子項目跟著上一項；9 碼 sha 照認
 assert_eq "$(mwait blocked waiting.type)" "終端機等待輸入" "blocked 不標可以合併"
@@ -793,7 +794,7 @@ assert_eq "$(mwait blocked waiting.type)" "終端機等待輸入" "blocked 不�
 printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"unknown"}],"type":"agent_list"}}' > "$FX/agents-m-unknown.json"
 JU="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m-unknown.json" opsx collect --root "$RM" --state "$SM")"
 assert_eq "$(q "$JU" unmatched_agents)" '[]' "對到 pane、狀態 unknown 不算沒對到卡"
-assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting)" "null null"
+assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting.type)" "null report 待你決定"
 # 子殼的 blocks-from: apply gate 在子殼沒有 tasks.md 時不算等人，跟 opsx merge 的 st_open_gates 一致（D16）
 assert_eq "$(mwait subdeps waiting.type)" "可以合併" "子殼 blocks-from: apply 的 gate 不擋"
 assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以合併 可以合併"

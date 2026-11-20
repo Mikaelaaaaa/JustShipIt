@@ -966,7 +966,7 @@ class Round:
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
-                if c["section"] not in ("待指派", "待處理", "進行中"):
+                if c["section"] not in ("待指派", "待處理", "進行中", "等待中"):
                     continue
                 if not parked.get("answered"):
                     newly = self.woken_by(key, parked, top)
@@ -1527,7 +1527,8 @@ def one_round(state, dry):
         w = c["waiting"]
         if not w:
             r.forget_waiting(c, live)
-        if c["dispatch"] and w and w["type"] != "可以合併" and not paused:
+        # 可以合併、report 待你決定都不是 gate；後者 Stop hook 停下時已推過
+        if c["dispatch"] and w and w["type"] not in ("可以合併", "report 待你決定") and not paused:
             try:
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:

@@ -323,7 +323,7 @@ const PHASE_LABEL={explore:'explore',grill:'grill',propose:'propose',apply:'appl
 const MODEL_BY_KIND={dev:'claude-opus-5-5',refactoring:'claude-opus-5-5',perf:'claude-opus-5-5',experiment:'claude-opus-5-5','bug-fix':'claude-sonnet-5-5',chore:'claude-sonnet-5-5',ops:'claude-sonnet-5-5'};
 const GRANT_LABEL={push:'push',mr:'建立 MR',migrate:'本機 migrate',delete:'刪檔',install:'裝套件',rebase:'rebase',external:'外部 API',env:'寫 .env'};
 const GRANT_OF={'這次':'this','這張卡':'card','這個 repo 永遠':'repo'};
-const WAIT_BADGE={'等待授權':'data','等待決定':'data','type 不明':'danger','可以合併':'ok','終端機等待輸入':'danger'};
+const WAIT_BADGE={'等待授權':'data','等待決定':'data','type 不明':'danger','可以合併':'ok','終端機等待輸入':'danger','report 待你決定':'data'};
 const COND=[['opened','MR 開著'],['not_draft','不是草稿'],['no_conflicts','沒有衝突'],['pipeline','Pipeline 通過'],['threads','沒有未解的討論']];
 
 const $=(s,el=document)=>el.querySelector(s);
@@ -511,7 +511,7 @@ function rowRunning(c){
   const badge=st==='working'?'<span class="badge ok"><span class="dot live"></span>執行中</span>':st==='done'?'<span class="badge line">完成</span>':st==='idle'?'<span class="badge line">閒置</span>':st==null?`<span class="badge line" title="${esc(herdrWhy(data.errors))}">herdr —</span>`:`<span class="badge line">${esc(st)}</span>`;
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar">${bot(c,30)}</div>
-    <div class="main"><div class="l1">${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.dispatch.agent||'')} · ${esc(since(c))}</span></div><div class="l2">${prog}${mrNote}${stoppedNote(c)}</div></div>
+    <div class="main"><div class="l1">${holdBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · ${esc(c.dispatch?.agent||'')} · ${esc(since(c))}</span></div><div class="l2">${prog}${mrNote}${stoppedNote(c)}</div></div>
     <div class="act">${badge}</div></div>`;
 }
 /* 停住（collect 的 stopped，Stop hook 最後一次放行的原因）：tests/board-stop-reason-web.test.sh 從 start 切到 end 執行 */
@@ -532,10 +532,15 @@ function stoppedAt(at){
   return s.slice(0,10)===today?s.slice(11,16):`${s.slice(5,7)}/${s.slice(8,10)} ${s.slice(11,16)}`;
 }
 /* 停住 end */
+/* 等待中面板的 hold 標籤、待指派列的 pane 站：tests/board-waiting-column.test.sh 從 start 切到 end 執行 */
+/* 等待中 start */
+function holdBadge(c){return c.hold?`<span class="badge line">${esc(c.hold)}</span>`:'';}
+function paneStage(c){return c.dispatch?` · pane 在 ${esc(c.stage)}`:'';}
+/* 等待中 end */
 function rowReady(c){
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar plain">${c.stage==='apply'?'RDY':'NEW'}</div>
-    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · 階段 ${esc(c.stage)} · ${esc(since(c))}</span></div>${stoppedLine(c)}</div>
+    <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · 階段 ${esc(c.stage)}${paneStage(c)} · ${esc(since(c))}</span></div>${stoppedLine(c)}</div>
     <div class="act"><button class="primary sm" data-act="dispatch">指派</button></div></div>`;
 }
 function rowDone(c){
@@ -589,7 +594,7 @@ function renderHome(){
   const cards=data.cards.filter(inScope).map(c=>pendApply(c,key(c),live.pending));
   const H=name=>pc?{sessions:[],cards:progressSect(cards,pc,name)}:homeSect(cards,data.sessions.filter(inScope),name);
   const inb=pc?progressSect(cards,pc,'收件匣'):[];
-  const A=H('待處理'),R=H('進行中'),Y=H('待指派'),D=H('已完成');
+  const A=H('待處理'),R=H('進行中'),W=H('等待中'),Y=H('待指派'),D=H('已完成');
   const n=x=>x.sessions.length+x.cards.length;
   const list=(x,row)=>x.sessions.map(rowSession).join('')+x.cards.map(row).join('');
   const un=ui.scope==='all'&&!pc?data.unmatched_agents.filter(a=>!a.orphan):[];
@@ -598,6 +603,7 @@ function renderHome(){
   const nd=pc==='not_dispatched'?notDispatchedNames(data.progress,scopeRepos()):[];
   let h=renderBanner()+(pc==='not_dispatched'?panel('還沒建殼',nd.length,'workplan 排了、還沒建殼的項目',nd.length?nd.map(x=>`<div class="row"><div class="main"><div class="l1"><span class="title">${esc(x)}</span></div></div></div>`).join(''):'<div class="empty">沒有</div>'):'')+panel('待處理',n(A),'只有你能做的：授權、決定、合併、終端機卡住',n(A)?list(A,rowAttn):'<div class="empty">沒有等你的事</div>');
   h+=panel('進行中',n(R)+un.length+orph.length,'進度 status.json · 狀態 herdr',(list(R,rowRunning)+un.map(rowUnmatched).join('')+(orph.length?rowOrphanSummary(orph.length)+orph.map(rowOrphan).join(''):''))||'<div class="empty">沒有執行中的工作</div>');
+  h+=panel('等待中',n(W),'pane 沒在工作：等 CI、等協調者、等別張卡合併、等背景工作',n(W)?list(W,rowRunning):'<div class="empty">沒有在等的工作</div>');
   h+=panel(ui.scope==='ws'?`待指派 · ${esc(scopeLabel())}`:'待指派',n(Y),'explore 過、還沒派出去的（剛收進來的在收件匣）',(n(Y)?list(Y,rowReady):'<div class="empty">沒有待指派的工作</div>')+(leg.length?`<div class="empty">舊 schema 的 change 不列（沒有 inbox.md、不是 schema: opsx）：${leg.map(([r,n])=>`${esc(r)} ${n}`).join(' · ')}</div>`:''));
   if(inb.length)h+=panel('收件匣',inb.length,'還沒 explore 的卡',inb.map(rowInbox).join(''));
   h+=`<section class="panel"><div class="panel-h"><button class="tg h2" data-act="done-toggle" aria-expanded="${ui.doneOpen}"><span class="chev"></span>已完成</button><span class="n">${n(D)}</span></div>${ui.doneOpen?(n(D)?list(D,rowDone):'<div class="empty">還沒有</div>'):''}</section>`;

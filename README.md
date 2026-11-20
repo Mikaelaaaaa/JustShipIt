@@ -19,7 +19,7 @@ A Claude Code plugin that runs a change from inbox card to pull request, with a 
 - **一條固定流程**：收件 → explore → grill → propose → apply → review → pr → babysit → archive，每一站是一個 skill，產出一份落在 `openspec/changes/<卡>/` 的文件。
 - **先寫測試**：apply 每條 task 先寫測試、看它紅，再寫 code。review 在測試沒綠、task 沒測試時拒絕開始。
 - **大卡自動拆**：太大的卡拆成 session、主 change、子 change，確認一次後照 workplan 自動做，見 [references/work-split.md](references/work-split.md)。
-- **看板**：herdr 裡的網頁與右側 pane，顯示待處理、進行中、待指派、已完成與收件匣，按鈕背後都有對應的 `opsx` 子命令。
+- **看板**：herdr 裡的網頁與右側 pane，顯示待處理、進行中、等待中、待指派、已完成與收件匣，按鈕背後都有對應的 `opsx` 子命令。
 - **授權閘門**：agent 做到需要你決定或授權的事就寫一筆 gate 然後繼續做別的，不在終端機乾等。
 - **背景派工與自動接力**：`opsx dispatch` 開 worktree 與 pane 派給 agent；`opsx coordinate` 定時收尾已合併的卡、重派死掉的卡。
 
