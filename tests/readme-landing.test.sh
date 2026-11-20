@@ -41,7 +41,8 @@ TUI_PNG="docs/assets/opsx-tui-demo.png"
 awk '/^## 示範/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
 
 # --- Requirement：流程段寫出自動開發的角色 ---
-flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f' "$README")"
+# 只看說明文字：流程圖裡的節點名不算寫出角色
+flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
