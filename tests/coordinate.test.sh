@@ -657,7 +657,7 @@ rm -f "$MEMO" "$DISP"
 mkcard u
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"idle"}]'
 round || fail "rc: $(cat "$FX/out")"
-assert_not_grep 'agent prompt' "$OPSX_FAKE_LOG"; assert_eq "$(grep -cEv '^(opsx (collect|reap)|agent read |agent list$)' "$OPSX_FAKE_LOG" || true)" 0 "只有 collect、reap 與唯讀的 agent read、agent list：$(cat "$OPSX_FAKE_LOG")"
+assert_not_grep 'agent prompt' "$OPSX_FAKE_LOG"; assert_eq "$(grep -cEv '^(opsx (collect|reap)|agent read |agent list$|agent get opsx-coordinator$)' "$OPSX_FAKE_LOG" || true)" 0 "只有 collect、reap 與唯讀的 agent read、agent list、agent get：$(cat "$OPSX_FAKE_LOG")"
 
 # --- agent 不見了就重派 ---
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"unknown"}]'
@@ -1564,7 +1564,8 @@ assert_eq "$((n1 + $(notes)))" 1 "兩輪只通知一次：$(cat "$FX/note1")"
 assert_grep '^notification show \[demo/a1\] ' "$FX/note1"
 assert_grep ' --body 看板.*這段怎麼驗 --sound request$' "$FX/note1"
 assert_eq "$(cat "$FX/sends1")" "agent get opsx-coordinator
-notification show [demo/a1]" "協調者不在：agent get 就知道，不打 prompt，直接發桌面通知：$(cat "$FX/sends1")"
+agent get opsx-coordinator
+notification show [demo/a1]" "協調者不在（第一個 get 是每輪開頭記身分那次）：agent get 就知道，不打 prompt，直接發桌面通知：$(cat "$FX/sends1")"
 assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 assert_not_grep '第二行' "$FX/note1"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "_notified 要有 demo/a1/gate/g1：$(cat "$MEMO")"
@@ -1609,6 +1610,25 @@ OPSX_TEST_NOTIFY_ERR="$FX/nerr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "下一輪再送一次"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "成功後要記：$(cat "$MEMO")"
 rm -f "$MEMO"
+
+# --- 每輪記下協調者 session（specs/opsx-lead「coordinate 與 opsx lead 記下協調者 session」） ---
+CJ="$OPSX_STATE_DIR/coordinator.json"; rm -f "$CJ"
+cards "[]"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id + " " + .pane' "$CJ")" "s1 w3:p7" "協調者在要記下 session 與 pane"
+# /clear 換了 session id：下一輪改記新的
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "session id 換了要改記"
+# 內容沒變不重寫
+touch -t 202001010000 "$CJ"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
+[ -z "$(find "$CJ" -newermt 2020-01-02)" ] || fail "內容沒變不重寫"
+# 協調者不在、--dry：不動身分檔
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "協調者不在不動身分檔"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s3 round --dry || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "--dry 不動身分檔"
+rm -f "$CJ"
 
 # --- 協調者在：事件走 agent prompt，不發桌面通知 ---
 cards "$HUMAN"

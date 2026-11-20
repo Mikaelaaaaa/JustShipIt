@@ -1553,7 +1553,7 @@ assert_eq "$(cat "$OPSX_FAKE_LOG")" "$(printf 'agent rename p qc\nagent prompt q
 assert_not_grep '^agent prompt other' "$OPSX_FAKE_LOG"
 cp "$FX/dispatch.qc.bak" "$OPSX_STATE_DIR/dispatch.json"
 # herdr 失敗：停在那一步，佇列留成 .failed，decisions 記一行，additionalContext 說失敗
-mkq; : > "$OPSX_FAKE_LOG"; out="$(OPSX_TEST_RENAME_FAIL=1 post "opsx chain p")"
+mkq; : > "$OPSX_FAKE_LOG"; out="$(OPSX_TEST_RENAME_FAIL=agent_not_found post "opsx chain p")"
 assert_not_grep '^agent prompt' "$OPSX_FAKE_LOG"
 assert_no_file "$QD/Acmecorp-AI-qc.tsv"; assert_file "$QD/Acmecorp-AI-qc.tsv.failed"
 assert_grep 'rename' "$CD/decisions.tsv"; assert_grep 'agent_not_found' "$CD/decisions.tsv"

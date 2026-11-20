@@ -3,7 +3,7 @@
 herdr agent prompt 不看輸入框，直接打字加 enter，使用者打到一半的字會跟事件一起送出。
 bash 的 coordinator_say 走命令列，coordinate 直接 import；兩邊共用這裡的判讀與佇列，才不會判得不一樣。
 執行器由呼叫者傳入：run 給唯讀的 get 與讀畫面，act 給送 prompt（coordinate 的 act 會記 log）。都回 (rc, stdout, stderr)。
-用法：coordq.py say <state dir> <一行> | coordq.py flush <state dir>
+用法：coordq.py say <state dir> <一行> | coordq.py flush <state dir> | coordq.py remember <state dir> < herdr agent get 的輸出
 規則：openspec/specs/opsx-coordinate/spec.md「協調者輸入框有字時事件排隊，空了合成一則送出」。
 """
 import fcntl
@@ -26,6 +26,7 @@ LOST = "協調者 %s 對不到活著的 pane（在它的 pane 重開 session，�
 QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 LOCK = QUEUE + ".lock"
+IDENTITY = "coordinator.json"
 RULE = re.compile(r"^\s*─{3,}\s*$")
 PROMPT = "❯"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -110,6 +111,24 @@ def look(read):
     if rc != 0:
         return "unknown", (err or out).strip()
     return box_state(out), ""
+
+
+def remember(state, agent):
+    """把 herdr agent get 回的協調者 Claude session id 與 pane 寫進 coordinator.json，SessionStart hook 憑它把名字掛回換過的 pane。
+    沒有 session id 回 False；內容沒變不重寫。"""
+    sid = (agent.get("agent_session") or {}).get("value")
+    if not sid:
+        return False
+    path = os.path.join(state, IDENTITY)
+    text = json.dumps({"session_id": sid, "pane": agent.get("pane_id")}, ensure_ascii=False) + "\n"
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                return True
+    except FileNotFoundError:
+        pass
+    safefile.write_atomic(path, text)
+    return True
 
 
 def lost(why):
@@ -239,8 +258,11 @@ def main(argv):
         result, why = say(argv[2], argv[3])
     elif len(argv) == 3 and argv[1] == "flush":
         result, why = flush(argv[2])
+    elif len(argv) == 3 and argv[1] == "remember":
+        # stdin 是 herdr agent get 的輸出；沒有 session id 退出 3
+        return 0 if remember(argv[2], json.load(sys.stdin)["result"]["agent"]) else 3
     else:
-        print("usage: coordq.py say <state dir> <一行> | coordq.py flush <state dir>", file=sys.stderr)
+        print("usage: coordq.py say <state dir> <一行> | coordq.py flush <state dir> | coordq.py remember <state dir> < agent get 的輸出", file=sys.stderr)
         return 64
     print(result)
     if why:

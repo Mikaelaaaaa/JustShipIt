@@ -470,6 +470,20 @@ class Round:
         herdr 的通知沒有點擊動作，內文要寫去哪裡處理。"""
         self.send_notification("%s/%s/%s" % (scope or card_key(c), kind, ident), "[%s] %s" % (card_key(c), event), body)
 
+    def remember_coordinator(self):
+        """每輪開頭查一次協調者：在就把它的 Claude session id 記進 coordinator.json（SessionStart hook 憑它把名字掛回換過的 pane），
+        同時填好這輪的 coordinator_up，之後不再多查。dry 不寫檔。"""
+        rc, out, _ = self.run(runtime.get(agent=COORDINATOR))
+        self.coordinator_up = rc == 0
+        if rc != 0 or self.dry:
+            return
+        try:
+            agent = json.loads(out)["result"]["agent"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            self.log("?? 協調者 %s 的 herdr agent get 讀不懂，這輪沒記 session id：%s" % (COORDINATOR, out.replace("\n", " ")[:200]))
+            return
+        coordq.remember(self.state, agent)
+
     def coordinator_reachable(self):
         """協調者這輪在不在。每輪只查一次、不寫 log：協調者不在時，只送到桌面的事件不必每輪各試一次 prompt。
         只看 rc：herdr agent get 的真輸出沒有樣本（lead.sh 同樣只拿它判斷在不在），卡住與否由補送的 prompt 回 agent_blocked 判斷。"""
@@ -1506,6 +1520,7 @@ def one_round(state, dry):
         r.log("!! coordinator 這輪不跑：%s" % e)
         return 1
     r.log("== coordinator 開始" + ("（dry）" if r.dry else ""))
+    r.remember_coordinator()
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
