@@ -15,6 +15,14 @@ print(gaterule.decide(w))'
 assert_eq "$(decide '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate"
 assert_eq "$(decide '{"gate_id": "卡在接 /review #2", "recommended": "用 A"}')" "('human', 'stuck')" "Stop hook 卡住的 gate"
 assert_eq "$(decide '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "needs run"
+# 協調者代跑的題（Scenario Outline，正例）：by 排在 type、合併字與 hands 判斷前
+assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "chmod +x hooks/reload.sh"}')" "('coordinator', 'run')" "代跑：決定題"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "cd /x/wt && git push gitlab feat/a/mikaela-lin"}')" "('coordinator', 'run')" "代跑：授權題"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "合併前先 push 一次"}')" "('coordinator', 'run')" "代跑：建議含合併字"
+assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "你在終端機跑 opsx stop x"}')" "('coordinator', 'run')" "代跑：建議含要人動手的字"
+# 只有 by 沒有 needs run 不算代跑；卡住的 gate 標了 by 仍留給人（反例）
+assert_eq "$(decide '{"by": "coordinator", "recommended": "用 A"}')" "('human', 'decision')" "只有 by"
+assert_eq "$(decide '{"gate_id": "drive-apply-3", "needs": "run", "by": "coordinator", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate 標了 by"
 assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "合併授權"
 assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "打 Merge API"}')" "('human', 'merge-grant')" "題目含合併字，不分大小寫"
 # 原本會代答的 gate 都留給人（Scenario Outline，正例）

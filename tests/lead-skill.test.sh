@@ -69,6 +69,12 @@ case "$ASK" in *'add it again'*|*'drops'*) fail "怎麼問 gate 段不能再叫�
 NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
 case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac
 case "$NR" in *'goes in the pop-up'*) fail "needs: run 的 gate 不能進跳卡：$NR" ;; esac
+# by: coordinator 的 needs: run 題歸協調者代跑、照實貼回；沒標 by 的仍給使用者指令（coordinator-run-owned）
+RUN="$(printf '%s\n' "$DUTIES" | grep -F 'by: coordinator' | grep -F 'opsx answer')"
+for s in 'worktree' 'exit code' 'block ①'; do
+  case "$RUN" in *"$s"*) ;; *) fail "代跑段缺：$s — $RUN" ;; esac
+done
+case "$NR" in *'no `by: coordinator`'*'stays out of the pop-up'*) ;; *) fail "給使用者指令的只限沒標 by 的 needs: run：$NR" ;; esac
 # 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
 RR="$(printf '%s\n' "$ASK" | grep -F 'status: open')"
 for s in 'needs: run' 'waits-on' 'subs/' '--sub'; do

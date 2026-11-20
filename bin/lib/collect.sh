@@ -21,12 +21,13 @@
 #   mains[{slug, pr_status, stage, section, dispatch, agent_status, open_gates, waiting, subs[{slug, status, stage, worker, open_gates, waiting}]}]}
 #   section ∈ 待處理 | 進行中 | 等待中 | 待指派 | 收件匣 | 已完成（進行中＝apply 之後、pane 在工作；等待中＝apply 之後、pane 沒在工作；
 #   apply 之前有 pane 的算待指派；收件匣＝沒派出、stage 還是 explore）；
-#   waiting.type ∈ 等待授權 | 等待決定 | type 不明 | 可以合併 | 終端機等待輸入 | report 待你決定；waiting.needs ∈ run | null
+#   waiting.type ∈ 等待授權 | 等待決定 | type 不明 | 可以合併 | 終端機等待輸入 | report 待你決定；waiting.needs ∈ run | null；waiting.by ∈ coordinator | null
 #
 # gates.md 的格式（apply 步 5 寫、answer 改）：每個 gate 一段
 #   ## <gate id>
 #   type: approval | decision      action: push|mr|migrate|…（approval 才有）      status: open | answered      opened_at: <ISO>
 #   needs: run（可選：建議欄是要人在終端機跑的指令；看板不給照建議）      type 沒寫或不在同義詞表內 → waiting.type 為 type 不明
+#   by: coordinator（可選，跟 needs: run 一起寫：協調者 session 代跑，卡上只剩這種題時不進待處理）
 #   waits-on: <卡名>（可選：這題要等那張卡合進 main 才能做；coordinate 只憑這個欄位停 pane，不從問題與建議的文字猜）
 #   blocks-from: apply（可選：卡還沒有 tasks.md 時不算等人，不進 waiting，open_gates 照列；dispatch 的 install-deps 用）
 #   問題: …   建議: …   選項: a | b (Recommended) | c（decision 才有）   證據: …   風險: …   預設: …
@@ -199,7 +200,7 @@ if os.path.exists(agents_path) and not os.environ["OPSX_C_HERDR_ERR"]:
         agents = None
         errors.append({"source": "herdr", "message": "agent list 讀不懂（要 result.agents）：%s" % e})
 
-FIELD = re.compile(r"^(type|needs|waits-on|blocks-from|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
+FIELD = re.compile(r"^(type|needs|by|waits-on|blocks-from|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
 
 def parse_gates(text):
     gates, cur, key = [], None, None
@@ -317,6 +318,7 @@ def waiting_of(card, gates, agent_status):
         base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "evidence": g.get("證據"),
                 "risk": g.get("風險"), "default_if_unanswered": g.get("預設"), "confirmed": g.get("已確認"),
                 "needs": "run" if g.get("needs") == "run" else None,
+                "by": "coordinator" if g.get("by") == "coordinator" else None,
                 "waits_on": g.get("waits-on") or None}
         gtype = gatetype.normalize(g.get("type", ""))
         if gtype is None:
@@ -348,7 +350,7 @@ def waiting_of(card, gates, agent_status):
                 "default_if_unanswered": "agent 停在那裡", "confirmed": None}
     return None
 
-# 全部 open gate 都是「等別張卡合進 main」就不用人現在處理（跟 progress_class、coordinate 的 handle_gate 同一條判斷）；
+# 全部 open gate 都是「等別張卡合進 main」或交協調者代跑就不用人現在處理（跟 progress_class、coordinate 的 handle_gate 同一條判斷）；
 # MR 可合併、沒有 open gate 的終端機等輸入，一律要人
 def needs_human(card, gates, agent_status, top, prs):
     if card["mr"] and card["mr"].get("state") == "ready": return True
@@ -356,6 +358,7 @@ def needs_human(card, gates, agent_status, top, prs):
     if not open_gates: return True
     for g in open_gates:
         verdict = gaterule.decide(waiting_of(card, [g], agent_status))
+        if verdict[0] == "coordinator": continue
         if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return True
     return False
 
@@ -364,9 +367,9 @@ BACKGROUND_WAIT = ("等背景", "等 reviewer")
 # mr.sh 也當卡住的 pipeline 狀態：不會自己往下走，不是在等 CI
 PIPELINE_ENDED = ("failed", "canceled", "skipped", "manual", "timed_out")
 
-# 走到這裡的 waiting 只剩只等別張卡的 gate。herdr 讀不到（None）分不出有沒有在工作，算在工作
+# 走到這裡的 waiting 只剩等別張卡或交協調者代跑的 gate。herdr 讀不到（None）分不出有沒有在工作，算在工作
 def hold_of(card, waiting, agent_status, stopped):
-    if waiting: return "等 %s 合併" % waiting["waits_on"]
+    if waiting and waiting["waits_on"]: return "等 %s 合併" % waiting["waits_on"]
     if agent_status in ("working", None): return None
     if agent_status == "unknown": return "等協調者"   # pane 已經不在，CI 與停住原因都不準
     if card["mr"] and card["mr"].get("blocked_on") == "pipeline" and card["mr"].get("pipeline_status") not in PIPELINE_ENDED: return "等 CI"
@@ -515,9 +518,9 @@ def progress_class(c, top, prs):
     # 協調者推「可以合併」也照 waiting.type，計數器跟事件一致
     if w and w["type"] == "可以合併": return "mergeable"
     if w:
-        # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
+        # gate 一律由人答，交協調者代跑的不算等你。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)
-        if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return "waiting_on_you"
+        if verdict[0] == "human" or verdict[0] == "park" and chain.merged_into_main(top, prs, verdict[1]): return "waiting_on_you"
     # 不在「已完成」的 archive 卡只有沒 MR、只差歸檔的那種
     if c["stage"] in ("review", "pr", "babysit", "archive"): return "testing"
     if c["dispatch"]: return "developing"

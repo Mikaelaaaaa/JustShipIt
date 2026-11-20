@@ -1,9 +1,10 @@
-"""一個 gate 要通知人還是停 pane 等別張卡，協調者與 collect 共用；只看 waiting，不讀檔、不跑指令、不通知。
-gate 一律由使用者答，協調者從不代答，所以沒有「代答」這種處置。
+"""一個 gate 要通知人、停 pane 等別張卡，還是交協調者 session 代跑，協調者與 collect 共用；只看 waiting，不讀檔、不跑指令、不通知。
+gate 一律由使用者答，協調者從不代答，所以沒有「代答」這種處置；代跑是照建議跑一次指令、把結果貼回，不是替人做決定。
 
-decide(waiting) 回傳兩種處置之一：
+decide(waiting) 回傳三種處置之一：
   ("human", reason)        留給人；reason 是理由代碼，文字由呼叫端對照
   ("park", waits_on)       等 waits_on 那張卡合進 main
+  ("coordinator", "run")   needs: run 且 by: coordinator，協調者 session 照建議跑
 """
 import re
 
@@ -20,6 +21,9 @@ STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?")
 def decide(w):
     if w["gate_id"] and STUCK_GATE.fullmatch(w["gate_id"]):
         return ("human", "stuck")
+    # 排在 type 前：approval 型的 push 題也交協調者，使用者在協調者 pane 按權限提示
+    if w.get("needs") == "run" and w.get("by") == "coordinator":
+        return ("coordinator", "run")
     if w.get("needs") == "run":
         return ("human", "run")
     if w["type"] == "等待授權":
