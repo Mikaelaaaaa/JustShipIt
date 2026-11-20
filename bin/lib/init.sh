@@ -165,17 +165,18 @@ merge_claude_settings() { # <python> <claude-settings.py 的參數…>
 }
 
 # 主控 session（opsx coordinator）要呼叫 herdr，沙盒預設擋 herdr socket；使用者層標準設定不開它（任何 session 連上 herdr
-# 就能用 herdr pane run 在沒有沙盒的 pane 裡跑指令），所以只給主控 session：渲染成一個檔，啟動時用 claude --settings 帶。
+# 就能用 herdr pane run 在沒有沙盒的 pane 裡跑指令），所以只給主控 session：合併進一個檔，啟動時用 claude --settings 帶。
+# 用合併不用覆寫，使用者手加在這個檔的鍵（additionalDirectories、enabledPlugins）才會留著。
 # 一般 agent 照 main 原設計走 hooks/opsx-herdr-queue.sh。這個檔在標準設定的 denyWrite 裡。
 write_coordinator_settings() { # <python> <state>
-  local py="$1" f="$2/coordinator-settings.json" new
-  new="$("$py" -I "$OPSX_ROOT/bin/lib/claude-settings.py" --render --template "$OPSX_ROOT/templates/settings.coordinator.json")" \
-    || die "init --global: 渲染主控 session 的設定失敗（上面是原因）"
-  if [ -f "$f" ] && [ "$(cat "$f")" = "$new" ]; then say "init --global: ${f} 已有"
-  else
-    printf '%s\n' "$new" > "$f"
-    say "init --global: 寫 ${f}；主控 session 用 opsx lead 啟動（它帶 --settings ${f}，開 herdr socket，一般 agent 不給）"
-  fi
+  local py="$1" f="$2/coordinator-settings.json" out
+  out="$("$py" -I "$OPSX_ROOT/bin/lib/claude-settings.py" --file "$f" --template "$OPSX_ROOT/templates/settings.coordinator.json")" \
+    || die "init --global: 沒改 ${f}（上面是原因）"
+  case "$out" in
+    created) say "init --global: 寫 ${f}；主控 session 用 opsx lead 啟動（它帶 --settings ${f}，開 herdr socket，一般 agent 不給）" ;;
+    changed) say "init --global: 寫 ${f}；主控 session 用 opsx lead 啟動（它帶 --settings ${f}，開 herdr socket，一般 agent 不給）；原檔備份在 ${f}.opsx-bak" ;;
+    *) say "init --global: ${f} 已有" ;;
+  esac
 }
 
 # repo 根目錄會變成每個 session 的可寫目錄：它是 $HOME、$HOME 的上層、或 state 目錄的上層（家目錄是 git repo 時就會發生）

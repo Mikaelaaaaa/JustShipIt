@@ -262,6 +262,8 @@ assert_eq "$(cj "$CS" sandbox.network.allowUnixSockets)" MISSING "herdr socket �
 CO="$OPSX_STATE_DIR/coordinator-settings.json"
 assert_file "$CO"
 assert_eq "$(cj "$CO" sandbox.network.allowUnixSockets)" "[\"$HOME/.config/herdr/herdr.sock\"]" "主控 session 的設定要開 herdr socket"
+assert_eq "$(cj "$CO" hooks.UserPromptSubmit)" "[{\"hooks\": [{\"type\": \"command\", \"command\": \"\\\"$OPSX_ROOT/hooks/lead-skill-reload.sh\\\"\"}]}]" "主控 session 的設定要掛 lead skill reload hook"
+assert_not_grep 'lead-skill-reload.sh' "$CS"
 assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "主控 session 的 opsx dispatch 要在沙盒外跑（git worktree add 寫 .git/worktrees）"
 assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c '"opsx dispatch \*"\|"opsx \*"')" 0 "opsx dispatch * 與整個 opsx * 不進使用者層排除清單"
 case "$outg" in *"主控 session 用 opsx lead 啟動（它帶 --settings $CO"*) ;; *) fail "要印主控 session 用 opsx lead 啟動與設定檔路徑：$outg" ;; esac
@@ -278,7 +280,20 @@ assert_eq "$(cat "$CS")" "$before" "重跑改了 settings.json"
 assert_eq "$(cat "$CO")" "$co_before" "重跑改了主控 session 的設定檔"
 case "$outs" in *"coordinator-settings.json 已有"*) ;; *) fail "內容沒變時要說已有、不重寫（沙盒內重寫會失敗）：$outs" ;; esac
 assert_no_file "$CS.opsx-bak"        # no-op 不產生備份
-# 加 opsx dispatch * 之前裝的主控設定：重跑 init --global 要重寫成新範本
+assert_eq "$(grep -c 'lead-skill-reload.sh' "$CO")" 1 "重跑後 reload hook 只能有一個"
+
+# 主控 session 的設定是合併不是覆寫：舊範本內容加上手加的鍵，重跑後手加的都在、hook 補上、備份是原內容
+rm -f "$CO.opsx-bak"
+printf '{"sandbox":{"network":{"allowUnixSockets":["%s/.config/herdr/herdr.sock"]}},"permissions":{"additionalDirectories":["/r/openspec"]},"enabledPlugins":{"sketch@x":true}}\n' "$HOME" > "$CO"
+co_orig="$(cat "$CO")"
+outk="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "手加的鍵保留 rc: $outk"
+assert_eq "$(cj "$CO" permissions.additionalDirectories)" '["/r/openspec"]' "手加的 additionalDirectories 要保留"
+assert_eq "$(cj "$CO" enabledPlugins)" '{"sketch@x": true}' "手加的 enabledPlugins 要保留"
+assert_eq "$(grep -c 'lead-skill-reload.sh' "$CO")" 1 "合併後要補上 reload hook"
+assert_eq "$(cat "$CO.opsx-bak")" "$co_orig" "備份要是合併前的內容"
+case "$outk" in *"$CO.opsx-bak"*) ;; *) fail "有變化時要印備份路徑：$outk" ;; esac
+
+# 加 opsx dispatch * 之前裝的主控設定：重跑 init --global 要補上 opsx dispatch *
 printf '{"sandbox":{"network":{"allowUnixSockets":["%s"]}}}\n' "$HOME/.config/herdr/herdr.sock" > "$CO"
 outu="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "upgrade rerun: $outu"
 assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "舊的主控設定沒補上 opsx dispatch *"
