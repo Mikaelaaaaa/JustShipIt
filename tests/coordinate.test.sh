@@ -657,7 +657,7 @@ rm -f "$MEMO" "$DISP"
 mkcard u
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"idle"}]'
 round || fail "rc: $(cat "$FX/out")"
-assert_not_grep 'agent prompt' "$OPSX_FAKE_LOG"; assert_eq "$(grep -cEv '^(opsx (collect|reap)|agent read |agent list$)' "$OPSX_FAKE_LOG" || true)" 0 "只有 collect、reap 與唯讀的 agent read、agent list：$(cat "$OPSX_FAKE_LOG")"
+assert_not_grep 'agent prompt' "$OPSX_FAKE_LOG"; assert_eq "$(grep -cEv '^(opsx (collect|reap)|agent read |agent list$|agent get opsx-coordinator$)' "$OPSX_FAKE_LOG" || true)" 0 "只有 collect、reap 與唯讀的 agent read、agent list、agent get：$(cat "$OPSX_FAKE_LOG")"
 
 # --- agent 不見了就重派 ---
 cards '[{"slug":"u","section":"進行中","dispatch":'"$D"',"agent_status":"unknown"}]'
@@ -1564,7 +1564,8 @@ assert_eq "$((n1 + $(notes)))" 1 "兩輪只通知一次：$(cat "$FX/note1")"
 assert_grep '^notification show \[demo/a1\] ' "$FX/note1"
 assert_grep ' --body 看板.*這段怎麼驗 --sound request$' "$FX/note1"
 assert_eq "$(cat "$FX/sends1")" "agent get opsx-coordinator
-notification show [demo/a1]" "協調者不在：agent get 就知道，不打 prompt，直接發桌面通知：$(cat "$FX/sends1")"
+agent get opsx-coordinator
+notification show [demo/a1]" "協調者不在（第一個 get 是每輪開頭記身分那次）：agent get 就知道，不打 prompt，直接發桌面通知：$(cat "$FX/sends1")"
 assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 assert_not_grep '第二行' "$FX/note1"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "_notified 要有 demo/a1/gate/g1：$(cat "$MEMO")"
@@ -1610,6 +1611,36 @@ assert_eq "$(notes)" 1 "下一輪再送一次"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "成功後要記：$(cat "$MEMO")"
 rm -f "$MEMO"
 
+# --- 每輪記下協調者 session（specs/opsx-lead「coordinate 與 opsx lead 記下協調者 session」） ---
+CJ="$OPSX_STATE_DIR/coordinator.json"; rm -f "$CJ"
+cards "[]"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s1 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(cat "$CJ")" '{"session_id": "s1"}' "協調者在要記下 session id，只存 session_id"
+assert_not_grep '??' "$LOG"
+# /clear 換了 session id：下一輪改記新的，記一行 ?? 寫出舊、新 id 與 pane（D13）
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "session id 換了要改記"
+grep '??' "$LOG" | grep 's1' | grep 's2' | grep -q 'w3:p7' || fail "換 session id 要記 ?? 含舊 id、新 id、pane：$(cat "$LOG")"
+# 內容沒變不重寫、不記 ??
+touch -t 202001010000 "$CJ"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
+[ -z "$(find "$CJ" -newermt 2020-01-02)" ] || fail "內容沒變不重寫"
+assert_not_grep '??' "$LOG"
+# 協調者不在、--dry、herdr 回了協調者但沒有 agent_session：都不動身分檔
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "協調者不在不動身分檔"
+OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s3 round --dry || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "--dry 不動身分檔"
+OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"pane_id":"w3:p7","agent_status":"idle"}}}' round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "沒有 agent_session 不動身分檔"
+# 身分檔寫不進去（被換成目錄）：記 ??，這輪照常跑完，gate 照送
+rm -f "$CJ"; mkdir "$CJ"; rm -f "$MEMO"
+cards "$HUMAN"
+OPSX_TEST_COORDINATOR_UP=1 round || fail "身分檔寫不進去 coordinate 仍要 rc 0：$(cat "$FX/out")"
+grep '??' "$LOG" | grep -q 'coordinator.json' || fail "寫不進去要記 ?? 含 coordinator.json：$(cat "$LOG")"
+assert_grep '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ' "$OPSX_FAKE_LOG"
+rmdir "$CJ"; rm -f "$MEMO"
+
 # --- 協調者在：事件走 agent prompt，不發桌面通知 ---
 cards "$HUMAN"
 OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
@@ -1625,6 +1656,8 @@ printf 'agent_blocked\nagent_blocked\nok\n' > "$FX/berr"
 cards "$HUMAN"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "協調者卡住要退回桌面通知：$(cat "$OPSX_FAKE_LOG")"
+assert_grep '^notification show \[demo/a1\] gate g1 ' "$OPSX_FAKE_LOG"
+assert_not_grep '對不到' "$OPSX_FAKE_LOG"
 [ -n "$(memo_get _notified demo/a1/gate/g1)" ] || fail "退回通知成功要記 _notified：$(cat "$MEMO")"
 assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_ERR="$FX/berr" round || fail "rc: $(cat "$FX/out")"
@@ -1642,6 +1675,8 @@ rm -f "$MEMO"
 cards "$HUMAN"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "協調者不在要退回桌面通知：$(cat "$OPSX_FAKE_LOG")"
+assert_grep '^notification show \[demo/a1\] gate g1 .* · 協調者 opsx-coordinator 對不到活著的 pane（.*opsx lead） --body ' "$OPSX_FAKE_LOG"
+grep '??' "$LOG" | grep 'demo/a1/gate/g1' | grep -q '對不到活著的 pane' || fail "對不到協調者要記 ?? 含去重鍵：$(cat "$LOG")"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^agent prompt opsx-coordinator ')" 0 "協調者還不在不試 prompt：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(notes)" 0 "協調者還不在不重發桌面通知：$(cat "$OPSX_FAKE_LOG")"
@@ -1694,6 +1729,7 @@ assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)
 grep '??' "$LOG" | grep -q boom || fail "失敗要記 ?? 含錯誤：$(cat "$LOG")"
 OPSX_TEST_NOTIFY_ERR="$FX/qnerr" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "協調者不在時排隊的事件發一則桌面通知：$(cat "$OPSX_FAKE_LOG")"
+assert_grep '^notification show \[opsx\] 排隊的 1 則事件 · 協調者 opsx-coordinator 對不到活著的 pane（.*） --body .*gate g1' "$OPSX_FAKE_LOG"
 grep '^notification show' "$OPSX_FAKE_LOG" | grep -q 'gate g1' || fail "桌面通知要含排隊的那一行：$(cat "$OPSX_FAKE_LOG")"
 assert_no_file "$CQ"
 round || fail "rc: $(cat "$FX/out")"

@@ -26,6 +26,9 @@ opsx_lead() {
   fi
   pane="$RUNTIME_PANE"; tab="$RUNTIME_TAB"
   runtime_prompt --agent "$COORDINATOR_AGENT" "/opsx-workflow:lead" nowait >/dev/null || die "lead: 協調者起來了但第一句送不進去。到 pane ${pane} 自己打 /opsx-workflow:lead（重跑 opsx lead 會說已在跑，不會補送）"
+  # 記下協調者的 session id，SessionStart hook 憑它在換 pane 後把名字掛回；這裡記不到時 coordinate 下一輪會記
+  got="$(runtime_get --agent "$COORDINATOR_AGENT")" && printf '%s' "$got" | "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/coordq.py" remember "$OPSX_STATE_DIR" \
+    || warn "協調者的 session id 這次沒記下，coordinate 下一輪會補記"
   runtime_focus --agent "$COORDINATOR_AGENT" >/dev/null || warn "焦點切不過去，協調者在 tab ${tab}（pane ${pane}）"
   say "lead: 協調者開在 tab ${tab}（pane ${pane}），cwd ${top}"
 }

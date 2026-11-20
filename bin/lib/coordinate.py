@@ -473,6 +473,30 @@ class Round:
         herdr 的通知沒有點擊動作，內文要寫去哪裡處理。"""
         self.send_notification("%s/%s/%s" % (scope or card_key(c), kind, ident), "[%s] %s" % (card_key(c), event), body)
 
+    def remember_coordinator(self):
+        """每輪開頭查一次協調者：在就把它的 Claude session id 記進 coordinator.json（SessionStart hook 憑它把名字掛回換過的 pane），
+        同時填好這輪的 coordinator_up，之後不再多查。dry 不寫檔。"""
+        rc, out, _ = self.run(runtime.get(agent=COORDINATOR))
+        self.coordinator_up = rc == 0
+        if rc != 0 or self.dry:
+            return
+        try:
+            agent = json.loads(out)["result"]["agent"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            self.log("?? 協調者 %s 的 herdr agent get 讀不懂，這輪沒記 session id：%s" % (COORDINATOR, out.replace("\n", " ")[:200]))
+            return
+        sid = coordq.session_of(agent)
+        if not sid:
+            return
+        # 身分檔寫不進去只少了自動掛名，不能讓整輪 coordinate 停下
+        try:
+            old = coordq.remember(self.state, sid)
+        except OSError as e:
+            self.log("?? 協調者身分檔 coordinator.json 寫不進去，這輪沒記 session id：%s" % e)
+            return
+        if old is not None and old != sid:
+            self.log("?? 協調者 %s 的 session 從 %s 換成 %s（pane %s）；不是 /clear 的話，名字可能掛到了別的 session" % (COORDINATOR, old, sid, agent.get("pane_id")))
+
     def coordinator_reachable(self):
         """協調者這輪在不在。每輪只查一次、不寫 log：協調者不在時，只送到桌面的事件不必每輪各試一次 prompt。
         只看 rc：herdr agent get 的真輸出沒有樣本（lead.sh 同樣只拿它判斷在不在），卡住與否由補送的 prompt 回 agent_blocked 判斷。"""
@@ -498,6 +522,9 @@ class Round:
         if result == "unavailable":
             if sent is not None:
                 return
+            if coordq.lost(why):
+                self.log("?? 協調者 %s 對不到活著的 pane，%s 改發桌面錯誤：%s" % (COORDINATOR, key, why.replace("\n", " ")[:200]))
+                title = coordq.lost_title(title)
             rc, out, err = self.act(runtime.notify(title, body, sound="request"))
             why = "" if rc == 0 else (err or out)
             result = "sent" if rc == 0 else "error"
@@ -516,16 +543,20 @@ class Round:
             return
         result, why = coordq.flush(self.state, read=self.run, act=self.act)
         if result == "unavailable":
-            self.notify_queue()
+            self.notify_queue(why)
         elif result == "error":
             self.log("?? 協調者佇列這輪送不出去，留到下一輪：%s" % why.replace("\n", " ")[:200])
 
-    def notify_queue(self):
+    def notify_queue(self, why):
         lines, files = coordq.take(self.state)
         if not lines:
             coordq.done(files)
             return
-        rc, out, err = self.act(runtime.notify("[opsx] 協調者不在，排隊的 %d 則事件" % len(lines), coordq.merge(lines), sound="request"))
+        title = "[opsx] 協調者不在，排隊的 %d 則事件" % len(lines)
+        if coordq.lost(why):
+            self.log("?? 協調者 %s 對不到活著的 pane，排隊的 %d 則改發桌面錯誤：%s" % (COORDINATOR, len(lines), why.replace("\n", " ")[:200]))
+            title = coordq.lost_title("[opsx] 排隊的 %d 則事件" % len(lines))
+        rc, out, err = self.act(runtime.notify(title, coordq.merge(lines), sound="request"))
         if rc == 0:
             coordq.done(files)
             return
@@ -1508,6 +1539,7 @@ def one_round(state, dry):
         r.log("!! coordinator 這輪不跑：%s" % e)
         return 1
     r.log("== coordinator 開始" + ("（dry）" if r.dry else ""))
+    r.remember_coordinator()
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]

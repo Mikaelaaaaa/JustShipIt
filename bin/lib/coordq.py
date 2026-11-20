@@ -3,7 +3,7 @@
 herdr agent prompt 不看輸入框，直接打字加 enter，使用者打到一半的字會跟事件一起送出。
 bash 的 coordinator_say 走命令列，coordinate 直接 import；兩邊共用這裡的判讀與佇列，才不會判得不一樣。
 執行器由呼叫者傳入：run 給唯讀的 get 與讀畫面，act 給送 prompt（coordinate 的 act 會記 log）。都回 (rc, stdout, stderr)。
-用法：coordq.py say <state dir> <一行> | coordq.py flush <state dir>
+用法：coordq.py say <state dir> <一行> | coordq.py flush <state dir> | coordq.py remember <state dir> < herdr agent get 的輸出
 規則：openspec/specs/opsx-coordinate/spec.md「協調者輸入框有字時事件排隊，空了合成一則送出」。
 """
 import fcntl
@@ -21,9 +21,12 @@ import safefile  # noqa: E402
 COORDINATOR = "opsx-coordinator"
 # herdr 收不下 prompt 的兩種情形：沒有這個 agent、或它卡在對話框。呼叫者各有退路，不排隊
 UNAVAILABLE = ("agent_not_found", "agent_blocked")
+# 名字對不到活著的 pane 是錯誤，不是普通的「協調者不在」：退回桌面時標題接上這句，讓人一眼看出來
+LOST = "協調者 %s 對不到活著的 pane（在它的 pane 重開 session，或跑 opsx lead）" % COORDINATOR
 QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 LOCK = QUEUE + ".lock"
+IDENTITY = "coordinator.json"
 RULE = re.compile(r"^\s*─{3,}\s*$")
 PROMPT = "❯"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -108,6 +111,33 @@ def look(read):
     if rc != 0:
         return "unknown", (err or out).strip()
     return box_state(out), ""
+
+
+def session_of(agent):
+    """herdr agent get 的 result.agent 裡的 Claude session id；herdr 還沒給時是 None。"""
+    return (agent.get("agent_session") or {}).get("value")
+
+
+def remember(state, sid):
+    """把協調者的 Claude session id 寫進 coordinator.json，SessionStart hook 憑它把名字掛回換過的 pane。
+    回檔裡原本的 session id（沒有檔或讀不懂是 None）；一樣就不重寫。讀寫的 OSError 交給呼叫者。"""
+    path = os.path.join(state, IDENTITY)
+    try:
+        with open(path) as f:
+            old = json.load(f).get("session_id")
+    except (FileNotFoundError, json.JSONDecodeError):
+        old = None
+    if old != sid:
+        safefile.write_atomic(path, json.dumps({"session_id": sid}) + "\n")
+    return old
+
+
+def lost(why):
+    return "agent_not_found" in why
+
+
+def lost_title(title):
+    return "%s · %s" % (title, LOST)
 
 
 def one_line(text):
@@ -229,13 +259,27 @@ def main(argv):
         result, why = say(argv[2], argv[3])
     elif len(argv) == 3 and argv[1] == "flush":
         result, why = flush(argv[2])
+    elif len(argv) == 3 and argv[1] == "remember":
+        # stdin 是 herdr agent get 的輸出；沒有 session id 退出 3
+        sid = session_of(json.load(sys.stdin)["result"]["agent"])
+        if not sid:
+            return 3
+        remember(argv[2], sid)
+        return 0
     else:
-        print("usage: coordq.py say <state dir> <一行> | coordq.py flush <state dir>", file=sys.stderr)
+        print("usage: coordq.py say <state dir> <一行> | coordq.py flush <state dir> | coordq.py remember <state dir> < agent get 的輸出", file=sys.stderr)
         return 64
     print(result)
     if why:
         print(why, file=sys.stderr)
-    return 0 if result in ("sent", "queued") else 1
+    if result in ("sent", "queued"):
+        return 0
+    if argv[1] == "say" and result == "unavailable" and lost(why):
+        rc, out, err = run(runtime.notify("[opsx] " + LOST, one_line(argv[3]), sound="request"))
+        if rc == 0:
+            return 3
+        print((err or out).strip(), file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
