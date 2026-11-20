@@ -56,7 +56,7 @@ EOF
 # x4：MR 全綠、已派出
 D=$(mkcard a x4); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
 printf '{"phase":"pr","step":"5","total":"5","label":"可以合併","tests":"green","at":"2026-11-05T10:00:00+08:00"}' > "$D/status.json"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/a/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/a/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/x4/logic-map.md · aaa1111\n' > "$D/report.md"; printf '# 邏輯表\n' > "$D/logic-map.md"
 # x5：archive；另外塞 3 張更舊的，cap 設 2 時只留最新 2 張
 D="$ROOT/a/openspec/changes/archive/2026-11-01-x5"; mkdir -p "$D"; printf 'schema: opsx\nkind: chore\n' > "$D/.openspec.yaml"; printf '## 一句話\n\n舊的\n' > "$D/inbox.md"
 for i in 1 2 3; do D2="$ROOT/a/openspec/changes/archive/2026-10-0$i-old$i"; mkdir -p "$D2"; printf 'schema: opsx\n' > "$D2/.openspec.yaml"; touch -t "2026100${i}0000" "$D2"; done; touch "$D"
@@ -71,7 +71,7 @@ D=$(mkcard b y1); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 # x8：explore 過（有 explore.md）沒派出 → 待指派；x9：上游已關閉、註解已刪，仍在收件匣
 D=$(mkcard a x8); printf '## 已知\n\n## 待決\n\n## 不做\n' > "$D/explore.md"
 D=$(mkcard a x9 "關掉的"); printf -- '---\ntype: 功能\nsource: gitlab:a#412\nfound: 2026-11-04\nupstream: closed\nstale: true\n---\n\n## 一句話\n\n關掉的\n' > "$D/inbox.md"
-# y3：只有 inbox，但已派出 → 進行中
+# y3：只有 inbox，但已派出 → 待指派（還沒到 apply）
 mkcard b y3 >/dev/null
 # y2：MR pipeline 紅、已派出
 D=$(mkcard b y2); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
@@ -87,7 +87,7 @@ cat > "$OPSX_STATE_DIR/dispatch.json" <<'EOF'
 EOF
 # glab：iid 7 全綠、8 pipeline 紅（fake glab 依 iid 讀不同檔）
 export OPSX_TEST_GLAB_JSON="$FX/mr.json" OPSX_TEST_GLAB_JSON_BY_IID="$FX/mr-"
-printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa111","head_pipeline":{"status":"success"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}' > "$FX/mr-7.json"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa1111def","head_pipeline":{"status":"success"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}' > "$FX/mr-7.json"
 printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"bbb222","head_pipeline":{"status":"failed"},"unresolved_discussions_count":0}' > "$FX/mr-8.json"
 # herdr：x4 working、y1 blocked、foo 沒對到卡
 export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
@@ -123,13 +123,13 @@ assert_eq "$(q "$C" source)" me; assert_eq "$(q "$C" upstream)" null; assert_eq 
 assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" dispatch)" null; assert_eq "$(q "$C" agent_status)" null; assert_eq "$(q "$C" kind)" dev
 C="$(card "$J" a x8)"; assert_eq "$(q "$C" stage)" grill; assert_eq "$(q "$C" section)" 待指派
 C="$(card "$J" a x9)"; assert_eq "$(q "$C" section)" 收件匣; assert_eq "$(q "$C" upstream)" closed; assert_eq "$(q "$C" stale)" true; assert_eq "$(q "$C" source)" "gitlab:a#412"
-C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 進行中
-# 排序：待處理 · 進行中 · 待指派 · 收件匣 · 已完成
+C="$(card "$J" b y3)"; assert_eq "$(q "$C" stage)" explore; assert_eq "$(q "$C" section)" 待指派
+# 排序：待處理 · 進行中 · 等待中 · 待指派 · 收件匣 · 已完成
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys
 s=[]
 for c in json.load(sys.stdin)["cards"]:
     s.append(c["section"]) if not s or s[-1]!=c["section"] else None
-print(" ".join(s))')" "待處理 進行中 待指派 收件匣 已完成"
+print(" ".join(s))')" "待處理 進行中 等待中 待指派 收件匣 已完成"
 C="$(card "$J" a x5)"; assert_eq "$(q "$C" stage)" archive; assert_eq "$(q "$C" section)" 已完成
 
 # 等待授權
@@ -144,16 +144,16 @@ assert_eq "$(q "$C" waiting.default_if_unanswered)" "不 push，先做 1.2"; ass
 C="$(card "$J" a x3)"; assert_eq "$(q "$C" waiting.type)" 等待決定
 assert_eq "$(q "$C" waiting.options)" '["記憶體", "檔案", "redis"]'; assert_eq "$(q "$C" waiting.recommended)" 檔案
 
-# 可以合併
-C="$(card "$J" a x4)"; assert_eq "$(q "$C" waiting.type)" 可以合併; assert_eq "$(q "$C" section)" 待處理
+# MR 全綠、邏輯表對應 head，但 agent 還在 working：不是可以合併（#196）
+C="$(card "$J" a x4)"; assert_eq "$(q "$C" waiting)" null "agent working 不標可以合併"; assert_eq "$(q "$C" section)" 進行中
 assert_eq "$(q "$C" mr.conditions)" '{"no_conflicts": true, "not_draft": true, "opened": true, "pipeline": true, "threads": true}'
-assert_eq "$(q "$C" mr.head_sha)" aaa111; assert_eq "$(q "$C" dispatch.pane)" p4; assert_eq "$(q "$C" dispatch.mode)" autopilot
+assert_eq "$(q "$C" mr.head_sha)" aaa1111def; assert_eq "$(q "$C" dispatch.pane)" p4; assert_eq "$(q "$C" dispatch.mode)" autopilot
 assert_eq "$(q "$C" agent_status)" working; assert_eq "$(q "$C" status.phase)" pr; assert_eq "$(q "$C" dispatch.grants)" '["push"]'
 # 最後輸出不在卡上：抽屜向 /api/output 取，collect 的卡沒有 last_output 鍵
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(sorted(c["slug"] for c in json.load(sys.stdin)["cards"] if "last_output" in c))')" "[]"
 
-# 少一個條件 → 進行中
-C="$(card "$J" b y2)"; assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" section)" 進行中
+# 少一個條件 → 不進待處理；pipeline 已經失敗、pane 沒在工作，等協調者
+C="$(card "$J" b y2)"; assert_eq "$(q "$C" waiting)" null; assert_eq "$(q "$C" section)" 等待中; assert_eq "$(q "$C" hold)" 等協調者
 assert_eq "$(q "$C" mr.conditions.pipeline)" false; assert_eq "$(q "$C" mr.blocked_on)" pipeline; assert_eq "$(q "$C" agent_status)" unknown
 
 # 終端機等待輸入
@@ -201,7 +201,7 @@ printf '' > "$FX/mr-7.json"
 J4="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0
 assert_eq "$(q "$(card "$J4" a x4)" mr.state)" none; assert_eq "$(q "$(card "$J4" a x4)" section)" 進行中
 assert_eq "$(q "$J4" errors.0.source)" glab; q "$J4" errors.0.message | grep -q 'a/x4' || fail "glab error 要指名卡: $(q "$J4" errors)"
-printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa111","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-7.json"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa1111def","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-7.json"
 # herdr 有設但沒有 agent：都是 unknown，不報錯
 printf '{"id":"cli:agent:list","result":{"agents":[],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
 J5="$(opsx collect --root "$ROOT")"; assert_eq "$(q "$(card "$J5" a x4)" agent_status)" unknown; assert_eq "$(q "$J5" errors)" '[]'
@@ -709,13 +709,13 @@ assert_eq "$(printf '%s' "$F" | python3 -I -c 'import json,sys;print([s["slug"] 
 assert_eq "$(printf '%s\n%s' "$F" "$(card "$J" s bt)" | python3 -I -c 'import json,sys
 m,c=[json.loads(l) for l in sys.stdin.read().split("\n")]; m=m["mains"][1]
 ks=["stage","section","dispatch","agent_status","open_gates","waiting"]
-print([k for k in ks if m[k]!=c[k]], m["slug"], m["pr_status"], m["stage"], m["section"], m["dispatch"]["pane"])')" "[] bt in-progress review 進行中 p-bt"
+print([k for k in ks if m[k]!=c[k]], m["slug"], m["pr_status"], m["stage"], m["section"], m["dispatch"]["pane"])')" "[] bt in-progress review 等待中 p-bt"
 assert_eq "$(q "$F" mains.1.subs.1.open_gates)" '[{"id": "g1", "opened_at": null}]'
 assert_eq "$(q "$F" mains.1.subs.1.waiting.type) $(q "$F" mains.1.subs.1.waiting.recommended) $(q "$F" mains.1.subs.1.stage)" "等待決定 B inbox"
 assert_eq "$(q "$F" mains.1.subs.0.stage) $(q "$F" mains.1.subs.0.worker) $(q "$F" mains.1.subs.0.status)" "apply null in-progress"
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(sum(1 for e in json.load(sys.stdin)["errors"] if e["source"].endswith("/subs/ct/status.json")))')" 2 "status.json 不是 object 記 errors（bt/ct 在 fb 與 fdup 各讀一次），站點改由檔推"
 assert_eq "$(q "$F" mains.1.subs.2.stage) $(q "$F" mains.1.subs.2.worker)" "apply subagent-2"
-# 1.3 一行：計數、目前站、section（子 change 的 gate 讓 session 進待處理，主 change 卡本身是進行中）
+# 1.3 一行：計數、目前站、section（子 change 的 gate 讓 session 進待處理，主 change 卡本身是等待中）
 assert_eq "$(q "$F" main_done)/$(q "$F" main_total) $(q "$F" sub_done)/$(q "$F" sub_total)" "1/2 5/7"
 assert_eq "$(q "$F" current)" '{"slug": "bt", "stage": "review"}'
 assert_eq "$(q "$F" section)" 待處理
@@ -727,6 +727,81 @@ assert_eq "$(printf '%s' "$E" | python3 -I -c 'import json,sys;print(len(json.lo
 printf '%s' "$E" | grep -q 'bt' || fail "重複 slug 的 error 要指名 bt：$E"
 ROOT="$ROOT_SAVED"
 
+# ---------- 可以合併要 agent 停手、邏輯表對應最新 head（specs/board-collect 同名 Requirement） ----------
+RM="$FX/codem"; SM="$FX/statem"; mkdir -p "$RM/m/.git" "$SM"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"abc1234def","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-21.json"
+mr21() { # <slug> <邏輯表那一行，空字串表示沒有這一段> [review 四桶那段的內文]：MR 全綠的卡，卡目錄有 logic-map.md
+  local d="$RM/m/openspec/changes/$1"; mkdir -p "$d"
+  printf 'schema: opsx\ncreated: 2026-11-17\nkind: bug-fix\n' > "$d/.openspec.yaml"
+  printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-17\n---\n\n## 一句話\n\n%s\n' "$1" > "$d/inbox.md"
+  printf '## 1\n\n- [x] 1.1 a\n' > "$d/tasks.md"
+  printf '# Review · %s · 第 1 輪\n\n## 四桶\n%s\n## MR\nhttps://gitlab.example.com/acmecorp/m/-/merge_requests/21\n' "$1" "${3:-$'### 待修（範圍內）\n### Consider\n### Noted\n'}" > "$d/report.md"
+  [ -z "$2" ] || printf '\n## 邏輯表\n%s\n' "$2" >> "$d/report.md"
+  printf '# 邏輯表\n' > "$d/logic-map.md"
+  printf '%s' "$d"
+}
+mr21 ok "openspec/changes/ok/logic-map.md · abc1234" >/dev/null
+mr21 working "openspec/changes/working/logic-map.md · abc1234" >/dev/null
+mr21 stale "openspec/changes/stale/logic-map.md · 9f8e7d6" >/dev/null
+mr21 failed "產表失敗：無 Agent 工具" >/dev/null
+mr21 nosec "" >/dev/null
+mr21 short "openspec/changes/short/logic-map.md · abc123" >/dev/null
+mr21 unknown "openspec/changes/unknown/logic-map.md · abc1234" >/dev/null
+mr21 nodisp "openspec/changes/nodisp/logic-map.md · abc1234" >/dev/null
+mr21 done "openspec/changes/done/logic-map.md · abc1234" >/dev/null
+D=$(mr21 nomap "openspec/changes/nomap/logic-map.md · abc1234"); rm "$D/logic-map.md"
+# review 留給人決定的項（D2）：待修有項、Consider 有沒處理的項不算；Consider 標了開卡或接受算處理過
+mr21 consider "openspec/changes/consider/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · D-id none · 來源 C\n### Noted\n' >/dev/null
+mr21 pending "openspec/changes/pending/logic-map.md · abc1234" $'### 待修（範圍內）\n- a.ts:9 漏判 null · task R1.1\n### Consider\n' >/dev/null
+mr21 carded "openspec/changes/carded/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 開卡 me-20261117-1500\n### Noted\n- b.ts:1 命名\n' >/dev/null
+mr21 accepted "openspec/changes/accepted/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n以下留給人看。\n- a.ts:3 測試沒蓋到空字串 · 接受\n' >/dev/null
+# review 退回 R1：blocked、子殼 gate、描述含「接受」、縮排子項目、9 碼 sha、report.md 編碼壞掉
+mr21 blocked "openspec/changes/blocked/logic-map.md · abc1234" >/dev/null
+D=$(mr21 subgate "openspec/changes/subgate/logic-map.md · abc1234"); mkdir -p "$D/subs/a"
+printf '## needs-user-a\ntype: decision\nstatus: open\n問題: 子殼要你決定\n' > "$D/subs/a/gates.md"
+D=$(mr21 subdeps "openspec/changes/subdeps/logic-map.md · abc1234"); mkdir -p "$D/subs/a"
+printf '## install-deps\ntype: approval\naction: install\nstatus: open\nblocks-from: apply\n問題: 裝依賴\n' > "$D/subs/a/gates.md"
+mr21 notaccept "openspec/changes/notaccept/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲 · D-id none · 來源 C\n' >/dev/null
+mr21 indented "openspec/changes/indented/logic-map.md · abc1234" $'### 待修（範圍內）\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 開卡 me-20261117-1500\n  - 細節：空字串與 None 都要測\n' >/dev/null
+mr21 longsha "openspec/changes/longsha/logic-map.md · abc1234de" >/dev/null
+D=$(mr21 badreport "openspec/changes/badreport/logic-map.md · abc1234"); printf '\xe4\xb8\n' >> "$D/report.md"
+D=$(mr21 gate "openspec/changes/gate/logic-map.md · abc1234")
+printf '## logic-map-undecided-r4\ntype: decision\nstatus: open\n問題: 邏輯表有兩項沒經過決定\n選項: 照現在 (Recommended) | 改\n' > "$D/gates.md"
+printf '{"m/ok":{"pane":"m1","mode":"autopilot"},"m/working":{"pane":"m2","mode":"autopilot"},"m/stale":{"pane":"m1","mode":"autopilot"},"m/failed":{"pane":"m1","mode":"autopilot"},"m/nosec":{"pane":"m1","mode":"autopilot"},"m/short":{"pane":"m1","mode":"autopilot"},"m/unknown":{"pane":"m9","mode":"autopilot"},"m/done":{"pane":"m3","mode":"autopilot"},"m/gate":{"pane":"m1","mode":"autopilot"},"m/nomap":{"pane":"m1","mode":"autopilot"},"m/consider":{"pane":"m1","mode":"autopilot"},"m/pending":{"pane":"m1","mode":"autopilot"},"m/carded":{"pane":"m1","mode":"autopilot"},"m/accepted":{"pane":"m1","mode":"autopilot"},"m/blocked":{"pane":"m4","mode":"autopilot"},"m/subgate":{"pane":"m1","mode":"autopilot"},"m/subdeps":{"pane":"m1","mode":"autopilot"},"m/notaccept":{"pane":"m1","mode":"autopilot"},"m/indented":{"pane":"m1","mode":"autopilot"},"m/longsha":{"pane":"m1","mode":"autopilot"},"m/badreport":{"pane":"m1","mode":"autopilot"}}' > "$SM/dispatch.json"
+printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"idle"},{"agent":"claude","pane_id":"m2","agent_status":"working"},{"agent":"claude","pane_id":"m3","agent_status":"done"},{"agent":"claude","pane_id":"m4","agent_status":"blocked"}],"type":"agent_list"}}' > "$FX/agents-m.json"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"; assert_eq "$?" 0 "可以合併 collect: $J"
+mwait() { q "$(card "$J" m "$1")" "$2"; }
+# 三個條件都成立
+assert_eq "$(mwait ok waiting.type) $(mwait ok section)" "可以合併 待處理"
+# 少一個條件：waiting null、不進待處理（working 是進行中，閒著的是等待中）
+assert_eq "$(mwait working waiting) $(mwait stale waiting) $(mwait failed waiting) $(mwait nosec waiting) $(mwait short waiting)" "null null null null null"
+assert_eq "$(mwait working section) $(mwait stale section) $(mwait failed section) $(mwait nosec section) $(mwait short section)" "進行中 等待中 等待中 等待中 等待中"
+# herdr 讀不到、agent 不在、done：不擋
+assert_eq "$(mwait unknown agent_status) $(mwait nodisp agent_status) $(mwait done agent_status)" "unknown null done" "fixture 真的是三種狀態"
+assert_eq "$(mwait unknown waiting.type) $(mwait nodisp waiting.type) $(mwait done waiting.type)" "可以合併 可以合併 可以合併"
+J="$(OPSX_TEST_HERDR_LIST_FAIL='socket gone' opsx collect --root "$RM" --state "$SM")"
+assert_eq "$(mwait ok agent_status) $(mwait ok waiting.type)" "null 可以合併" "herdr 叫不通也不擋"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"
+# 有 open gate：waiting 是那個 gate
+assert_eq "$(mwait gate waiting.type) $(mwait gate waiting.gate_id)" "等待決定 logic-map-undecided-r4"
+# 邏輯表檔不在、review 留給人決定的項沒處理：不是可以合併，後者是 report 待你決定；開卡或接受過的算處理了
+assert_eq "$(mwait nomap waiting)" "null"
+assert_eq "$(mwait consider waiting.type) $(mwait pending waiting.type)" "report 待你決定 report 待你決定"
+assert_eq "$(mwait carded waiting.type) $(mwait accepted waiting.type)" "可以合併 可以合併"
+# R1：pane blocked 是終端機等待輸入；子殼 open gate 擋；描述含「接受」不算處理過；縮排子項目跟著上一項；9 碼 sha 照認
+assert_eq "$(mwait blocked waiting.type)" "終端機等待輸入" "blocked 不標可以合併"
+# 對到 pane、herdr 回 unknown：照舊算對到卡，不進 unmatched_agents（D13）
+printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"m1","agent_status":"unknown"}],"type":"agent_list"}}' > "$FX/agents-m-unknown.json"
+JU="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m-unknown.json" opsx collect --root "$RM" --state "$SM")"
+assert_eq "$(q "$JU" unmatched_agents)" '[]' "對到 pane、狀態 unknown 不算沒對到卡"
+assert_eq "$(mwait subgate waiting) $(mwait notaccept waiting.type)" "null report 待你決定"
+# 子殼的 blocks-from: apply gate 在子殼沒有 tasks.md 時不算等人，跟 opsx merge 的 st_open_gates 一致（D16）
+assert_eq "$(mwait subdeps waiting.type)" "可以合併" "子殼 blocks-from: apply 的 gate 不擋"
+assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以合併 可以合併"
+# report.md 讀不了只壞這一張卡：不標可以合併、記一筆 errors，別張卡照常
+assert_eq "$(mwait badreport waiting)" null "report.md 讀不了不標可以合併"
+printf '%s' "$J" | python3 -I -c 'import json,sys;sys.exit(0 if any("badreport" in e["message"] for e in json.load(sys.stdin)["errors"]) else 1)' || fail "report.md 讀不了要記 errors：$(q "$J" errors)"
+
 # ---------- 進度與卡的分類（progress-collect，specs/board-collect「卡的進度分類」「每個 repo 的進度」） ----------
 R10="$FX/code10"; S10="$FX/state10"; mkdir -p "$R10/r/.git" "$R10/n/.git" "$S10" "$R10/r/openspec/changes/archive/2026-11-01-arch-x"
 pc10() { # <repo> <slug> [frontmatter 行…]：建殼，印目錄
@@ -736,9 +811,9 @@ pc10() { # <repo> <slug> [frontmatter 行…]：建殼，印目錄
   printf '%s' "$d"
 }
 printf 'schema: opsx\n' > "$R10/r/openspec/changes/archive/2026-11-01-arch-x/.openspec.yaml"
-# m-merge：MR 五條件綠
+# m-merge：MR 五條件綠、邏輯表對應 head、agent 不在 working
 D=$(pc10 r m-merge); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-merge/logic-map.md · aaa1111\n' > "$D/report.md"; printf '# 邏輯表\n' > "$D/logic-map.md"
 # m-gate：派出，needs: run 的 gate（純函式說留給人）
 D=$(pc10 r m-gate); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 printf '## g1\ntype: decision\nstatus: open\nneeds: run\n問題: 跑 x？\n建議: bash x.sh\n' > "$D/gates.md"
@@ -761,10 +836,15 @@ printf '## g1\ntype: decision\nstatus: open\nwaits-on: done-x\n問題: 等 done-
 # m-park-merged：協調者停下（dispatch stopped）、等的 done-x 之後合了：常見的那條路，同樣算等你
 D=$(pc10 r m-park-merged); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 printf '## g1\ntype: decision\nstatus: open\nwaits-on: done-x\n問題: 等 done-x\n建議: 等 done-x 合併後繼續\n' > "$D/gates.md"
-# m-ready-gate：派出、MR 全綠、另有 open 的 gate：照 D3 看 mr.state，算可合併
+# m-ready-gate：派出、MR 全綠、邏輯表對應 head，另有 open 的 gate：不是可合併，算等你
 D=$(pc10 r m-ready-gate); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-ready-gate/logic-map.md · aaa1111\n' > "$D/report.md"; printf '# 邏輯表\n' > "$D/logic-map.md"
 printf '## g1\ntype: decision\nstatus: open\n問題: 哪個？\n建議: 用 A\n' > "$D/gates.md"
+# m-ready-working：MR 全綠、邏輯表對應 head，pane p4 還在 working；m-ready-stale：邏輯表的 sha 不是 MR head
+D=$(pc10 r m-ready-working); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-ready-working/logic-map.md · aaa1111\n' > "$D/report.md"; printf '# 邏輯表\n' > "$D/logic-map.md"
+D=$(pc10 r m-ready-stale); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-ready-stale/logic-map.md · 9f8e7d6\n' > "$D/report.md"; printf '# 邏輯表\n' > "$D/logic-map.md"
 # m-pr-run：派出、stage pr、needs: run 的 gate：等你排在測試中之前
 D=$(pc10 r m-pr-run); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"; printf '# report\n' > "$D/report.md"
 printf '## g1\ntype: decision\nstatus: open\nneeds: run\n問題: 跑 x？\n建議: bash x.sh\n' > "$D/gates.md"
@@ -818,6 +898,10 @@ features:
         status: in-progress
       - name: m-block
         status: in-progress
+      - name: m-ready-working
+        status: in-progress
+      - name: m-ready-stale
+        status: in-progress
   - name: later
     milestone: "1.1"
     prs:
@@ -839,24 +923,26 @@ features:
       - name: nc-a
         status: pending
 EOF
-printf '{"r/m-merge":{"pane":"q1","mode":"autopilot"},"r/m-gate":{"pane":"q2","mode":"autopilot"},"r/m-review":{"pane":"q3","mode":"autopilot"},"r/m-apply":{"pane":"q4","mode":"autopilot"},"r/m-auto":{"pane":"q5","mode":"autopilot"},"r/m-park":{"pane":"q6","mode":"stopped"},"r/m-wake":{"pane":"q10","mode":"autopilot"},"r/m-park-merged":{"pane":"q11","mode":"stopped"},"r/m-ready-gate":{"pane":"q7","mode":"autopilot"},"r/m-pr-run":{"pane":"q8","mode":"autopilot"},"r/m-block":{"pane":"p9","mode":"autopilot"}}' > "$S10/dispatch.json"
+printf '{"r/m-merge":{"pane":"q1","mode":"autopilot"},"r/m-gate":{"pane":"q2","mode":"autopilot"},"r/m-review":{"pane":"q3","mode":"autopilot"},"r/m-apply":{"pane":"q4","mode":"autopilot"},"r/m-auto":{"pane":"q5","mode":"autopilot"},"r/m-park":{"pane":"q6","mode":"stopped"},"r/m-wake":{"pane":"q10","mode":"autopilot"},"r/m-park-merged":{"pane":"q11","mode":"stopped"},"r/m-ready-gate":{"pane":"q7","mode":"autopilot"},"r/m-pr-run":{"pane":"q8","mode":"autopilot"},"r/m-block":{"pane":"p9","mode":"autopilot"},"r/m-ready-working":{"pane":"p4","mode":"autopilot"},"r/m-ready-stale":{"pane":"q12","mode":"autopilot"}}' > "$S10/dispatch.json"
 J="$(opsx collect --root "$R10" --state "$S10")"; assert_eq "$?" 0 "progress collect rc: $J"
 pclass() { q "$(card "$J" r "$1")" progress_class; }
 # 五類各一張
 assert_eq "$(pclass m-merge) $(pclass m-gate) $(pclass m-review) $(pclass m-apply) $(pclass m-idle)" "mergeable waiting_on_you testing developing not_dispatched"
 # 有 gate 的卡不論派沒派出都算等你；waits-on 的卡沒合就照原分類（停著算還沒派），已合就算等你
 assert_eq "$(pclass m-free) $(pclass m-auto) $(pclass m-park) $(pclass m-wake) $(pclass m-park-merged)" "waiting_on_you waiting_on_you not_dispatched waiting_on_you waiting_on_you"
-# MR ready 有 open gate 仍是可合併；stage pr 的留給人 gate 排在測試中之前；終端機等待輸入算等你
-assert_eq "$(pclass m-ready-gate) $(pclass m-pr-run) $(pclass m-block)" "mergeable waiting_on_you waiting_on_you"
+# MR ready 但有 open gate、agent working、邏輯表舊：都不是可合併；stage pr 的留給人 gate 排在測試中之前；終端機等待輸入算等你
+assert_eq "$(pclass m-ready-gate) $(pclass m-ready-working) $(pclass m-ready-stale)" "waiting_on_you testing testing"
+assert_eq "$(q "$(card "$J" r m-ready-working)" agent_status) $(q "$(card "$J" r m-ready-working)" mr.state)" "working ready" "fixture 真的是 MR ready、pane working"
+assert_eq "$(pclass m-pr-run) $(pclass m-block)" "waiting_on_you waiting_on_you"
 assert_eq "$(q "$(card "$J" r m-pr-run)" stage) $(q "$(card "$J" r m-block)" waiting.type)" "pr 終端機等待輸入" "fixture 真的走到 pr 與 blocked"
 # 不在 current milestone 的卡沒有分類；子 change 與拆過的母卡不算
 assert_eq "$(pclass m-later) $(pclass loose) $(pclass m-split)" "null null null"
 assert_eq "$(card "$J" r a)" null "子殼不是卡"
 # 相加等於剩幾張；workplan 排了沒殼的項目（merged 與已歸檔的不算）
 P="$(q "$J" progress.r)"
-assert_eq "$(q "$P" mergeable) $(q "$P" waiting_on_you) $(q "$P" testing) $(q "$P" developing) $(q "$P" not_dispatched)" "2 7 1 1 3"
+assert_eq "$(q "$P" mergeable) $(q "$P" waiting_on_you) $(q "$P" testing) $(q "$P" developing) $(q "$P" not_dispatched)" "1 8 3 1 3"
 assert_eq "$(q "$P" not_dispatched_planned)" '["web-x"]'
-assert_eq "$(q "$P" remaining) $(q "$P" milestone) $(q "$P" goal)" "14 1.0 能開單出貨"
+assert_eq "$(q "$P" remaining) $(q "$P" milestone) $(q "$P" goal)" "16 1.0 能開單出貨"
 # 沒設 current milestone：milestone、goal 為 null，兩張活卡都算（含不在 workplan 的）
 assert_eq "$(q "$J" progress.nc.milestone) $(q "$J" progress.nc.goal) $(q "$J" progress.nc.remaining)" "null null 2"
 assert_eq "$(q "$P" at)" "$(q "$J" generated_at)"

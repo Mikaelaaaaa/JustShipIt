@@ -18,35 +18,43 @@ deny() {
   exit 0
 }
 
-# 判斷「是不是 git push / add / commit」只看會執行的部分；引號與 heredoc 內的字樣不算。旗標與署名仍讀原始 COMMAND。
+# 判斷「是不是 git push / add / commit」只看會執行的部分；引號與 heredoc 內的字樣不算。push 的旗標讀正規化後的文字，其餘仍讀原始 COMMAND。
 SKELETON=$(printf '%s' "$COMMAND" | perl "$(dirname "${BASH_SOURCE[0]}")/cmd-skeleton.pl") || deny "perl failed, cannot read the command skeleton. Make sure perl works."
+# git 與子命令之間可以夾全域選項（-C、-c、--git-dir 等），樣式跟 hooks/opsx-grant-gate.sh 共用
+source "$(dirname "${BASH_SOURCE[0]}")/_git-re.sh"
+CMD_AT='(^|\s|&&|\|\||;)'
 
 # ── Block push to main/master ──
-if echo "$SKELETON" | grep -qE '(^|\s|&&|\|\||;)git\s+push(\s|$)'; then
+if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PUSH}(\\s|\$)"; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
   if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
     deny "Do not push directly to main/master. Create a feature branch and open a PR."
   fi
+  # 照 shell 解析參數的方式去引號、併續行後再比對，引號與反斜線藏不住 push 的參數（跟 hooks/opsx-grant-gate.sh 的 cmd_l3norm 同一套）
+  HOOK_DIR="$(dirname "${BASH_SOURCE[0]}")"
+  NORM_DEFAULT=$(printf '%s' "$COMMAND" | perl "$HOOK_DIR/cmd-containers.pl" | perl "$HOOK_DIR/cmd-normalize.pl") || deny "perl failed, cannot normalize the command. Make sure perl works."
+  NORM_KEEP=$(printf '%s' "$COMMAND" | perl "$HOOK_DIR/cmd-containers.pl" | perl "$HOOK_DIR/cmd-normalize.pl" --keep-space) || deny "perl failed, cannot normalize the command. Make sure perl works."
+  NORM="${NORM_DEFAULT}"$'\n'"${NORM_KEEP}"
   # 同一段 push 內，refspec 目標是 main / master 才算；分支名只含 main 片段、push 以外的 main 字樣不算（hooks/opsx-grant-gate.sh 同一條）
-  push_main='git\s+push\b[^;&|]*[[:space:]:+"'"'"'](refs/heads/)?(main|master)([^A-Za-z0-9._/:-]|$)'
-  if echo "$COMMAND" | tr '\n' ' ' | grep -qE "$push_main"; then
+  push_main="${GIT_PUSH}"'\b[^;&|]*[[:space:]:+"'"'"'](refs/heads/)?(main|master)([^A-Za-z0-9._/:-]|$)'
+  if printf '%s\n' "$NORM" | grep -qE "$push_main"; then
     deny "Do not push directly to main/master. Create a feature branch and open a PR."
   fi
-  # Block force push
-  if echo "$COMMAND" | grep -qE '\s(--force|-f)\b'; then
+  # Block force push：只看同一段 push 的參數，後面串的指令自己的 -f 不算；2>&1、&>file 這類重導向裡的 & 不是分段
+  if printf '%s\n' "$NORM" | grep -qE "${GIT_PUSH}([[:space:]]([^;&|]|>&|&>)*)?[[:space:]](--force|-f)\\b"; then
     deny "Force push is blocked. Use --force-with-lease if you must overwrite remote history."
   fi
 fi
 
 # ── Block git add of .env files ──
-if echo "$SKELETON" | grep -qE '(^|\s|&&|\|\||;)git\s+add(\s|$)'; then
+if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PRE}add(\\s|\$)"; then
   if echo "$COMMAND" | grep -E '\.(env|env\.local|env\.docker)(\s|$)' | grep -qv 'example'; then
     deny "Adding .env files is blocked. Only .env.example files should be committed."
   fi
 fi
 
 # ── Block commits with AI attribution ──
-if echo "$SKELETON" | grep -qE '(^|\s|&&|\|\||;)git\s+commit(\s|$)'; then
+if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PRE}commit(\\s|\$)"; then
   # Only the attribution forms count: a trailer line starting with Co-Authored-By / Generated with that names
   # Claude or Anthropic, or --author / --trailer / GIT_AUTHOR_NAME / GIT_COMMITTER_NAME carrying those names.
   # Prose that merely mentions them, and paths like /private/tmp/claude-502/x, are not attribution.
@@ -62,7 +70,7 @@ if echo "$SKELETON" | grep -qE '(^|\s|&&|\|\||;)git\s+commit(\s|$)'; then
 fi
 
 # ── Credential leak scan on commit ──
-if echo "$SKELETON" | grep -qE '(^|\s|&&|\|\||;)git\s+commit(\s|$)'; then
+if echo "$SKELETON" | grep -qE "${CMD_AT}${GIT_PRE}commit(\\s|\$)"; then
   DIFF=$(git diff --cached --unified=0 --no-color 2>/dev/null || true)
   [[ -z "$DIFF" ]] && exit 0
 

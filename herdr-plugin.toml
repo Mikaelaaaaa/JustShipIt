@@ -3,7 +3,7 @@
 id = "opsx-board"
 name = "opsx 看板"
 version = "0.2.0"
-description = "opsx 的看板：待處理 / 進行中 / 待指派 / 已完成，資料從 openspec/、dispatch.json、herdr、glab 投影；網頁回 gate、指派、核准合併，pane 只看。"
+description = "opsx 的看板：待處理 / 進行中 / 等待中 / 待指派 / 已完成，資料從 openspec/、dispatch.json、herdr、glab 投影；網頁回 gate、指派、核准合併，pane 只看。"
 min_herdr_version = "0.9.0"
 platforms = ["macos", "linux"]
 

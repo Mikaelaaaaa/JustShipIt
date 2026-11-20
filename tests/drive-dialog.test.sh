@@ -28,7 +28,7 @@ cat > "$FX/on_wait.sh" <<EOF
 case "\$*" in *"--until working"*) printf '{}' > "$OPSX_STATE_DIR/dispatch.json" ;; esac
 EOF
 export OPSX_TEST_ON_WAIT="$FX/on_wait.sh"
-TRUST=$'Adding a new directory: /Users/x/.local/state/opsx\nThis session hasn\'t worked here before. Is this a directory you created or one you trust?\n❯ No, exit\n  Yes, add it\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)\n'
+TRUST=$'Adding a new directory: /Users/me/.local/state/opsx\nThis session hasn\'t worked here before. Is this a directory you created or one you trust?\n❯ No, exit\n  Yes, add it\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)\n'
 PERM_FOOT=$'\n❯ 1. Yes\n  2. No\n\nEsc to cancel'
 
 gate_block() { awk -v id="## $1" '/^## /{on = ($0 == id)} on' "$C/gates.md"; }

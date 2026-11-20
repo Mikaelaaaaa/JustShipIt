@@ -1,7 +1,7 @@
 """把標準設定與 repo 路徑合併進使用者層 Claude Code settings.json。
 
---template 是 plugin 的標準設定（只含物件與字串陣列，字串裡的 ${NAME} 由環境變數展開）；
---add-dir 追加 permissions.additionalDirectories。只追加不存在的元素，不動其他鍵；
+--template 是 plugin 的標準設定（只含物件、字串陣列與字串，字串裡的 ${NAME} 由環境變數展開）；
+--add-dir 追加 permissions.additionalDirectories。只追加不存在的元素，字串值只寫沒有的鍵（已有就保留使用者的值），不動其他鍵；
 有變化且原檔存在時先備份成 <file>.opsx-bak（已有就不覆蓋）。
 檔案不是合法 JSON、或要寫的鍵路徑上的型別不符時直接失敗，不改檔。
 --render 把範本整份展開後印到 stdout（不需要 --file，不寫檔），給只想帶給單一 session 的 --settings 檔用。
@@ -28,7 +28,7 @@ def expand(text, source):
 
 
 def flatten(node, keys, source):
-    """範本 → [(鍵路徑, 字串陣列)]。葉節點不是字串陣列就失敗。"""
+    """範本 → [(鍵路徑, 字串陣列或字串)]。葉節點不是字串陣列也不是字串就失敗。"""
     if isinstance(node, dict):
         wants = []
         for k, v in node.items():
@@ -36,7 +36,9 @@ def flatten(node, keys, source):
         return wants
     if isinstance(node, list) and all(isinstance(v, str) for v in node):
         return [(keys, [expand(v, source) for v in node])]
-    raise SystemExit(f"claude-settings: {source} 的 {'.'.join(keys)} 要是字串陣列，實際是 {node!r}")
+    if isinstance(node, str):
+        return [(keys, expand(node, source))]
+    raise SystemExit(f"claude-settings: {source} 的 {'.'.join(keys)} 要是字串陣列或字串，實際是 {node!r}")
 
 
 def expand_tree(node, source):
@@ -62,10 +64,8 @@ def load(path):
     return data
 
 
-def merge(data, keys, values, path):
-    """把 values 追加進 data 的 keys 路徑上的陣列；回傳實際新增的元素。"""
-    if not values:
-        return []
+def parent(data, keys, path):
+    """回傳 keys 最後一層所在的物件，路上缺的物件補建；路上有非物件就失敗。"""
     node = data
     for i, key in enumerate(keys[:-1]):
         if key not in node:
@@ -73,6 +73,23 @@ def merge(data, keys, values, path):
         node = node[key]
         if not isinstance(node, dict):
             raise SystemExit(f"claude-settings: {path} 的 {'.'.join(keys[:i + 1])} 要是物件，實際是 {node!r}")
+    return node
+
+
+def set_missing(data, keys, value, path):
+    """keys 路徑上沒有這個鍵才寫入 value；已有就保留原值，不論是否相同。回傳實際新增的值。"""
+    node = parent(data, keys, path)
+    if keys[-1] in node:
+        return []
+    node[keys[-1]] = value
+    return [value]
+
+
+def merge(data, keys, values, path):
+    """把 values 追加進 data 的 keys 路徑上的陣列；回傳實際新增的元素。"""
+    if not values:
+        return []
+    node = parent(data, keys, path)
     last = keys[-1]
     if last not in node:
         node[last] = []
@@ -119,7 +136,8 @@ def main():
     data = load(args.file) if exists else {}
     added = []
     for keys, values in wants:
-        added += [(keys, v) for v in merge(data, keys, values, args.file)]
+        put = set_missing if isinstance(values, str) else merge
+        added += [(keys, v) for v in put(data, keys, values, args.file)]
 
     if args.check:
         for keys, v in added:
