@@ -18,7 +18,7 @@ assert_eq "${LAUNCH_ARGS[*]}" "--model claude-sonnet-5-5 --permission-mode dontA
 assert_eq "${LAUNCH_ARGS[7]}" "$TOP/openspec" "含空白的路徑要是同一個元素"
 assert_file "$S"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert "allow" in d and "deny" in d,d;assert d["additionalDirectories"]==[sys.argv[2],sys.argv[3]],d' "$S" "$TOP/openspec" "$SD" || fail "autopilot settings 內容不對"
-python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["env"]=={"OPSX_CARD":"retry-backoff"},d' "$S" || fail "autopilot settings 要帶 env OPSX_CARD"
+python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["env"]=={"OPSX_CARD":"retry-backoff","VITEST_MAX_FORKS":"2","VITEST_MAX_THREADS":"1"},d' "$S" || fail "autopilot settings 要帶 env OPSX_CARD 與 vitest worker 上限"
 # 同一組輸入呼叫兩次（dispatch 一次、relaunch 一次）：逐字相同
 first=("${LAUNCH_ARGS[@]}")
 launch_args claude claude-sonnet-5-5 autopilot Acmecorp-CS retry-backoff "$TOP"
@@ -31,7 +31,7 @@ SI="$SD/settings/Acmecorp-CS-retry-backoff-interactive.json"
 assert_eq "${LAUNCH_ARGS[*]}" "--model claude-opus-5-5 --settings $SI --add-dir $TOP/openspec --add-dir $SD"
 assert_file "$SI"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert d=={"additionalDirectories":[sys.argv[2],sys.argv[3]]},d' "$SI" "$TOP/openspec" "$SD" || fail "interactive settings 只該有可寫目錄"
-python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["env"]=={"OPSX_CARD":"retry-backoff"},d' "$SI" || fail "interactive settings 要帶 env OPSX_CARD"
+python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["env"]=={"OPSX_CARD":"retry-backoff","VITEST_MAX_FORKS":"2","VITEST_MAX_THREADS":"1"},d' "$SI" || fail "interactive settings 要帶 env OPSX_CARD 與 vitest worker 上限"
 assert_file "$S"   # 另一個模式那份不被蓋掉
 
 # --- codex：不寫 settings ---
@@ -162,7 +162,7 @@ assert_eq "$(sandbox_of "$SD/settings/Forge-no-grant-autopilot.json")" '"MISSING
 rm -f "$SD/grants.toml"
 
 # --- autopilot-local-ops：本地小操作不看授權都放行；interactive 不放行；不放過寬的寫法 ---
-LOCAL_OPS='["Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)"]'
+LOCAL_OPS='["Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)","Bash(git mv:*)","Bash(git rm:*)"]'
 has_local_ops() { python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];m=[r for r in json.loads(sys.argv[2]) if r not in a];assert not m,m' "$1" "$LOCAL_OPS"; }
 printf '[repos.Other]\npush = true\n' > "$SD/grants.toml"
 launch_args claude claude-sonnet-5-5 autopilot Acmecorp-AI no-entry "$TOP"
