@@ -47,6 +47,16 @@ const row = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: 
 assert.ok(row.includes('report 待你決定') && row.includes('report.md 有留給人決定的項目'), '列上要有標籤與問題：' + row);
 assert.ok(row.includes('data-act="pane"'), '要有開啟 pane：' + row);
 assert.ok(!row.includes('data-act="merge"'), '不能有合併按鈕');
+assert.ok(!row.includes('data-act="stop"'), '不能有停止按鈕：' + row);
 assert.ok(!row.includes('照建議'), '不能有照建議');
+
+// 待指派列：已派出的卡給開啟 pane、不給指派；沒派出的照舊給指派
+const rowReady = new Function('esc', 'KIND', 'pendBadge', 'priorityBadge', 'since', 'stoppedLine', 'key', 'ui', 'paneStage',
+  body('rowReady') + ';return rowReady;')(esc, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, paneStage);
+const live = rowReady({slug: 'g', title: 'g', repo: 'r', kind: 'dev', stage: 'grill', dispatch: {pane: 'p1'}});
+assert.ok(live.includes('pane 在 grill') && live.includes('data-act="pane"'), '已派出的卡有 pane 在 grill 與開啟 pane：' + live);
+assert.ok(!live.includes('data-act="dispatch"'), '已派出的卡不給指派：' + live);
+const idle = rowReady({slug: 'y', title: 'y', repo: 'r', kind: 'dev', stage: 'apply', dispatch: null});
+assert.ok(idle.includes('data-act="dispatch"') && !idle.includes('pane 在'), '沒派出的卡照舊指派：' + idle);
 JS
 echo ok

@@ -360,12 +360,14 @@ def needs_human(card, gates, agent_status, top, prs):
 
 PRE_APPLY = ("explore", "grill", "propose")
 BACKGROUND_WAIT = ("等背景", "等 reviewer")
-PIPELINE_ENDED = ("failed", "canceled")   # CI 已經跑完沒過，不是在等 CI
+# mr.sh 也當卡住的 pipeline 狀態：不會自己往下走，不是在等 CI
+PIPELINE_ENDED = ("failed", "canceled", "skipped", "manual", "timed_out")
 
 # 走到這裡的 waiting 只剩只等別張卡的 gate。herdr 讀不到（None）分不出有沒有在工作，算在工作
 def hold_of(card, waiting, agent_status, stopped):
     if waiting: return "等 %s 合併" % waiting["waits_on"]
     if agent_status in ("working", None): return None
+    if agent_status == "unknown": return "等協調者"   # pane 已經不在，CI 與停住原因都不準
     if card["mr"] and card["mr"].get("blocked_on") == "pipeline" and card["mr"].get("pipeline_status") not in PIPELINE_ENDED: return "等 CI"
     if stopped and stopped["reason"].startswith(BACKGROUND_WAIT): return "等背景工作"
     return "等協調者"

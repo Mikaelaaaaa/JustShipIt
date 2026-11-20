@@ -49,12 +49,15 @@ propose_card pp-w
 apply_card a-unknown
 babysit_card b-work 13 "$MR_CI"; stopped b-work 'babysit 做完，MR 卡在衝突'
 babysit_card b-red 14 '{"state":"opened","draft":false,"has_conflicts":false,"sha":"ccc333","head_pipeline":{"status":"failed"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}'
+babysit_card b-manual 15 '{"state":"opened","draft":false,"has_conflicts":false,"sha":"ddd444","head_pipeline":{"status":"manual"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}'
+babysit_card b-timeout 16 '{"state":"opened","draft":false,"has_conflicts":false,"sha":"eee555","head_pipeline":{"status":"timed_out"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}'
+babysit_card b-gone 17 "$MR_CI"; stopped b-gone '等背景工作（babysit 站）'
 apply_card undispatched
 
 printf '{' > "$OPSX_STATE_DIR/dispatch.json"
 printf '"r/a-working":{"pane":"pa","mode":"autopilot"},"r/b-ci":{"pane":"pb","mode":"autopilot"},"r/b-conflict":{"pane":"pc","mode":"autopilot"},' >> "$OPSX_STATE_DIR/dispatch.json"
 printf '"r/rv-bg":{"pane":"pd","mode":"autopilot"},"r/pr-rev":{"pane":"pe","mode":"autopilot"},"r/ex-w":{"pane":"pf","mode":"autopilot"},' >> "$OPSX_STATE_DIR/dispatch.json"
-printf '"r/gr-i":{"pane":"pg","mode":"autopilot"},"r/pp-w":{"pane":"ph","mode":"autopilot"},"r/a-unknown":{"pane":"gone","mode":"autopilot"},"r/b-work":{"pane":"pi","mode":"autopilot"},"r/b-red":{"pane":"pb","mode":"autopilot"}}' >> "$OPSX_STATE_DIR/dispatch.json"
+printf '"r/gr-i":{"pane":"pg","mode":"autopilot"},"r/pp-w":{"pane":"ph","mode":"autopilot"},"r/a-unknown":{"pane":"gone","mode":"autopilot"},"r/b-work":{"pane":"pi","mode":"autopilot"},"r/b-red":{"pane":"pb","mode":"autopilot"},"r/b-manual":{"pane":"pb","mode":"autopilot"},"r/b-timeout":{"pane":"pb","mode":"autopilot"},"r/b-gone":{"pane":"gone2","mode":"autopilot"}}' >> "$OPSX_STATE_DIR/dispatch.json"
 export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
 printf '{"id":"cli:agent:list","result":{"agents":[' > "$OPSX_TEST_HERDR_AGENTS"
 printf '{"pane_id":"pa","agent_status":"working"},{"pane_id":"pb","agent_status":"idle"},{"pane_id":"pc","agent_status":"done"},' >> "$OPSX_TEST_HERDR_AGENTS"
@@ -82,6 +85,9 @@ expect pp-w propose 待指派 null "還在 propose 的 pane"
 expect a-unknown apply 等待中 "等協調者" "pane 不在了"
 expect b-work babysit 進行中 null "在工作時不看停住原因與 CI"
 expect b-red babysit 等待中 "等協調者" "pipeline 已經失敗，不是在等 CI"
+expect b-manual babysit 等待中 "等協調者" "手動 job 要人按，CI 不會自己往下走"
+expect b-timeout babysit 等待中 "等協調者" "CI 逾時"
+expect b-gone babysit 等待中 "等協調者" "pane 不在了，先於 CI 與停住原因"
 # 沒派出的卡不帶 hold
 expect undispatched apply 待指派 null "沒派出"
 

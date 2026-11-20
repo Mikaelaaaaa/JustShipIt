@@ -494,6 +494,7 @@ function rowAttn(c){
   else if(w.type==='等待決定'){l2=`<span class="q">${esc(w.question||'')}</span>${rec}`;act=(w.recommended&&w.needs!=='run'?`<button class="primary sm" data-act="answer" data-text="${esc(w.recommended)}">照建議</button>`:'')+`<button class="sm ${w.needs==='run'?'primary':''}" data-act="open">${w.needs==='run'?'貼結果':'自己選'}</button>`;}
   else if(w.type==='type 不明'){l2=`<span class="q">${esc(w.question||'')}</span><span class="sep">·</span>gates.md 的 type 要寫 approval | decision`;act=`<button class="sm" data-act="open">看詳情</button>`;}
   else if(w.type==='可以合併'){l2=`<span class="q">MR 五個條件都通過</span><span class="sep">·</span><span class="mono">${esc(c.mr.head_sha||'').slice(0,8)}</span>`;act=`<button class="primary sm" data-act="merge">合併</button><a class="sm" href="${esc(c.mr.url)}" target="_blank" rel="noopener"><button class="sm">開啟 MR</button></a>`;}
+  else if(w.type==='report 待你決定'){l2=`<span class="q">${esc(w.question)}</span>`;act=`<button class="primary sm" data-act="pane">開啟 pane</button>`;}
   else {l2=`<span class="q">${esc(w.question)}</span>`;act=`<button class="primary sm" data-act="pane">開啟 pane</button><button class="sm" data-act="stop">停止</button>`;}
   const sending=w&&w.sending;if(sending)act=act.replace(/<button /g,'<button disabled ');
   const badge=!w?'<span class="badge ok">已回答</span>':`<span class="badge ${WAIT_BADGE[w.type]}">${esc(w.type)}</span>${sending?'<span class="badge line">送出中</span>':''}`;
@@ -541,7 +542,7 @@ function rowReady(c){
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="avatar plain">${c.stage==='apply'?'RDY':'NEW'}</div>
     <div class="main"><div class="l1"><span class="badge line">${esc(KIND[c.kind]||c.kind)}</span>${pendBadge(c)}${priorityBadge(c)}<span class="title">${esc(c.title)}</span><span class="meta">${esc(c.repo)} · 階段 ${esc(c.stage)}${paneStage(c)} · ${esc(since(c))}</span></div>${stoppedLine(c)}</div>
-    <div class="act"><button class="primary sm" data-act="dispatch">指派</button></div></div>`;
+    <div class="act">${c.dispatch?'<button class="sm" data-act="pane">開啟 pane</button>':'<button class="primary sm" data-act="dispatch">指派</button>'}</div></div>`;
 }
 function rowDone(c){
   return `<div class="row" data-key="${esc(key(c))}" role="button" tabindex="0" aria-selected="${ui.sel===key(c)}">

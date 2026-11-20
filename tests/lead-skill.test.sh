@@ -91,7 +91,7 @@ for s in 'leave ① out only when nothing is pending' 'starting with `!`' '下�
 done
 for s in 'no pane is working and ① has no open gate' 'priority level, then workplan order' 'P2 included' \
   'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
-  'While any pane is working, dispatch nothing extra'; do
+  'While any pane is working, dispatch nothing extra' 'Skip a 待指派 card that already has a dispatch.json entry'; do
   case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
 done
 for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
