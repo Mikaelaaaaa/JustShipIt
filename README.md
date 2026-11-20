@@ -8,6 +8,10 @@ A Claude Code plugin that runs a change from inbox card to pull request, with a 
 
 看板顯示每張卡現在在哪一站、哪裡卡住在等你。示範資料是虛構的三個專案（shop-web、shop-api、cli-tool）。
 
+![herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡](docs/assets/opsx-tui-demo.png)
+
+herdr 右側 pane 是同一份資料的終端機版本：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane。
+
 ## 為什麼做
 
 - 用 Claude Code 同時做好幾件事時，最難的不是寫 code，是記得每件事做到哪、哪個 agent 在等我回答。
@@ -50,13 +54,30 @@ flowchart LR
   pr --> babysit
   babysit --> human{{合併：人}}
   human --> archive
+  drive[[opsx drive]] -. 每張卡從 explore 推到 babysit .-> explore
+  coord[[opsx coordinate]] -. 派待指派、重派、收尾 .-> apply
+  lead[[opsx lead]] -. 收件派去 explore .-> inbox
+  lead -. 轉給人 .-> gate{{gate：人回}}
 ```
+
+每一站做什麼：
 
 - `explore` 讀 code、列出已知與待決；`grill` 一次問你一題，只問只有你能答的。
 - `propose` 寫 proposal、design、spec、tasks；`apply` 照 tasks 先測試後實作，一個 change 一個 commit。
-- `review` 三位 reviewer 平行審，Bug 與 Must-fix 退回 apply；`pr` 開 MR 或 PR；`babysit` 看 CI 與 review 留言。
-- **合併永遠留給人。** 在看板按「合併」或跑 `opsx merge <卡>`，只寫一次性核准，由 agent 執行那一次合併，agent 自己合不了。
-- 沒有 openspec 殼的小想法也可以先 `/opsx-workflow:explore` 隨便聊，想清楚再開卡。
+- `review` 先從 diff 畫一張邏輯表（功能清單、流程圖、條件表），再讓三位 reviewer 平行審，Bug 與 Must-fix 退回 apply；`pr` 開 MR 或 PR，並確認邏輯表對上 MR 最新的 commit；`babysit` 看 CI 與 review 留言。
+
+誰在推：
+
+- `opsx dispatch <卡> --mode autopilot` 開 worktree 與 herdr pane，送出第一站，並在背景起這張卡的 `opsx drive`。drive 每輪看卡的狀態送下一站，從 explore 一路推到 babysit。卡上有開著的 gate 時，它等你回，不定時催。MR 開了之後，它檢查五個條件（開著、不是 draft、沒衝突、CI 綠、沒有未解的 review），全綠就停，沒綠就跑一次 babysit 再等 CI。
+- `opsx coordinate` 由 launchd 每 5 分鐘跑一輪：收尾已合併的卡、通知等人回的 gate、重派 pane 死掉的卡，派依賴都合併了的 P0、P1 待指派卡（同時活著的 pane 預設最多 8 個，P0 不受這個上限）。收件匣的卡它不派，它也不送站、不合併。
+- `opsx lead` 開協調者 session。卡停住要人處理時（gate、停住、MR 卡住），Stop hook 和 coordinate 會通知它；只是在等 subagent 或 CI 的卡不會通知。它把每個 gate 連同建議轉給你，不替你回；列出可合併的卡和不會互相衝突的合併順序；卡合併後停掉 pane 並歸檔。收件匣去重後，它把 P0、P1 收件卡派去 explore，P2 收件卡只列給你看。沒有 pane 在做、也沒有 gate 等你時，它再派下一張待指派卡，P2 也派。
+
+你要做的只有兩件事：
+
+- **回 gate。** agent 做到要授權（push、開 MR、安裝套件）或要你選的事，就寫一筆 gate 然後先做別的。在看板回，或跑 `opsx answer <卡> --gate <id> <文字>`；lead 也會用彈窗問你，一批最多四題。
+- **合併永遠留給人。** 在看板按「合併」或跑 `opsx merge <卡>`，只寫一次性核准，由 agent 執行那一次合併，agent 自己合不了。合併前看邏輯表判斷這支 PR 做了什麼。
+
+沒有 openspec 殼的小想法也可以先 `/opsx-workflow:explore` 隨便聊，想清楚再開卡。
 
 ## 看板
 
