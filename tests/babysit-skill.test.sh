@@ -43,6 +43,27 @@ assert_not_fixed 'post a new comment' "$STEP"
 assert_not_fixed 'no `## 邏輯表` line' "$STEP"
 assert_fixed 'overwrite' "$STEP"
 
+# --- autopilot-forge-access D12：步 6 讀 GitLab 未解決 thread 用 glab mr note list --state unresolved，不用 glab api（autopilot 不放行）---
+STEP6="$FX/step6"
+awk '/^6\. /{on=1} /^7\. /{on=0} on' "$SK" > "$STEP6"
+[ -s "$STEP6" ] || fail "skills/babysit/SKILL.md 沒有步 6"
+grep -oE 'Unresolved threads:[^.]*' "$STEP6" | grep -qF 'glab mr note list <iid> --state unresolved' || fail "步 6 讀未解決 thread 要用 glab mr note list <iid> --state unresolved"
+assert_not_fixed 'glab api' "$STEP6"
+
+# --- D15：GitLab 那條要求每個 glab 指令單獨跑；串接的指令對不上 glab mr *，留在沙盒內 ---
+grep -F -- '- GitLab:' "$STEP6" | grep -qF 'Run each `glab` call as its own Bash command' || fail "步 6 的 GitLab 那條要寫 glab 單獨跑、不串接"
+
+# --- D12：步 8 GitLab 回覆進原 thread 用 glab mr note create --reply，沒有 --message-file 與 glab api ---
+assert_fixed 'glab mr note create <iid> --reply <discussion-id>' "$STEP"
+assert_not_fixed '--message-file' "$STEP"
+assert_not_fixed 'glab api' "$STEP"
+
+# --- D11：步 7 開新 build 前寫 gate（autopilot 的 allow 只放行唯讀 glab ci）---
+STEP7="$FX/step7"
+awk '/^7\. /{on=1} /^8\. /{on=0} on' "$SK" > "$STEP7"
+[ -s "$STEP7" ] || fail "skills/babysit/SKILL.md 沒有步 7"
+assert_fixed 'before that one fresh build, write a gate' "$STEP7"
+
 # --- 照 sha 比對重產（design D7，跟 pr step 5c 一樣）：不看這輪有沒有 push，merge 模式不產，一輪只產一次 ---
 assert_fixed 'Every run except the `merge <sha>` mode checks the map once, after its last push' "$STEP"
 assert_fixed 'with the same check the pr skill makes before its reply' "$STEP"
