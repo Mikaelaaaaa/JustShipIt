@@ -116,6 +116,24 @@ done
 duty 2 | grep -qF 'never answer them' || fail "職責 2 要保留 never answer them"
 case "$DUTIES" in *自動採用*) fail "Duties 不能有「自動採用」" ;; esac
 
+# 流量控管（specs/opsx-lead「每輪依序看四欄」「停住的進行中卡被推動」「載入後開 10 分鐘一輪」「跳窗開著時不搶著跑」
+# 「沒事不輸出」「有處理掉的事就回報」）：只切職責 19 那一條，別條的字不算
+D19="$(duty 19)"
+[ -n "$D19" ] || fail "找不到職責 19（流量控管）"
+for s in 'Flow control' '`opsx collect`' '待處理, then 進行中, then 待指派, then 收件匣' \
+  '`/loop 10m`' 'Start it once per session' \
+  'pop-up is open' 'waits until the pop-up returns' 'never open a second pop-up' \
+  '`herdr pane read <pane>`' 'unsent text' '`herdr pane send-keys <pane> enter`' 'usage limit' '「繼續」' \
+  'confirmation screen' '`opsx relaunch <slug> --repo <top>`' \
+  'outputs nothing' 'not even a line saying so' 'fully handled' 'block ④' \
+  '待處理 by duties 2 and 8' '待指派 by duty 9' '收件匣 by duty 10'; do
+  case "$D19" in *"$s"*) ;; *) fail "職責 19 缺：$s — $D19" ;; esac
+done
+# 三欄照 main 的職責 2、9、10（gate main-supersedes-d6）：職責 19 不另訂派工上限、不代答
+for s in 'opsx merge' 'glab mr merge' 'gh pr merge' 'CronCreate' 'max-working' 'P2' 'Recommended' 'opsx answer' 'opsx dispatch'; do
+  case "$D19" in *"$s"*) fail "職責 19 不能有：$s — $D19" ;; esac
+done
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 echo ok
