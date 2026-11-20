@@ -222,6 +222,8 @@ Every inbox.md you write here, and any card you open while exploring, gets the f
 
 Log the split in decisions.tsv with `opsx log`.
 
+A problem you find while exploring that is outside this card's scope (`../review/SKILL.md` Step 3, 範圍內／範圍外) becomes its own card: `opsx new` with the same flags as `../apply/SKILL.md` skeleton row 6, then, only when the printed slug is a fresh card, `opsx note <slug> --repo <top> -- "做到 propose 完成就停（留在待指派），不要 apply"` (skip `opsx note` when it merged). Whether to handle it here or open another card is never asked: 「另開卡」 is never a gate option. 範圍內的產品取捨, whether or how to change something inside this card's scope, still goes to the user.
+
 ## Capturing Decisions
 
 When a decision crystallizes:

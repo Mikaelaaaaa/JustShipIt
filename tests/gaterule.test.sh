@@ -11,7 +11,7 @@ w = {"gate_id": "g1", "type": "等待決定", "action": None, "question": "", "r
 w.update(json.loads(os.environ["OPSX_W"]))
 print(gaterule.decide(w, os.environ["OPSX_REPO"]))'
 }
-decide() { decide_in Agentory-AI "$1"; }
+decide() { decide_in other-repo "$1"; }
 
 assert_eq "$(decide '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate"
 assert_eq "$(decide '{"gate_id": "卡在接 /review #2", "recommended": "用 A"}')" "('human', 'stuck')" "Stop hook 卡住的 gate"

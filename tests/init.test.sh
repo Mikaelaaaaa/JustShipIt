@@ -262,6 +262,10 @@ assert_eq "$(cj "$CS" sandbox.network.allowUnixSockets)" MISSING "herdr socket �
 CO="$OPSX_STATE_DIR/coordinator-settings.json"
 assert_file "$CO"
 assert_eq "$(cj "$CO" sandbox.network.allowUnixSockets)" "[\"$HOME/.config/herdr/herdr.sock\"]" "主控 session 的設定要開 herdr socket"
+assert_eq "$(cj "$CO" hooks.UserPromptSubmit)" "[{\"hooks\": [{\"type\": \"command\", \"command\": \"\\\"$OPSX_ROOT/hooks/lead-skill-reload.sh\\\"\"}]}]" "主控 session 的設定要掛 lead skill reload hook"
+assert_not_grep 'lead-skill-reload.sh' "$CS"
+assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "主控 session 的 opsx dispatch 要在沙盒外跑（git worktree add 寫 .git/worktrees）"
+assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c '"opsx dispatch \*"\|"opsx \*"')" 0 "opsx dispatch * 與整個 opsx * 不進使用者層排除清單"
 case "$outg" in *"主控 session 用 opsx lead 啟動（它帶 --settings $CO"*) ;; *) fail "要印主控 session 用 opsx lead 啟動與設定檔路徑：$outg" ;; esac
 case "$outg" in *"用 claude --settings"*) fail "不能再叫人直接跑 claude --settings（起來的協調者沒有 herdr 名）：$outg" ;; esac
 assert_eq "$(printf '%s\n' "$outg" | tail -1)" "init --global: 開協調者：在 herdr pane 跑 opsx lead" "結尾要提示用 opsx lead 開協調者：$outg"
@@ -276,6 +280,25 @@ assert_eq "$(cat "$CS")" "$before" "重跑改了 settings.json"
 assert_eq "$(cat "$CO")" "$co_before" "重跑改了主控 session 的設定檔"
 case "$outs" in *"coordinator-settings.json 已有"*) ;; *) fail "內容沒變時要說已有、不重寫（沙盒內重寫會失敗）：$outs" ;; esac
 assert_no_file "$CS.opsx-bak"        # no-op 不產生備份
+assert_eq "$(grep -c 'lead-skill-reload.sh' "$CO")" 1 "重跑後 reload hook 只能有一個"
+
+# 主控 session 的設定是合併不是覆寫：舊範本內容加上手加的鍵，重跑後手加的都在、hook 補上、備份是原內容
+rm -f "$CO.opsx-bak"
+printf '{"sandbox":{"network":{"allowUnixSockets":["%s/.config/herdr/herdr.sock"]}},"permissions":{"additionalDirectories":["/r/openspec"]},"enabledPlugins":{"sketch@x":true}}\n' "$HOME" > "$CO"
+co_orig="$(cat "$CO")"
+outk="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "手加的鍵保留 rc: $outk"
+assert_eq "$(cj "$CO" permissions.additionalDirectories)" '["/r/openspec"]' "手加的 additionalDirectories 要保留"
+assert_eq "$(cj "$CO" enabledPlugins)" '{"sketch@x": true}' "手加的 enabledPlugins 要保留"
+assert_eq "$(grep -c 'lead-skill-reload.sh' "$CO")" 1 "合併後要補上 reload hook"
+assert_eq "$(cat "$CO.opsx-bak")" "$co_orig" "備份要是合併前的內容"
+case "$outk" in *"$CO.opsx-bak"*) ;; *) fail "有變化時要印備份路徑：$outk" ;; esac
+
+# 加 opsx dispatch * 之前裝的主控設定：重跑 init --global 要補上 opsx dispatch *
+printf '{"sandbox":{"network":{"allowUnixSockets":["%s"]}}}\n' "$HOME/.config/herdr/herdr.sock" > "$CO"
+outu="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "upgrade rerun: $outu"
+assert_eq "$(cj "$CO" sandbox.excludedCommands)" '["opsx dispatch *"]' "舊的主控設定沒補上 opsx dispatch *"
+case "$outu" in *"寫 $CO"*) ;; *) fail "舊內容要重寫並印寫：$outu" ;; esac
+case "$outu" in *"coordinator-settings.json 已有"*) fail "內容不同時不能說已有：$outu" ;; esac
 
 # CLAUDE_CONFIG_DIR 沒設：寫 $HOME/.claude/settings.json
 mkdir -p "$FX/home"
@@ -342,6 +365,14 @@ before="$(cat "$FX/cc6/settings.json")"
 outd="$(HOME="$PYH" CLAUDE_CONFIG_DIR="$FX/cc6" opsx init --check 2>&1)"; rc=$?
 assert_eq "$rc" 1 "缺 pnpm docs:api 時 --check 要失敗：$outd"
 case "$outd" in *"缺 sandbox.excludedCommands: pnpm docs:api"*) ;; *) fail "要印缺 pnpm docs:api：$outd" ;; esac
+assert_eq "$(cat "$FX/cc6/settings.json")" "$before" "--check 改了檔"
+# vitest worker 上限：init --global 寫進使用者層 env；缺 VITEST_MAX_FORKS 時 --check 指出、exit 1、不改檔（specs/vitest-worker-limit）
+assert_eq "$(cj "$CS" env)" '{"VITEST_MAX_FORKS": "2", "VITEST_MAX_THREADS": "1"}' "init --global 要寫 vitest worker 上限"
+python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));del d["env"]["VITEST_MAX_FORKS"];json.dump(d,open(p,"w"))' "$FX/cc6/settings.json"
+before="$(cat "$FX/cc6/settings.json")"
+outv="$(HOME="$PYH" CLAUDE_CONFIG_DIR="$FX/cc6" opsx init --check 2>&1)"; rc=$?
+assert_eq "$rc" 1 "缺 VITEST_MAX_FORKS 時 --check 要失敗：$outv"
+case "$outv" in *"缺 env.VITEST_MAX_FORKS: 2"*) ;; *) fail "要印缺 env.VITEST_MAX_FORKS：$outv" ;; esac
 assert_eq "$(cat "$FX/cc6/settings.json")" "$before" "--check 改了檔"
 assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c 'orca terminal send\|orca terminal create\|orca orchestration\|"orca \*"')" 0 "寫入類的 orca 子指令與整個 orca * 不進排除清單"
 assert_eq "$(cj "$CS" sandbox.excludedCommands | grep -c '"pnpm \*"\|"tsx \*"')" 0 "整個 pnpm * 與 tsx * 不進排除清單"

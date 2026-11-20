@@ -51,9 +51,18 @@ class RowsTest(unittest.TestCase):
         slugs = [r["card"]["slug"] for r in rows if r["kind"] == "card"]
         self.assertEqual(slugs, ["ask1", "ask2", "run1", "ready1"], "待處理在最上，已完成收起")
         headers = [r["section"] for r in rows if r["kind"] == "header"]
-        self.assertEqual(headers, ["待處理", "進行中", "待指派", "收件匣", "已完成"])
+        self.assertEqual(headers, ["待處理", "進行中", "等待中", "待指派", "收件匣", "已完成"])
         collapsed = {r["section"]: r["collapsed"] for r in rows if r["kind"] == "header"}
         self.assertTrue(collapsed["收件匣"] and collapsed["已完成"], "收件匣與已完成預設收起")
+
+    def test_waiting_section_between_running_and_ready(self):
+        data = dict(DATA, cards=DATA["cards"] + [card("wait1", "等待中", pane="p6", status={"phase": "babysit", "step": "1", "total": "1", "label": "x"})])
+        rows = tm.rows(data, done_open=False)
+        slugs = [r["card"]["slug"] for r in rows if r["kind"] == "card"]
+        self.assertEqual(slugs, ["ask1", "ask2", "run1", "wait1", "ready1"], "等待中在進行中與待指派之間")
+        counts = {r["section"]: r["count"] for r in rows if r["kind"] == "header"}
+        self.assertEqual((counts["進行中"], counts["等待中"]), (1, 1), "等待中的卡不算在進行中")
+        self.assertEqual(next(r["mark"] for r in rows if r["kind"] == "card" and r["card"]["slug"] == "wait1"), "◌")
 
     def test_inbox_open_lists_inbox_before_done(self):
         slugs = [r["card"]["slug"] for r in tm.rows(DATA, done_open=True, inbox_open=True) if r["kind"] == "card"]
@@ -141,7 +150,7 @@ class SessionRowsTest(unittest.TestCase):
     def test_session_replaces_its_mains(self):
         rows = tm.rows(SDATA, done_open=False)
         i = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "進行中")
-        j = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "待指派")
+        j = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "等待中")
         names = [r["session"]["feature"] if r["kind"] == "session" else r["card"]["slug"] for r in rows[i + 1:j]]
         self.assertEqual(names, ["fb", "solo"], "進行中有 fb 一行與 solo 一行，沒有 bt")
         self.assertEqual(rows[i]["count"], 2, "區塊計數含 session")

@@ -28,6 +28,7 @@ row() { # <key> <名> <pane>
   runtime_prompt "$1" hi nowait >/dev/null || fail "$1 傳話 rc"
   runtime_read "$1" >/dev/null || fail "$1 讀畫面 rc"
   assert_eq "$(calls)" "agent prompt $2 hi
+agent read $3 --source visible --format ansi
 pane read $3" "$1 的 argv"
 }
 row r/card-a card-a w1:p1
@@ -73,7 +74,8 @@ verb() { # <期望 argv> <動詞與參數…>
   reset; "$@" >/dev/null || fail "$* rc"
   assert_eq "$(calls)" "$want" "$*"
 }
-verb "agent prompt card-a hi" runtime_prompt r/card-a hi nowait
+verb "agent prompt card-a hi
+agent read w1:p1 --source visible --format ansi" runtime_prompt r/card-a hi nowait
 verb "pane read w1:p1" runtime_read r/card-a
 verb "agent read w1:p1 --lines 10 --format text" runtime_read r/card-a --lines 10
 OPSX_TEST_AGENT_GET_RAW='{}' verb "agent get card-a" runtime_get r/card-a
@@ -145,10 +147,20 @@ reset; OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_AGENT_READ="$FX/typed-screen" coordi
 assert_not_grep '^agent prompt' "$OPSX_FAKE_LOG"
 assert_eq "$(cat "$OPSX_STATE_DIR/coordinator-queue")" "[c] 停住" "輸入框有字排進佇列"
 rm -f "$OPSX_STATE_DIR/coordinator-queue"
-reset; coordinator_say "[c] 停住" && fail "協調者不在時要回 1"
+# 對不到協調者：發桌面錯誤算送過、回 0，照樣記 coordinator.log
+reset; coordinator_say "[c] 停住" || fail "對不到協調者、桌面錯誤發出時要回 0"
+assert_grep '^notification show \[opsx\] 協調者 opsx-coordinator 對不到活著的 pane（.*opsx lead） --body \[c\] 停住 --sound request$' "$OPSX_FAKE_LOG"
 assert_grep 'opsx-coordinator' "$OPSX_STATE_DIR/coordinator.log"
 assert_grep 'agent_not_found' "$OPSX_STATE_DIR/coordinator.log"
 assert_no_file "$OPSX_STATE_DIR/coordinator-queue"
+# 桌面錯誤也發不出去：回 1，下次再試
+printf 'boom\n' > "$FX/nerr"
+reset; OPSX_TEST_NOTIFY_ERR="$FX/nerr" coordinator_say "[c] 停住" && fail "桌面錯誤發不出去要回 1"
+# herdr 別的錯：不發桌面通知、回 1
+rm -f "$OPSX_STATE_DIR/coordinator.log"
+reset; OPSX_TEST_AGENT_GET_ERR=boom coordinator_say "[c] 停住" && fail "別的錯要回 1"
+assert_not_grep '^notification show' "$OPSX_FAKE_LOG"
+assert_grep 'boom' "$OPSX_STATE_DIR/coordinator.log"
 
 # --- 開 agent ---
 open_card() { # 在子 shell 開 r/card-a，印 rc 與交出的 pane / tab / workspace
