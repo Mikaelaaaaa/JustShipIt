@@ -46,8 +46,9 @@ flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$RE
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
-printf '%s\n' "$flow" | grep -qF 'gate' || fail "流程段沒寫人要回 gate"
-printf '%s\n' "$flow" | grep -qF '合併' || fail "流程段沒寫人要合併"
+# 角色說明裡本來就有 gate、合併 字樣，所以認人要做的那兩條的字樣
+printf '%s\n' "$flow" | grep -qF '回 gate' || fail "流程段沒寫人要回 gate"
+printf '%s\n' "$flow" | grep -qF '合併永遠留給人' || fail "流程段沒寫人要合併"
 
 # --- Requirement：不外洩也不宣稱授權 ---
 # 禁用字樣拼接寫：這個檔自己不能被下面的追蹤檔掃描命中
