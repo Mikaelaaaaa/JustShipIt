@@ -103,13 +103,13 @@ L="$(mk_repo Listing)"; LC="$L/openspec/changes"
 git -C "$L" checkout -q -b main 2>/dev/null || git -C "$L" checkout -q main
 mkdir -p "$LC/archive"
 lr() { reason "$(run_hook openspec-router.sh "$(j "$L" "" '{}' "hi" "${1:-UserPromptSubmit}")")"; }
-assert_eq "$(lr)" "opsx：explore · 沒有對到卡 · 進行中 0 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒有進行中 change"
+assert_eq "$(lr)" "opsx：explore · 沒有對到卡 · 未封存 0 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒有進行中 change"
 mkdir -p "$LC/eval-core" "$LC/kb-export"
 printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/.openspec.yaml"
 printf '## 1. x\n\n- [ ] 1.1 a\n' > "$LC/eval-core/tasks.md"
 printf -- '---\ntype: 功能\n---\n\n## 一句話\n\nx\n' > "$LC/kb-export/inbox.md"
 r="$(lr)"
-assert_eq "$r" "opsx：explore · 沒有對到卡 · 進行中 2 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡只印張數"
+assert_eq "$r" "opsx：explore · 沒有對到卡 · 未封存 2 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡只印張數"
 assert_eq "$(lr SessionStart)" "$r" "router: SessionStart 與 UserPromptSubmit 同一段"
 rm -rf "$LC/kb-export"
 mkdir -p "$LC/archive/2026-11-01-old" "$LC/big" "$LC/legacy" "$LC/eval-core/subs/core"
@@ -119,7 +119,7 @@ printf -- '---\ntype: 功能\nsplit_into: a, b\n---\n\n## 一句話\n\nx\n' > "$
 printf 'schema: spec-driven\ncreated: 2026-10-01\n' > "$LC/legacy/.openspec.yaml"
 printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/subs/core/.openspec.yaml"
 r="$(lr)"
-case "$r" in *"進行中 1 張 · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不算: $r" ;; esac
+case "$r" in *"未封存 1 張 · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不算: $r" ;; esac
 case "$r" in *eval-core*|*old*|*big*|*legacy*|*core*) fail "router: 不列卡名: $r" ;; esac
 # 對到卡時維持一行
 mkdir -p "$LC/kb-export"; printf -- '---\ntype: 功能\n---\n\nx\n' > "$LC/kb-export/inbox.md"
