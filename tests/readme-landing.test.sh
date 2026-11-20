@@ -35,6 +35,19 @@ grep -qF 'references/work-split.md' "$README" || fail "README 沒連到 referenc
 assert_file "$OPSX_ROOT/$GIF"
 grep -qF "$GIF" "$README" || fail "README 沒引用 $GIF"
 
+# --- Requirement：README 引用 TUI 截圖 ---
+TUI_PNG="docs/assets/opsx-tui-demo.png"
+[ -f "$OPSX_ROOT/$TUI_PNG" ] || fail "缺 $TUI_PNG"
+awk '/^## 示範/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
+
+# --- Requirement：流程段寫出自動開發的角色 ---
+flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f' "$README")"
+for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
+  printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
+done
+printf '%s\n' "$flow" | grep -qF 'gate' || fail "流程段沒寫人要回 gate"
+printf '%s\n' "$flow" | grep -qF '合併' || fail "流程段沒寫人要合併"
+
 # --- Requirement：不外洩也不宣稱授權 ---
 # 禁用字樣拼接寫：這個檔自己不能被下面的追蹤檔掃描命中
 leak='ts''g-navigator|agen''tory|10\.65\.|172\.21\.|59\.120\.|mikaela''_lin|/Users/mikae''la|spar''k[12]|gmt''c|agn''etory|192\.168\.|10\.66\.|newre''tail|srv19[0-9]|a60''00|台''鋼'
