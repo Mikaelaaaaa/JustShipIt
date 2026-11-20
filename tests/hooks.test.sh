@@ -98,7 +98,7 @@ git -C "$R" checkout -q -b main 2>/dev/null || git -C "$R" checkout -q main
 out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "hi")")"; reason "$out" | grep -q '沒有對到卡' || fail "router: no card: $(reason "$out")"
 git -C "$R" checkout -q feat/eval-core/mikaela
 
-# 沒對到卡時列進行中 change 與下一步（session-change-list）
+# 沒對到卡時只印進行中 change 的張數（session-change-list）
 L="$(mk_repo Listing)"; LC="$L/openspec/changes"
 git -C "$L" checkout -q -b main 2>/dev/null || git -C "$L" checkout -q main
 mkdir -p "$LC/archive"
@@ -109,7 +109,7 @@ printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/.openspec.yaml"
 printf '## 1. x\n\n- [ ] 1.1 a\n' > "$LC/eval-core/tasks.md"
 printf -- '---\ntype: 功能\n---\n\n## 一句話\n\nx\n' > "$LC/kb-export/inbox.md"
 r="$(lr)"
-assert_eq "$r" "opsx：explore · 沒有對到卡 · 進行中 2 張：/opsx-workflow:apply eval-core · /opsx-workflow:explore kb-export · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡列清單"
+assert_eq "$r" "opsx：explore · 沒有對到卡 · 進行中 2 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡只印張數"
 assert_eq "$(lr SessionStart)" "$r" "router: SessionStart 與 UserPromptSubmit 同一段"
 rm -rf "$LC/kb-export"
 mkdir -p "$LC/archive/2026-11-01-old" "$LC/big" "$LC/legacy" "$LC/eval-core/subs/core"
@@ -119,8 +119,8 @@ printf -- '---\ntype: 功能\nsplit_into: a, b\n---\n\n## 一句話\n\nx\n' > "$
 printf 'schema: spec-driven\ncreated: 2026-10-01\n' > "$LC/legacy/.openspec.yaml"
 printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/subs/core/.openspec.yaml"
 r="$(lr)"
-case "$r" in *"進行中 1 張：/opsx-workflow:apply eval-core · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不列: $r" ;; esac
-case "$r" in *old*|*big*|*legacy*|*" core"*|*/core*) fail "router: 清單不該有 old、big、legacy、core: $r" ;; esac
+case "$r" in *"進行中 1 張 · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不算: $r" ;; esac
+case "$r" in *eval-core*|*old*|*big*|*legacy*|*core*) fail "router: 不列卡名: $r" ;; esac
 # 對到卡時維持一行
 mkdir -p "$LC/kb-export"; printf -- '---\ntype: 功能\n---\n\nx\n' > "$LC/kb-export/inbox.md"
 git -C "$L" checkout -q -b feat/eval-core/mikaela
