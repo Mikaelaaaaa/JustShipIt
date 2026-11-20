@@ -23,13 +23,14 @@ launch_args() { # <agent> <model> <mode> <repo> <herdr 名> <主 repo>
   fi
 }
 
-write_settings() { # <file> <repo> <主 repo openspec 目錄> <mode> <herdr 名>：autopilot 直接做那級 allow，永遠要人那級 deny；repo 永遠的授權也進 allow。interactive 只寫可寫目錄。兩種模式都寫 env OPSX_CARD，opsx new 靠它認出 dispatch 的 agent
+write_settings() { # <file> <repo> <主 repo openspec 目錄> <mode> <herdr 名>：autopilot 直接做那級 allow，永遠要人那級 deny；repo 永遠的授權也進 allow。interactive 只寫可寫目錄。兩種模式都寫 env OPSX_CARD（opsx new 靠它認出 dispatch 的 agent）與 vitest worker 上限
   OPSX_REPO="$2" OPSX_SD="$OPSX_STATE_DIR" OPSX_MODE="$4" OPSX_NAME="$5" "$OPSX_PY" -I - "$1" "$3" <<'PY'
 import json,os,sys,tomllib
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib")); import safefile
 sd=os.environ["OPSX_SD"]; repo=os.environ["OPSX_REPO"]
 dirs=[sys.argv[2],sd]
-env={"OPSX_CARD":os.environ["OPSX_NAME"]}
+# vitest 的 worker 上限：多張卡同時跑測試時，每個 worker 約 4GB，不設上限會把記憶體吃滿
+env={"OPSX_CARD":os.environ["OPSX_NAME"],"VITEST_MAX_FORKS":"2","VITEST_MAX_THREADS":"1"}
 if os.environ["OPSX_MODE"]=="interactive":
     safefile.write_atomic(sys.argv[1], json.dumps({"env":env,"permissions":{"additionalDirectories":dirs}},indent=2))
     sys.exit(0)
@@ -38,6 +39,10 @@ allow=["Read","Edit","Write","Glob","Grep","Bash(git status:*)","Bash(git diff:*
        "Bash(openspec:*)","Bash(opsx:*)","Bash(ls:*)","Bash(cat:*)","Bash(grep:*)","Bash(rg:*)","Bash(find:*)","Bash(node:*)","Bash(python3:*)",
        "Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(diff:*)","Bash(sort:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(herdr pane read:*)","Bash(orca status:*)","Bash(orca repo list:*)","Bash(orca repo add:*)","Bash(orca repo set:*)","Bash(orca worktree list:*)","Bash(orca tab create:*)","Bash(orca terminal read:*)",
        "Bash(git show:*)","Bash(git branch:*)","Bash(git rev-parse:*)","Bash(git fetch:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)","Bash(mkdir:*)",
+       # rm 不放字首：形狀嚴格的普通 rm 由 hooks/opsx-grant-gate.sh 明說放行，其他寫法照 dontAsk 拒
+       "Bash(chmod +x:*)","Bash(git switch:*)","Bash(bash evals/prepare-run.sh:*)",
+       # git rm 帶 -r／-f 仍被 opsx-grant-gate.sh 的 RE_DELETE 當第二級 delete
+       "Bash(git mv:*)","Bash(git rm:*)",
        "Bash(glab mr view:*)","Bash(glab mr list:*)","Bash(glab mr diff:*)","Bash(glab ci:*)","Bash(gh pr view:*)","Bash(gh pr checks:*)","Bash(gh pr list:*)"]
 # merge 不在 deny：settings 的 deny 蓋得過 hook 的放行，所以 merge 交給 opsx-grant-gate.sh 的 merge_gate 單獨把關；
 # 放進 allow 是為了閘門放行那一次不再跳 Claude Code 自己的權限框。

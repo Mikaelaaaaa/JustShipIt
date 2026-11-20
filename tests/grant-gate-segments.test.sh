@@ -67,7 +67,8 @@ card_grants '[]'
 
 # command-gate-bypass：git 與 push 之間夾全域選項，一樣是 push（沒有 push 授權要擋）
 printf '[repos."Acmecorp-AI"]\npush = false\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
-for c in 'git -C /tmp/r push origin feat/x' 'git -c core.x=1 push origin feat/x' 'git --git-dir=/tmp/r/.git push origin feat/x' 'git --git-dir /tmp/r/.git push origin feat/x' 'git --work-tree=/tmp/r push origin feat/x' 'git --no-pager push origin feat/x' 'git -C /tmp/r -c a=b push origin feat/x'; do
+# 帶 -c 的 push 是設定注入、第三級，在 tests/git-global-options.test.sh
+for c in 'git -C /tmp/r push origin feat/x' 'git --git-dir=/tmp/r/.git push origin feat/x' 'git --git-dir /tmp/r/.git push origin feat/x' 'git --work-tree=/tmp/r push origin feat/x' 'git --no-pager push origin feat/x'; do
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 push 授權，夾全域選項的 push 要擋：${c}｜$(reason "$out")"
   case "$(reason "$out")" in *第二級*) ;; *) fail "要說這是第二級的 push：${c}｜$(reason "$out")" ;; esac
 done
@@ -81,4 +82,44 @@ for c in 'git -C /tmp/r push --force origin feat' 'git -c core.x=1 push -f origi
   out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "push 授權不夠，危險的寫法要擋：${c}｜$(reason "$out")"
   case "$(reason "$out")" in *第三級*) ;; *) fail "要說這是第三級：${c}｜$(reason "$out")" ;; esac
 done
+# autopilot-local-ops：權限檔不放 rm，閘門只對派工 session（OPSX_CARD 的卡是 autopilot／drive）的嚴格普通 rm 明說 allow
+explicit() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // empty'; }
+printf '[repos."Acmecorp-AI"]\npush = true\nmr = false\nmigrate = false\n' > "$OPSX_STATE_DIR/grants.toml"
+printf '{"Acmecorp-AI/eval-core":{"mode":"autopilot","grants":[]},"Acmecorp-AI/interactive-card":{"mode":"interactive","grants":[]},"Acmecorp-AI/@feat-x":{"mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+git -C "$R" worktree add -q "$R/.claude/worktrees/agent-x" -b worktree-agent-x
+UW="$(cd "$R/.claude/worktrees/agent-x" && pwd -P)"
+export OPSX_CARD=eval-core
+for c in 'rm tests/zz-probe.test.sh' 'rm a.txt b.txt' 'rm -v tests/zz-probe.test.sh' 'rm -i tests/zz-probe.test.sh' 'rm tests/from-rfc.txt'; do
+  out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "派工 session 的普通 rm 要明說放行（${c}）: $(reason "$out")"
+done
+out="$(gg 'rm tests/zz-probe.test.sh' "$UW")"; assert_eq "$(explicit "$out")" allow "subagent worktree 帶 OPSX_CARD 的普通 rm 要明說放行: $(reason "$out")"
+export OPSX_CARD=feat-x
+out="$(gg 'rm tests/zz-probe.test.sh')"; assert_eq "$(explicit "$out")" allow "feature session（條目只有 <repo>/@feat-x）的普通 rm 要明說放行: $(reason "$out")"
+export OPSX_CARD=eval-core
+for c in 'rm \-rf build' 'rm -rf>x build' 'rm $(cat list)' 'rm tests/zz-*.test.sh' "rm 'a b.txt'" 'rm x -rf' 'rm --recur build' $'rm a.txt\ngrep -rn foo .' 'rm a.txt; ls'; do
+  out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "形狀不嚴格的 rm 不能明說放行（${c}）"
+done
+for c in 'rm .env' 'rm src/.env.local' 'rm a.txt .Env'; do
+  out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "刪 .env 不能明說放行（${c}）"
+done
+for c in 'rm /tmp/state/dispatch.json' 'rm ../x.txt' 'rm a/../../x.txt' 'rm config/secrets.yaml' 'rm x.sops.yaml' 'rm infra/sops/key' 'rm sops/key'; do
+  out="$(gg "$c")"; [ "$(explicit "$out")" != allow ] || fail "刪工作目錄外或 secrets 的檔不能明說放行（${c}）"
+done
+for c in 'rm .env.example' 'rm foo.envrc' 'rm a..b.txt'; do
+  out="$(gg "$c")"; assert_eq "$(explicit "$out")" allow "範例檔或只含 env 字樣的檔照舊放行（${c}）: $(reason "$out")"
+done
+for c in 'rm -rf build' 'rm -r tests/tmp' 'rm -f tests/zz-probe.test.sh' 'git status && rm -rf build' 'git rm -f old.txt' 'git rm -r old-dir' 'git rm -rf old-dir' 'git status && git rm -f old.txt'; do
+  out="$(gg "$c")"; assert_eq "$(decision "$out")" deny "沒有 delete 授權的 rm -r／-f 要擋（${c}）: $(reason "$out")"
+  reason "$out" | grep -qF 'action: delete' || fail "deny 要是 delete 授權（${c}）: $(reason "$out")"
+done
+for c in 'git rm -q old.txt' 'git mv a.txt b.txt' 'git rm --cached old.txt'; do
+  out="$(gg "$c")"; [ "$(decision "$out")" != deny ] || fail "普通 git rm 與 git mv 閘門不擋（${c}）: $(reason "$out")"
+done
+for card in interactive-card no-such-card; do
+  export OPSX_CARD="$card"
+  out="$(gg 'rm tests/zz-probe.test.sh')"; [ "$(explicit "$out")" != allow ] || fail "OPSX_CARD=${card} 不是派工的 autopilot 卡，不能放行 rm"
+done
+unset OPSX_CARD
+out="$(gg 'rm tests/zz-probe.test.sh')"; [ "$(explicit "$out")" != allow ] || fail "沒有 OPSX_CARD 不能放行 rm"
+out="$(gg 'rm tests/zz-probe.test.sh' "$UW")"; [ "$(explicit "$out")" != allow ] || fail "使用者自己的 subagent 沒有 OPSX_CARD 不能放行 rm"
 echo "grant-gate-segments ok"

@@ -1,4 +1,5 @@
 {
+  "env": {"VITEST_MAX_FORKS": "2", "VITEST_MAX_THREADS": "1"},
   "permissions": {
     "allow": [
       "Bash(opsx status *)",

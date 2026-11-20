@@ -39,4 +39,17 @@ workplan merged ""
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect merged: $J"
 assert_eq "$(card "$J" docs section)" 已完成 "merged 的卡照舊在已完成"
 
+# 進度分類：驗收 openspec/changes/agent-20261116-1640/specs/no-mr-archive/spec.md「無 MR 的卡在進度算測試中」「開發中的卡照舊依派工分類」
+rm -f "$C/gates.md"
+workplan pending "mr: none"
+J="$(opsx collect --root "$ROOT")"
+assert_eq "$(card "$J" docs progress_class)" testing "沒派工的無 MR 卡算測試中"
+printf '{"o/docs":{"pane":"w1:p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+J="$(opsx collect --root "$ROOT")"
+assert_eq "$(card "$J" docs progress_class)" testing "有派工的無 MR 卡算測試中"
+rm -f "$OPSX_STATE_DIR/dispatch.json"
+printf '## 1\n\n- [ ] 1.1 a\n' > "$C/tasks.md"
+J="$(opsx collect --root "$ROOT")"
+assert_eq "$(card "$J" docs progress_class)" not_dispatched "還有沒勾 task、沒派工的卡照舊算還沒派"
+
 echo "collect-no-mr ok"

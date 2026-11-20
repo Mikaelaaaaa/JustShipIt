@@ -9,13 +9,21 @@ mkdir -p "$dest"
 git -C "$dest" init -q -b feat/report-export/dev
 ch="$dest/openspec/changes/report-export"
 mkdir -p "$ch"
+# 卡寫 schema: opsx 就要帶 schema，不然 candidate 會跑出 repo 外找模板；借 apply 題目已提交的那份，不另存一份
+cp -R "$(dirname "${BASH_SOURCE[0]}")/../../../../apply/evals/fixtures/price-cents-padding/repo/openspec/schemas" "$dest/openspec/"
 
 cat > "$ch/logic-map.md" <<'EOF'
 # 邏輯表：feat/report-export/dev
 
 範圍：`main...feat/report-export/dev` · 讀的檔：2 個 · 功能：1 個
 
+## 這支 PR 在做什麼（業務說明）
+這支 PR 讓報表頁可以匯出 CSV，影響所有要把報表下載回去的使用者。匯出前系統依序檢查帳號是否停用、角色能不能匯出、報表是不是自己部門的，任一項不過就擋下並記下原因。目前只有 admin 與 analyst 能匯出，沒設定角色的帳號會被當成 viewer。例如業務部的 analyst 小林匯出業務部的月報，三項都過，拿到 CSV；小林改匯出財務部的報表，就被擋下，紀錄上的原因是部門不同。
+
 ## 功能 1：使用者匯出報表前先過三道檢查
+
+### 業務上在做什麼
+使用者在報表頁按下匯出 CSV。系統先擋停用的帳號，再看角色，沒設定角色的人當成 viewer。角色不在可匯出名單的人會被擋下。最後擋別部門的報表，三項都過的人拿到 CSV，被擋的人拿不到檔案，系統記下擋的原因。
 
 ### 做了什麼
 1. `export_report()` 收到匯出請求，載入使用者與報表（`src/export.py`）。

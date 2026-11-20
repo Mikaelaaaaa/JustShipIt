@@ -104,4 +104,16 @@ cards '[{"slug":"card-a","section":"待指派","dispatch":null}]'
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "人答過的 gate 不再答：$(cat "$OPSX_FAKE_LOG")"
 assert_grep '^opsx dispatch card-a ' "$OPSX_FAKE_LOG"
+
+# collect 把只等別張卡的 parked 卡分在進行中：等的那張合併，照樣通知人回 gate
+wp merged merged; parked ',"waits_on":"x-pr"'
+cards '[{"slug":"card-a","section":"進行中","open_gates":[{"id":"g9","opened_at":null}],"waiting":{"type":"等待決定","waits_on":"x-pr","gate_id":"g9","question":"等 x-pr","recommended":null,"options":["等"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+woken "parked 的卡在進行中"
+
+# 沒有 parked 記錄的進行中卡不派
+wp merged merged; rm -f "$MEMO"
+cards '[{"slug":"card-a","section":"進行中"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch')" 0 "沒 parked 的進行中卡不派：$(cat "$OPSX_FAKE_LOG")"
 echo "coordinate-waits-on-wake ok"

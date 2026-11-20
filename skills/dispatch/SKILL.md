@@ -24,8 +24,10 @@ The board's 指派 button and this skill run the same script: `bin/opsx dispatch
 3. Run it from the repo root. From anywhere else, it finds the card in the registered repos (`~/code/*` plus `sources.toml` paths) when exactly one of them has it; when several do, it refuses and lists them, so add `--repo <path>`:
 
    ```bash
-   bash "${CLAUDE_PLUGIN_ROOT}/bin/opsx" dispatch <slug> --agent <a> --model <m> --mode <mode> --kind <kind>
+   opsx dispatch <slug> --agent <a> --model <m> --mode <mode> --kind <kind>
    ```
+
+   Run it as its own Bash command, never chained with `;`, `&&`, `||`, `|` or `$(…)`: the coordinator's sandbox exclusion is the pattern `opsx dispatch *`, and a chained command, or one starting with `bash …/bin/opsx`, does not match it, stays inside the sandbox and cannot create the worktree.
 
    The script: writes `kind` into `.openspec.yaml`; picks the branch from `workplan.yaml` or `{feat|fix|chore|refactor}/<slug>/<user>`; `git worktree add .claude/worktrees/<slug>`; when it just created that worktree and the worktree root has `pnpm-lock.yaml`, runs `pnpm install --frozen-lockfile` there before the pane opens (an existing worktree is never touched; when the install fails or pnpm is not on PATH, the card is still dispatched and gets a `needs: run` gate named `install-deps` asking you to install it yourself); `herdr tab create` in the workspace mapped in `workspaces.toml` (or creates one named after the repo and records it); `herdr agent start <slug>` with `--permission-mode dontAsk --settings <generated allow/deny>` for autopilot (anything outside allow is denied without a prompt; the grant hook allows what has a grant); `herdr agent prompt <slug> "/<stage> <slug>"` where the stage comes from the same table the router uses; writes `dispatch.json`; in autopilot starts `opsx drive` in the background, which records its own pid.
 4. Relay the script's last line (repo/slug → agent · model · mode · kind · workspace pane · first command). If it refused (bad slug, no card, no herdr), say why and what to fix; do not reimplement any step by hand.

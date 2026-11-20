@@ -96,7 +96,8 @@ pane send-keys w1:pE esc
 pane send-text w1:pE /exit
 pane send-keys w1:pE enter
 $START
-agent prompt retry-backoff /opsx-workflow:apply retry-backoff" "送鍵順序"
+agent prompt retry-backoff /opsx-workflow:apply retry-backoff
+agent read w1:pE --source visible --format ansi" "送鍵順序"
 assert_not_grep 'enter.*esc\|esc.*enter' "$OPSX_FAKE_LOG"
 assert_file "$FX/at-esc.json"
 python3 -I -c 'import json,sys;e=json.load(open(sys.argv[1]))["Acmecorp-CS/retry-backoff"];assert e.get("relaunching_at","").startswith("20"),e' "$FX/at-esc.json" || fail "送 esc 時條目要有 relaunching_at"
@@ -262,7 +263,7 @@ mk_agents "$OPSX_TEST_HERDR_AGENTS" w1:pE idle "$SID"
 # --- session 成員導到 session pane ---
 RF="$(mk_repo Feat-Repo)"
 for s in m1 m2 m3; do mkdir -p "$RF/openspec/changes/$s"; printf 'schema: opsx\nkind: dev\n' > "$RF/openspec/changes/$s/.openspec.yaml"; printf -- '- [ ] 1.1 x\n' > "$RF/openspec/changes/$s/tasks.md"; done
-printf '## 已知\n- x\n\n## 待決\n\n## 不做\n' > "$RF/openspec/changes/m3/explore.md"; rm "$RF/openspec/changes/m3/tasks.md"   # m3 在 propose
+printf '## 已知\n- x\n\n## 待決\n\n## 不做\n' > "$RF/openspec/changes/m3/explore.md"; rm "$RF/openspec/changes/m3/tasks.md"   # m3 在 grill
 put_entry Feat-Repo/@fs '{"pane":"w1:pS","tab":"w1:tS","agent":"claude","model":"claude-opus-5-5","mode":"autopilot","worktree":"/x","drive_pid":null}'
 MEMBER='{"pane":"w1:pS","agent":"claude","model":"claude-opus-5-5","mode":"autopilot","herdr_name":"fs","feature":"fs","via":"@fs"}'
 put_entry Feat-Repo/m1 "$MEMBER"
@@ -277,7 +278,7 @@ unset OPSX_TEST_ON_SEND_KEYS
 assert_grep "^agent start fs --kind claude --pane w1:pS -- --resume $SID --model claude-opus-5-5 --permission-mode dontAsk --settings $OPSX_STATE_DIR/settings/Feat-Repo-fs-autopilot.json --add-dir $RF/openspec --add-dir $OPSX_STATE_DIR\$" "$OPSX_FAKE_LOG"
 assert_file "$OPSX_STATE_DIR/settings/Feat-Repo-fs-autopilot.json"
 assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt fs [m1] /opsx-workflow:apply m1
-agent prompt fs [m3] /opsx-workflow:propose m3" "每個沒停的成員各收到一句"
+agent prompt fs [m3] /opsx-workflow:grill m3" "每個沒停的成員各收到一句"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["Feat-Repo/@fs"].get("relaunching_at"),d["Feat-Repo/@fs"]' "$FX/fs-at-esc.json" || fail "session 條目在送 esc 時要有 relaunching_at"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert not any("relaunching_at" in e for e in d.values()),d' "$J" || fail "結束後 relaunching_at 要清掉"
 sleep 0.3; assert_no_file "$OPSX_STATE_DIR/drive-Feat-Repo-fs.log"; assert_no_file "$OPSX_STATE_DIR/drive-Feat-Repo-m1.log"
@@ -292,7 +293,7 @@ put_entry Feat-Repo/gone "$(printf '%s' "$MEMBER" | sed 's/"mode":"autopilot"/"m
 mkdir -p "$RF/openspec/changes/archive/2026-11-10-old"; put_entry Feat-Repo/old "$MEMBER"; : > "$OPSX_FAKE_LOG"
 out="$(cd "$RF" && opsx relaunch m1 2>&1)"; assert_eq "$?" 0 "已歸檔的成員要略過: $out"
 assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt fs [m1] /opsx-workflow:apply m1
-agent prompt fs [m3] /opsx-workflow:propose m3" "已歸檔的成員不收話，其他成員照送"
+agent prompt fs [m3] /opsx-workflow:grill m3" "已歸檔的成員不收話，其他成員照送"
 
 # --- agent start 失敗大聲報：exit 非 0、herdr 錯誤與 pane 畫面、decisions.tsv 一列、標記清掉、不關 pane / tab ---
 cd "$R"; mk_agents "$OPSX_TEST_HERDR_AGENTS" w1:pE idle "$SID"; : > "$OPSX_FAKE_LOG"

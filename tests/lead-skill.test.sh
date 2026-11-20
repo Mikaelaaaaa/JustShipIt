@@ -4,6 +4,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 F="$OPSX_ROOT/skills/lead/SKILL.md"
 assert_file "$F"
 
+# babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
+grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
+grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
+
 # 類型 1 到 6 依序出現在 ## Report format 之後
 line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
 prev="$(line_of '## Report format')"; [ -n "$prev" ] || fail "缺 ## Report format"
@@ -21,7 +26,6 @@ for s in \
   '| 程式名 | 誰設定 | 業務上是什麼 | 被擋時記成 |' \
   '| 你是誰 | 結果 |' \
   '| 節點 | 白話 |' \
-  '建議合併順序' \
   '| # | 卡 | 問什麼 | 你的回答 |' \
   '| 卡 | 為什麼我做不到 | 指令 |' \
   '| 卡 | 發生什麼 | 我怎麼處理 | 開卡 |' \
@@ -30,12 +34,68 @@ for s in \
   case "$REPORT" in *"$s"*) ;; *) fail "Report format 缺：$s" ;; esac
 done
 # 沒有邏輯表的卡：那幾欄寫「還沒有邏輯表」（design D6）
-T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### /{exit} f' "$F")"
+T2="$(awk '/^### 類型 2：/{f=1;next} f&&/^### 類型 /{exit} f' "$F")"
 case "$T2" in *'還沒有邏輯表'*) ;; *) fail "類型 2 要寫沒有邏輯表時那幾欄寫「還沒有邏輯表」" ;; esac
 # 沒有 pipeline 寫「沒有 CI」（design D11）；邏輯表的 head 取自 report.md「## 邏輯表」那行（design D13）
 for s in '沒有 CI' '`pipeline_status`' '`## 邏輯表`' '`mr.head_sha`' '前 7 碼' '邏輯表沒產出'; do
   case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
 done
+# 使用者 2026-11-19 範例的段落格式（spec「可合併回報的段落欄位都在」兩張 Examples 表每一列）
+for s in 'first line of 類型 2' '只有 !101' 'git merge-tree' '[me-20260105-1010 邏輯表](file:///home/dev/' \
+  '沒看過程式的人' '直接貼' '寫「無」' '差的 commit 改了什麼' 'references/mergeable-report.md'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
+# 合併順序在第一段之前、⚠ 之前；段間 --- 夾在 ### 1. 與 ### 2. 之間（spec「合併順序不放最後（反例）」、分隔列）
+t2_line() { printf '%s\n' "$T2" | grep -nF -- "$1" | head -1 | cut -d: -f1; }
+order="$(t2_line '合併順序是 !101 → !102')"; s1="$(t2_line '### 1. !101')"; s2="$(t2_line '### 2. !102')"; warn="$(t2_line '**⚠**')"
+[ -n "$order" ] && [ -n "$s1" ] && [ -n "$s2" ] && [ -n "$warn" ] || fail "類型 2 缺合併順序例句、### 1.、### 2. 或 **⚠**"
+[ "$order" -lt "$s1" ] && [ "$order" -lt "$warn" ] || fail "合併順序要在第一段與 ⚠ 之前（順序 $order、### 1. $s1、⚠ $warn）"
+printf '%s\n' "$T2" | sed -n "$((warn + 1)),$((s2 - 1))p" | grep -qx -- '---' || fail "### 1. 段結束到 ### 2. 之間要有 ---"
+case "$T2" in *'建議合併順序'*) fail "類型 2 不能再把建議合併順序放最後" ;; esac
+# 沒有邏輯表那條：只動測試檔才照 diff 寫功能說明與邏輯圖，其他卡照 D6 寫還沒有邏輯表（spec「沒有邏輯表時照 diff 寫邏輯圖」正反例）
+NOMAP="$(printf '%s\n' "$T2" | grep -E '^- A card with no logic map yet')"
+[ "$(printf '%s\n' "$NOMAP" | grep -c .)" -eq 1 ] || fail "沒有邏輯表那條要剛好一行 — $NOMAP"
+for s in 'only test files' '功能說明' '邏輯圖' '照 diff 寫' '還沒有邏輯表' '卡的 report' 'produced before merging' \
+  'git diff --name-only' '*.test.*' 'ring'; do
+  case "$NOMAP" in *"$s"*) ;; *) fail "沒有邏輯表那條缺：$s — $NOMAP" ;; esac
+done
+# 只改測試的卡 ⚠ 寫無（design D1）：那句的 ⚠ is 無 要在 only test files 之後、Any other card 之前
+case "$NOMAP" in *'only test files'*'⚠ is 無'*'Any other card'*) ;; *) fail "只改測試那句要寫 ⚠ is 無（design D1）" ;; esac
+# 產表失敗不併進「其他沒邏輯表的卡」那句（design D5）
+OTHER="${NOMAP#*Any other card}"; OTHER="${OTHER%%.*}"
+case "$OTHER" in *'產表失敗'*) fail "產表失敗不能跟 Any other card 同句（design D5）— $OTHER" ;; esac
+# 產表失敗時就算舊 logic-map.md 還在也當成沒有邏輯表（design D5）
+case "$T2" in *'產表失敗'*'even if `.logic_map` is not null'*) ;; *) fail "產表失敗要寫就算 .logic_map 不是 null 也當成沒有邏輯表" ;; esac
+# 只有合 main：先 fetch、看 PR 自己的 commit、merge 要是合 main、解衝突用不印標頭的 remerge-diff、兩個都空才算（design D2、D3）
+for s in 'git fetch' '--first-parent --no-merges' 'git show --remerge-diff --format=' '--is-ancestor' '抓不到 commit' 'every merge of main has an empty remerge-diff' 'non-empty remerge-diff counts as the PR'"'"'s own work'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 判斷只合 main 缺：$s" ;; esac
+done
+case "$T2" in *'git log --oneline <sha>..<head>'*) fail "類型 2 不能再用會混進 main commit 的 git log --oneline <sha>..<head>" ;; esac
+# GitHub 的卡寫 #號（design D7）；沒有 ## 邏輯表 那行當成沒有邏輯表（design D8）；自己只改測試或文件的 commit 不算改程式（design D10）
+for s in 'On GitHub write #' 'no `## 邏輯表` line' 'only test files or docs'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
+# 邏輯表 r3、r4 的答案（design D11–D15、D22）：fixture 在 tests/ 底下也算產品程式；skills/ 與 AGENTS.md、CLAUDE.md 的 .md 算程式；
+# <remote> 照 pr skill 規則；抓不到 head 照沒邏輯表寫；合進別的分支也套只動測試或文件那條；head 用前綴比
+for s in 'even under `tests/`' '`*.md` outside `skills/` other than `AGENTS.md` and `CLAUDE.md`' 'pr skill'"'"'s step 1 rule' \
+  'instead of pasting the old map' 'its own commits, the merges of other branches, and those conflict resolutions' '`mr.head_sha` starts with the sha'; do
+  case "$T2" in *"$s"*) ;; *) fail "類型 2 缺：$s" ;; esac
+done
+# 邏輯表落後且 PR 自己改了程式：六塊都照最新程式改（design D4）
+case "$T2" in *'功能說明, 誰設定什麼, 邏輯圖, 條件表重點, 舉例 and ⚠'*'照最新程式改'*) ;; *) fail "邏輯表落後時六塊都要照最新程式改" ;; esac
+# reference 範例存在、不帶真實資料（spec「reference 範例不帶真實資料（反例）」）
+R="$OPSX_ROOT/skills/lead/references/mergeable-report.md"
+assert_file "$R"
+# 禁用字樣拼接寫，免得這個檔自己被 readme-landing 的追蹤檔掃描命中
+grep -niE 'ts''g-navigator|/Users/|agen''tory' "$R" && fail "reference 不能帶真實網址、家目錄路徑或內部專案名"
+grep -qF '照 diff 寫' "$R" || fail "reference 要有沒有邏輯表、照 diff 寫的那段"
+grep -qF '就算在 `tests/` 底下也算產品程式' "$R" || fail "reference 的測試檔規則要寫 fixture 在 tests/ 底下也算產品程式（design D11）"
+grep -qF '邏輯表是舊 head' "$R" || fail "reference 的落後 head 範例要用跟 SKILL.md 一樣的「邏輯表是舊 head」"
+grep -qF 'PR 自己改了程式' "$R" || fail "reference 的落後規則要跟 SKILL.md 一樣看 PR 自己有沒有改程式"
+grep -F '邏輯表落後 head' "$R" | grep -F '只多了合 main' | grep -qF '還是準的' || fail "reference 落後規則那條要寫只合 main 時邏輯表還是準的（design D4）"
+grep -F '邏輯表落後 head' "$R" | grep -qF '只動測試檔或文件也還是準的' || fail "reference 落後規則要有只動測試或文件仍準的例外（design D10、D15）"
+grep -qF '**功能說明**（照 diff 寫）' "$R" || fail "reference 只改測試的範例，功能說明也要標照 diff 寫"
+grep -qF '**誰設定什麼**（照最新程式改）' "$R" || fail "reference 落後 head 的範例，誰設定什麼也要標照最新程式改"
 # 類型 6 也照沒事不回報（design D36）
 T6="$(awk '/^### 類型 6：/{f=1;next} f&&/^### /{exit} f' "$F")"
 case "$T6" in *'沒事不回報'*) ;; *) fail "類型 6 要照沒事不回報（design D36）" ;; esac
@@ -92,25 +152,26 @@ SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F
 for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval' 'before you give the command'; do
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
-# 派工指示 P0（design D36）：清待處理、代答 opsx-workflow 的題、needs: run 自己跑；掃 pane；四欄流量控管
-CLEAR="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F '待處理' | grep -F 'opsx answer')"
-[ -n "$CLEAR" ] || fail "Duties 缺清待處理的職責"
-for s in 'opsx-workflow' 'Recommended' '自動採用' 'needs: run' '怎麼問 gate'; do
-  case "$CLEAR" in *"$s"*) ;; *) fail "清待處理職責缺：$s — $CLEAR" ;; esac
+# 使用者 2026-11-20 裁示的 gate 規則（gate merge-main-227-contradiction）：職責 2 寫 opsx-workflow 的 gate 照 Recommended 自答、
+# 加 ponytail 註、記自動採用；其他 repo 的 gate 一律問使用者；needs: run 自己跑
+D2="$(printf '%s\n' "$DUTIES" | grep '^2\. ')"
+for s in 'opsx-workflow you answer yourself with its Recommended option' '套用 ponytail 原則' '自動採用' \
+  'any other repo'"'"'s card, whatever the repo, is the user'"'"'s' 'never run `opsx answer` on it on your own judgment' \
+  'needs: run' '怎麼問 gate'; do
+  case "$D2" in *"$s"*) ;; *) fail "職責 2 缺：$s — $D2" ;; esac
+done
+case "$D2" in *"Every gate is the user's"*|*'never answer them'*) fail "職責 2 不能再寫每個 gate 都是使用者的 — $D2" ;; esac
+# 邏輯表 r4（design D16–D18）：merge 授權與沒有 Recommended 的題仍轉使用者；needs: run 先跑再答
+for s in '`action:` is merge, because duty 7 comes first' 'no Recommended option' 'you run before you answer its gate'; do
+  case "$D2" in *"$s"*) ;; *) fail "職責 2 缺：$s — $D2" ;; esac
 done
 PANES="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx relaunch')"
-for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續'; do
+for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續' \
+  '`section` is not 已完成 and that has no open gate' 'after two relaunches in a row, stop relaunching'; do
   case "$PANES" in *"$s"*) ;; *) fail "掃 pane 職責缺：$s — $PANES" ;; esac
 done
-FLOW="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx dispatch')"
-for s in '待處理' '進行中' '待指派' '收件匣' 'propose' 'depends-on'; do
-  case "$FLOW" in *"$s"*) ;; *) fail "流量控管職責缺：$s — $FLOW" ;; esac
-done
-# 職責 2 只轉其他 repo 的題，不再寫「Every gate is the user's」
-printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF "Every gate is the user's" && fail "職責 2 要改成只轉 opsx-workflow 以外的題"
-# 絕不合併留在最後一條
-LAST="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | tail -1)"
-case "$LAST" in *'絕不合併'*) ;; *) fail "最後一條職責要是絕不合併 — $LAST" ;; esac
+# 絕不合併是職責 7（#227 的編號）
+printf '%s\n' "$DUTIES" | grep '^7\. ' | grep -qF '絕不合併' || fail "職責 7 要是絕不合併"
 
 # 怎麼問 gate（specs/opsx-lead「協調者用跳卡問 gate」「跳卡不代答」「有 sketch 外掛時先畫 cards」）：
 # 只讀「## 怎麼問 gate」到下一個 ## 標題，別段的字不算；標題要夾在 ## Duties 與 ## Report format 之間
@@ -142,6 +203,8 @@ case "$ASK" in *自動採用*) fail "怎麼問 gate 段不能有「自動採用�
 # compare 在段裡只出現一次，就是「不用 compare 選」那一處
 assert_eq "$(printf '%s\n' "$ASK" | grep -o 'compare' | wc -l | tr -d ' ')" 1 "怎麼問 gate 段 compare 只能出現一次"
 case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要寫「不用 \`compare\` to choose」" ;; esac
+# 邏輯表 r4（design D21）：彈窗回來後把 ready 的卡補進類型 2
+case "$ASK" in *'each time the pop-up returns, run collect and put every card whose `mr.state` is `ready` into 類型 2'*) ;; *) fail "怎麼問 gate 段要寫彈窗回來後補進 ready 的卡" ;; esac
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '類型 3' || fail "職責 2 要指向類型 3"
@@ -174,6 +237,8 @@ for s in '狀態不從 status.json 拼' '不用 /loop 或 CronCreate' \
   '沒事不回報'; do
   case "$PROSE" in *"$s"*) ;; *) fail "回報資料從哪來段缺整句：$s" ;; esac
 done
+# 邏輯表 r4（design D19、D20）：使用者要回報、或有要人介入的停住，都不算沒事
+case "$PROSE" in *'no 停住 line from duty 1 that needs a person, and the user did not ask for a report'*) ;; *) fail "沒事不回報要排除停住事件與使用者要回報" ;; esac
 # 可合併的判斷跟 coordinate 送「可以合併」一樣看 mr.state，不看 progress_class；同名卡重開時只取活的那張
 LM="$(printf '%s\n' "$PROSE" | grep -F '.logic_map')"
 case "$LM" in *'mr.state'*'ready'*) ;; *) fail "取 logic_map 那行要以 mr.state ready 判斷 — $LM" ;; esac
@@ -187,7 +252,7 @@ GATES="$(printf '%s\n' "$PROSE" | grep -F '沒派出去')"
 for s in 'open_gates' 'gates.md' 'waits_on' 'workplan' 'archived' 'needs' '類型 4' 'type 不明'; do
   case "$GATES" in *"$s"*) ;; *) fail "沒派出去的卡的 gate 那行缺：$s — $GATES" ;; esac
 done
-case "$GATES" in *'opsx-workflow'*'duty 9'*) ;; *) fail "沒派出去的卡的 gate：opsx-workflow 的照職責 9 代答（design D36）— $GATES" ;; esac
+case "$GATES" in *'opsx-workflow'*'duty 2'*) ;; *) fail "沒派出去的卡的 gate：opsx-workflow 的照職責 2 代答 — $GATES" ;; esac
 case "$GATES" in *'live list'*) fail "等的卡合了沒不能看活卡清單 — $GATES" ;; esac
 # .errors 的 glab/gh 是讀不到，不是快取；寫類型 2 前用 opsx mr 重讀
 ERR="$(printf '%s\n' "$PROSE" | grep -F '.errors')"
@@ -207,6 +272,32 @@ for s in '`idle` 已停' '`done` 已停' '`working` 還在改' '`blocked` 等輸
 done
 # 職責 1 指向這段
 printf '%s\n' "$DUTIES" | grep '^1\. ' | grep -qF '回報資料從哪來' || fail "職責 1 要指向「回報資料從哪來」段"
+
+# 職責 8–11（specs/opsx-lead「① 一直追要使用者做的事」「可授權的 approval gate 給一次性授權指令」「閒時派待指派」
+# 「收件匣派去 explore」「寫 skill 的卡派工時要求 skill-creator」）：用編號切出那一條，別條的字不算。
+# 比對整句，反例的那句也要在，單字會被別處的字滿足（working 在 max-working 裡）
+duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
+D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+for s in 'leave 類型 3 and 類型 4 out only when nothing is pending' 'starting with `!`' '下一輪' 'until it is gone' \
+  'what it unblocked has moved' '`action:` is push, mr, install or delete' '--grant repo'; do
+  case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac
+done
+for s in 'no pane is working and 類型 3 has no open gate' 'priority level, then workplan order' 'P2 included' \
+  'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
+  'While any pane is working, dispatch nothing extra'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
+done
+for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
+  'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
+  case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
+done
+case "$D10" in *'P2 included'*) fail "職責 10 不能派 P2 收件匣卡：$D10" ;; esac
+for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv' 'agents/*.md' \
+  'evaluation loop' 'only changes code gets no such note'; do
+  case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
+done
+# 授權指令由使用者自己跑，只給使用者的 gate（職責 2 分界）
+case "$D8" in *"gate of the user's (duty 2)"*) ;; *) fail "職責 8 的授權指令只給使用者的 gate — $D8" ;; esac
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
