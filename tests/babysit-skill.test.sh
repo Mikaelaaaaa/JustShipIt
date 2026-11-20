@@ -50,6 +50,9 @@ awk '/^6\. /{on=1} /^7\. /{on=0} on' "$SK" > "$STEP6"
 grep -oE 'Unresolved threads:[^.]*' "$STEP6" | grep -qF 'glab mr note list <iid> --state unresolved' || fail "步 6 讀未解決 thread 要用 glab mr note list <iid> --state unresolved"
 assert_not_fixed 'glab api' "$STEP6"
 
+# --- D15：GitLab 那條要求每個 glab 指令單獨跑；串接的指令對不上 glab mr *，留在沙盒內 ---
+grep -F -- '- GitLab:' "$STEP6" | grep -qF 'Run each `glab` call as its own Bash command' || fail "步 6 的 GitLab 那條要寫 glab 單獨跑、不串接"
+
 # --- D12：步 8 GitLab 回覆進原 thread 用 glab mr note create --reply，沒有 --message-file 與 glab api ---
 assert_fixed 'glab mr note create <iid> --reply <discussion-id>' "$STEP"
 assert_not_fixed '--message-file' "$STEP"
