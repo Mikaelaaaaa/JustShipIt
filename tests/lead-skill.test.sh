@@ -4,6 +4,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 F="$OPSX_ROOT/skills/lead/SKILL.md"
 assert_file "$F"
 
+# babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
+grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
+grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
+
 # 類型 1 到 6 依序出現在 ## Report format 之後
 line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
 prev="$(line_of '## Report format')"; [ -n "$prev" ] || fail "缺 ## Report format"
@@ -139,25 +144,21 @@ SELFDO="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'push' | grep -F
 for s in 'MR' 'approval gate' 'gates.md' 'the gate comes first' 'not an approval' 'before you give the command'; do
   case "$SELFDO" in *"$s"*) ;; *) fail "自己做的職責缺：$s — $SELFDO" ;; esac
 done
-# 派工指示 P0（design D36）：清待處理、代答 opsx-workflow 的題、needs: run 自己跑；掃 pane；四欄流量控管
-CLEAR="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F '待處理' | grep -F 'opsx answer')"
-[ -n "$CLEAR" ] || fail "Duties 缺清待處理的職責"
-for s in 'opsx-workflow' 'Recommended' '自動採用' 'needs: run' '怎麼問 gate'; do
-  case "$CLEAR" in *"$s"*) ;; *) fail "清待處理職責缺：$s — $CLEAR" ;; esac
+# 使用者 2026-11-20 裁示的 gate 規則（gate merge-main-227-contradiction）：職責 2 寫 opsx-workflow 的 gate 照 Recommended 自答、
+# 加 ponytail 註、記自動採用；其他 repo（Agentory 等）的 gate 一律問使用者；needs: run 自己跑
+D2="$(printf '%s\n' "$DUTIES" | grep '^2\. ')"
+for s in 'opsx-workflow you answer yourself with its Recommended option' '套用 ponytail 原則' '自動採用' \
+  'any other repo'"'"'s card (the Agentory repos and the rest) is the user'"'"'s' 'never run `opsx answer` on it on your own judgment' \
+  'needs: run' '怎麼問 gate'; do
+  case "$D2" in *"$s"*) ;; *) fail "職責 2 缺：$s — $D2" ;; esac
 done
+case "$D2" in *"Every gate is the user's"*|*'never answer them'*) fail "職責 2 不能再寫每個 gate 都是使用者的 — $D2" ;; esac
 PANES="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx relaunch')"
 for s in 'idle' 'done' 'herdr pane read' 'enter' '繼續'; do
   case "$PANES" in *"$s"*) ;; *) fail "掃 pane 職責缺：$s — $PANES" ;; esac
 done
-FLOW="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | grep -F 'opsx dispatch')"
-for s in '待處理' '進行中' '待指派' '收件匣' 'propose' 'depends-on'; do
-  case "$FLOW" in *"$s"*) ;; *) fail "流量控管職責缺：$s — $FLOW" ;; esac
-done
-# 職責 2 只轉其他 repo 的題，不再寫「Every gate is the user's」
-printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF "Every gate is the user's" && fail "職責 2 要改成只轉 opsx-workflow 以外的題"
-# 絕不合併留在最後一條
-LAST="$(printf '%s\n' "$DUTIES" | grep '^[0-9]*\. ' | tail -1)"
-case "$LAST" in *'絕不合併'*) ;; *) fail "最後一條職責要是絕不合併 — $LAST" ;; esac
+# 絕不合併是職責 7（#227 的編號）
+printf '%s\n' "$DUTIES" | grep '^7\. ' | grep -qF '絕不合併' || fail "職責 7 要是絕不合併"
 
 # 怎麼問 gate（specs/opsx-lead「協調者用跳卡問 gate」「跳卡不代答」「有 sketch 外掛時先畫 cards」）：
 # 只讀「## 怎麼問 gate」到下一個 ## 標題，別段的字不算；標題要夾在 ## Duties 與 ## Report format 之間
@@ -234,7 +235,7 @@ GATES="$(printf '%s\n' "$PROSE" | grep -F '沒派出去')"
 for s in 'open_gates' 'gates.md' 'waits_on' 'workplan' 'archived' 'needs' '類型 4' 'type 不明'; do
   case "$GATES" in *"$s"*) ;; *) fail "沒派出去的卡的 gate 那行缺：$s — $GATES" ;; esac
 done
-case "$GATES" in *'opsx-workflow'*'duty 9'*) ;; *) fail "沒派出去的卡的 gate：opsx-workflow 的照職責 9 代答（design D36）— $GATES" ;; esac
+case "$GATES" in *'opsx-workflow'*'duty 2'*) ;; *) fail "沒派出去的卡的 gate：opsx-workflow 的照職責 2 代答 — $GATES" ;; esac
 case "$GATES" in *'live list'*) fail "等的卡合了沒不能看活卡清單 — $GATES" ;; esac
 # .errors 的 glab/gh 是讀不到，不是快取；寫類型 2 前用 opsx mr 重讀
 ERR="$(printf '%s\n' "$PROSE" | grep -F '.errors')"
@@ -254,6 +255,32 @@ for s in '`idle` 已停' '`done` 已停' '`working` 還在改' '`blocked` 等輸
 done
 # 職責 1 指向這段
 printf '%s\n' "$DUTIES" | grep '^1\. ' | grep -qF '回報資料從哪來' || fail "職責 1 要指向「回報資料從哪來」段"
+
+# 職責 8–11（specs/opsx-lead「① 一直追要使用者做的事」「可授權的 approval gate 給一次性授權指令」「閒時派待指派」
+# 「收件匣派去 explore」「寫 skill 的卡派工時要求 skill-creator」）：用編號切出那一條，別條的字不算。
+# 比對整句，反例的那句也要在，單字會被別處的字滿足（working 在 max-working 裡）
+duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
+D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+for s in 'leave 類型 3 and 類型 4 out only when nothing is pending' 'starting with `!`' '下一輪' 'until it is gone' \
+  'what it unblocked has moved' '`action:` is push, mr, install or delete' '--grant repo'; do
+  case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac
+done
+for s in 'no pane is working and 類型 3 has no open gate' 'priority level, then workplan order' 'P2 included' \
+  'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
+  'While any pane is working, dispatch nothing extra'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
+done
+for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
+  'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
+  case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
+done
+case "$D10" in *'P2 included'*) fail "職責 10 不能派 P2 收件匣卡：$D10" ;; esac
+for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv' 'agents/*.md' \
+  'evaluation loop' 'only changes code gets no such note'; do
+  case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
+done
+# 授權指令由使用者自己跑，只給使用者的 gate（職責 2 分界）
+case "$D8" in *"gate of the user's (duty 2)"*) ;; *) fail "職責 8 的授權指令只給使用者的 gate — $D8" ;; esac
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"

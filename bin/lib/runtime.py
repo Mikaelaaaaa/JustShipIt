@@ -68,6 +68,13 @@ def screen(pane):
     return ["herdr", "agent", "read", pane, "--source", "visible", "--format", "ansi"]
 
 
+def send_enter(pane):
+    """在 pane 按一次 Enter：送出後字還留在輸入框時補送（bin/lib/submit.py），只有 python 版。"""
+    if not pane:
+        raise ValueError("runtime: send_enter 要 pane id")
+    return ["herdr", "pane", "send-keys", pane, "enter"]
+
+
 def get(*, card=None, agent=None, dispatch=None):
     _, name, _, _ = _target(card, agent, dispatch)
     return ["herdr", "agent", "get", name]
