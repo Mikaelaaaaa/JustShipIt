@@ -111,6 +111,34 @@ cards '[{"slug":"card-a","section":"進行中","open_gates":[{"id":"g9","opened_
 round || fail "rc: $(cat "$FX/out")"
 woken "parked 的卡在進行中"
 
+# collect 把只等別張卡的 parked 卡分在等待中：等的那張合併，照樣通知人回 gate
+wp merged merged; parked ',"waits_on":"x-pr"'
+cards '[{"slug":"card-a","section":"等待中","hold":"等 x-pr 合併","open_gates":[{"id":"g9","opened_at":null}],"waiting":{"type":"等待決定","waits_on":"x-pr","gate_id":"g9","question":"等 x-pr","recommended":null,"options":["等"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+woken "parked 的卡在等待中"
+
+# report 待你決定不是 gate：不停 pane、不走 handle_gate；照 head sha 通知一次（CI 在 babysit 停下後才轉綠時 Stop hook 沒推過）
+wp pending pending; rm -f "$MEMO"; printf '{}' > "$DISP"
+REPORT_CARD='[{"slug":"card-a","section":"待處理","dispatch":'"$D"',"agent_status":"idle","mr":{"url":"https://gitlab.example.com/a/r/-/merge_requests/9","head_sha":"abc1234def","state":"ready","stuck":null,"error":null,"merged_at":null},"waiting":{"type":"report 待你決定","waits_on":null,"gate_id":null,"needs":null,"action":null,"question":"report.md 有留給人決定的項目","recommended":null,"options":["開啟 pane"]}}]'
+cards "$REPORT_CARD"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx (stop|answer|dispatch)')" 0 "report 待你決定不停 pane、不答、不派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count 'gate None')" 0 "不當成 gate 通知：$(cat "$OPSX_FAKE_LOG")"
+grep -q "card-a.*gate" "$LOG" && fail "不走 handle_gate：$(cat "$LOG")"
+assert_grep '^notification show \[demo/card-a\] report 待你決定 .*merge_requests/9' "$OPSX_FAKE_LOG"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count 'report 待你決定')" 0 "同一個 head sha 不重送：$(cat "$OPSX_FAKE_LOG")"
+printf '{"demo/card-a":{"mode":"stopped","agent":"claude","pane":"w1:p9","drive_pid":null}}' > "$DISP"
+
+# apply 前有活 pane 的卡在待指派：沒有 tasks.md，協調者不派（design D10）
+wp pending pending; rm -f "$MEMO"
+mkdir -p "$R/openspec/changes/card-g"
+printf '{"demo/card-g":{"mode":"autopilot","agent":"claude","pane":"w1:p7","drive_pid":null}}' > "$DISP"
+cards '[{"slug":"card-g","stage":"grill","section":"待指派","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p7"},"agent_status":"working"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch')" 0 "有活 pane 的 grill 卡在待指派不派：$(cat "$OPSX_FAKE_LOG")"
+printf '{"demo/card-a":{"mode":"stopped","agent":"claude","pane":"w1:p9","drive_pid":null}}' > "$DISP"
+
 # 沒有 parked 記錄的進行中卡不派
 wp merged merged; rm -f "$MEMO"
 cards '[{"slug":"card-a","section":"進行中"}]'

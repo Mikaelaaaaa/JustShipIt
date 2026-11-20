@@ -1002,7 +1002,7 @@ class Round:
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
-                if c["section"] not in ("待指派", "待處理", "進行中"):
+                if c["section"] not in ("待指派", "待處理", "進行中", "等待中"):
                     continue
                 if not parked.get("answered"):
                     newly = self.woken_by(key, parked, top)
@@ -1568,14 +1568,17 @@ def one_round(state, dry):
         w = c["waiting"]
         if not w:
             r.forget_waiting(c, live)
-        if c["dispatch"] and w and w["type"] != "可以合併" and not paused:
+        # 可以合併、report 待你決定都不是 gate，沒有 gate 可停 pane 或回答，只通知人
+        if c["dispatch"] and w and w["type"] not in ("可以合併", "report 待你決定") and not paused:
             try:
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:
                 r.bad_dispatch(c, e)
+        # 推了新 commit 再全綠是新的一次，所以綁 head sha
         if w and w["type"] == "可以合併":
-            # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
+        if w and w["type"] == "report 待你決定":
+            r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", "看 report.md 的待修與 Consider：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
         if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]

@@ -60,12 +60,13 @@ EOF
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect rc: $J"
 
 C="$(card "$J" r only-wait)"
-assert_eq "$(q "$C" section)" 進行中 "只等未合的卡：進行中"
+assert_eq "$(q "$C" section)" 等待中 "只等未合的卡：等待中"
+assert_eq "$(q "$C" hold)" "等 other 合併" "hold 指出等哪張卡"
 assert_eq "$(q "$C" waiting.gate_id)" g1 "waiting 照舊指第一個 gate"
 assert_eq "$(q "$C" open_gates.0.id)" g1
 assert_eq "$(q "$(card "$J" r wait-then-ask)" section)" 待處理 "未合 waits-on 後面還有要人答的題：待處理"
 assert_eq "$(q "$(card "$J" r other-done)" section)" 待處理 "等的卡已合進 main：待處理"
-assert_eq "$(q "$(card "$J" r ghost-wait)" section)" 進行中 "waits-on 對不到任何卡：照沒合算，不是待處理"
+assert_eq "$(q "$(card "$J" r ghost-wait)" section)" 等待中 "waits-on 對不到任何卡：照沒合算，不是待處理"
 C="$(card "$J" r ready-wait)"
 assert_eq "$(q "$C" mr.state)" ready "fixture 的 MR 要是 ready：$C"
 assert_eq "$(q "$C" section)" 待處理 "MR 可合併、gate 只等別張卡：仍是待處理"

@@ -84,7 +84,14 @@ printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職�
 # 「收件匣派去 explore」「寫 skill 的卡派工時要求 skill-creator」）：用編號切出那一條，別條的字不算。
 # 比對整句，反例的那句也要在，單字會被別處的字滿足（working 在 max-working 裡）
 duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
-D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+D1="$(duty 1)"; D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+# 協調者的 report 待你決定通知跟 Stop hook 的那行是同一件事；處理完的判準；職責 9 只派沒有條目的卡
+for s in '[<card>] report 待你決定' 'the same item as the hook'; do
+  case "$D1" in *"$s"*) ;; *) fail "職責 1 缺：$s — $D1" ;; esac
+done
+case "$D8" in *'`waiting.type` is no longer `report 待你決定`'*) ;; *) fail "職責 8 缺 report 待你決定何時算處理完 — $D8" ;; esac
+case "$D9" in *'Take only a card that has no dispatch.json entry'*) ;; *) fail "職責 9 要是一句「只派沒有條目的卡」 — $D9" ;; esac
+case "$D9" in *'whose dispatch.json entry is not `mode: stopped`'*) fail "職責 9 不能留舊的那句，會跟新規則矛盾 — $D9" ;; esac
 for s in 'leave ① out only when nothing is pending' 'starting with `!`' '下一輪' 'until it is gone' \
   'what it unblocked has moved' '`action:` is push, mr, install or delete' '--grant repo'; do
   case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac

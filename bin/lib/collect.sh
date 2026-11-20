@@ -14,11 +14,14 @@
 #        merged[{id, when, source, text, kind_of_work, type 或 area, evidence?}]（inbox.md 的 ## 併入： 段，依檔案順序；已歸檔的卡是 []）,
 #        logic_map（卡目錄 logic-map.md 的全文，已歸檔的卡也讀；沒有檔時 null，讀不了時 null 並記一筆 errors）,
 #        stopped{reason, at}（<state>/stop-said/<repo>-<slug> 的兩行，Stop hook 最後一次放行的原因與時間；沒有、不到兩行、讀不了、已歸檔時 null）,
+#        hold（section 是等待中時說等什麼：等 CI | 等 <卡> 合併 | 等背景工作 | 等協調者；其他欄 null）,
 #        session（收進 session 的主 change 才有："<repo>/<feature>"）,
 #        progress_class ∈ mergeable | waiting_on_you | testing | developing | not_dispatched（不在進度範圍內為 null）}
 # sessions[]：{repo, feature, section, main_done, main_total, sub_done, sub_total, current{slug, stage}|null,
 #   mains[{slug, pr_status, stage, section, dispatch, agent_status, open_gates, waiting, subs[{slug, status, stage, worker, open_gates, waiting}]}]}
-#   section ∈ 待處理 | 進行中 | 待指派 | 收件匣 | 已完成（收件匣＝沒派出、stage 還是 explore）；waiting.type ∈ 等待授權 | 等待決定 | type 不明 | 可以合併 | 終端機等待輸入；waiting.needs ∈ run | null
+#   section ∈ 待處理 | 進行中 | 等待中 | 待指派 | 收件匣 | 已完成（進行中＝apply 之後、pane 在工作；等待中＝apply 之後、pane 沒在工作；
+#   apply 之前有 pane 的算待指派；收件匣＝沒派出、stage 還是 explore）；
+#   waiting.type ∈ 等待授權 | 等待決定 | type 不明 | 可以合併 | 終端機等待輸入 | report 待你決定；waiting.needs ∈ run | null
 #
 # gates.md 的格式（apply 步 5 寫、answer 改）：每個 gate 一段
 #   ## <gate id>
@@ -286,19 +289,22 @@ def kind_of(d):
     m = re.search(r"^kind:\s*(\S+)", read(os.path.join(d, ".openspec.yaml")), re.M)
     return m.group(1) if m else "dev"
 
-# 呼叫時主殼已經沒有 open gate。子殼的 open gate 也擋，跟 opsx merge 的 st_open_gates 同一個範圍。
+# 回沒過的條件，空清單才是可以合併。呼叫時主殼已經沒有 open gate。子殼的 open gate 也擋，跟 opsx merge 的 st_open_gates 同一個範圍。
 # report.md 讀不了只壞這一張卡（同 logic_map_of）：記 errors、不標可以合併
-def mergeable(card, agent_status):
+def merge_blockers(card, agent_status):
     d = card["dir"]
     report_path = os.path.join(d, "report.md")
     try:
         report = read(report_path)
     except (UnicodeDecodeError, OSError) as e:
         errors.append({"source": report_path, "message": "%s 的 report.md 讀不了，不標可以合併：%s" % (card["slug"], e)})
-        return False
+        return [mergeready.NOT_READY]
     sub_open = any(g.get("status", "").strip() == "open"
                    for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
-    return not mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
+    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
+
+# MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目（或連同邏輯表舊了）時才是要人看 report
+REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.STALE_MAP}
 
 # 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人
 def gates_in_force(gates, d):
@@ -327,9 +333,15 @@ def waiting_of(card, gates, agent_status):
                 o = o.replace("(Recommended)", "").strip(); rec = rec or o
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
-    if card["mr"] and mergeable(card, agent_status):
+    blockers = merge_blockers(card, agent_status) if card["mr"] else None
+    if blockers == []:
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": card["mr"]["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
+    # 只對 pane 還在、閒著的卡：沒派出、被停掉、pane 不在或 herdr 讀不到時，唯一的動作「開啟 pane」沒有作用
+    if blockers and mergeready.OPEN_REVIEW in blockers and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
+        return {"type": "report 待你決定", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane"],
+                "question": mergeready.OPEN_REVIEW, "recommended": None, "evidence": card["mr"]["url"], "risk": None,
+                "default_if_unanswered": "MR 不合併", "confirmed": None}
     if agent_status == "blocked":
         return {"type": "終端機等待輸入", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane", "停止", "重新指派"],
                 "question": "agent 在終端機等輸入，板上沒有對應的 gate", "recommended": "開啟 pane", "evidence": None, "risk": "照規則不該發生：要授權的動作應寫 gate",
@@ -346,6 +358,20 @@ def needs_human(card, gates, agent_status, top, prs):
         verdict = gaterule.decide(waiting_of(card, [g], agent_status))
         if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return True
     return False
+
+PRE_APPLY = ("explore", "grill", "propose")
+BACKGROUND_WAIT = ("等背景", "等 reviewer")
+# mr.sh 也當卡住的 pipeline 狀態：不會自己往下走，不是在等 CI
+PIPELINE_ENDED = ("failed", "canceled", "skipped", "manual", "timed_out")
+
+# 走到這裡的 waiting 只剩只等別張卡的 gate。herdr 讀不到（None）分不出有沒有在工作，算在工作
+def hold_of(card, waiting, agent_status, stopped):
+    if waiting: return "等 %s 合併" % waiting["waits_on"]
+    if agent_status in ("working", None): return None
+    if agent_status == "unknown": return "等協調者"   # pane 已經不在，CI 與停住原因都不準
+    if card["mr"] and card["mr"].get("blocked_on") == "pipeline" and card["mr"].get("pipeline_status") not in PIPELINE_ENDED: return "等 CI"
+    if stopped and stopped["reason"].startswith(BACKGROUND_WAIT): return "等背景工作"
+    return "等協調者"
 
 cards, matched_panes, legacy = [], set(), {}
 for r in read(os.path.join(work, "legacy")).split("\n"):
@@ -372,14 +398,19 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     waiting = None if c["archived"] else waiting_of(c, in_force, agent_status)
     plan = plans.get(repo_)
     prs = [pr for f in (plan["features"] if plan else []) for pr in f.get("prs") or []]
+    stopped = None if c["archived"] else stopped_of(os.path.join(state, "stop-said", "%s-%s" % (repo_, slug_)))
+    hold = None
     if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
     elif waiting and needs_human(c, in_force, agent_status, repo_paths[repo_], prs): section = "待處理"
-    elif disp or waiting: section = "進行中"
+    elif (disp or waiting) and c["stage"] in PRE_APPLY: section = "待指派"
+    elif disp or waiting:
+        hold = hold_of(c, waiting, agent_status, stopped)
+        section = "等待中" if hold else "進行中"
     elif c["stage"] == "explore": section = "收件匣"
     else: section = "待指派"
     cards.append({
         "repo": c["repo"], "slug": c["slug"], "title": one_liner(inbox) or c["slug"], "kind": kind_of(d),
-        "stage": c["stage"], "section": section, "archived": c["archived"],
+        "stage": c["stage"], "section": section, "hold": hold, "archived": c["archived"],
         "since": frontmatter(inbox, "found") or (re.search(r"^created:\s*(\S+)", read(os.path.join(d, ".openspec.yaml")), re.M) or [None, None])[1],
         "waiting": waiting, "open_gates": [{"id": g["id"], "opened_at": opened_at_of(g, gates_path, now_dt)} for g in gates if g.get("status") == "open"],
         "dispatch": disp, "status": load_json(os.path.join(d, "status.json"), None),
@@ -390,10 +421,10 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
-        "stopped": None if c["archived"] else stopped_of(os.path.join(state, "stop-said", "%s-%s" % (c["repo"], c["slug"]))),
+        "stopped": stopped,
     })
 
-order = {"待處理": 0, "進行中": 1, "待指派": 2, "收件匣": 3, "已完成": 4}
+order = {"待處理": 0, "進行中": 1, "等待中": 2, "待指派": 3, "收件匣": 4, "已完成": 5}
 
 def wp_list(owner, key, where):
     """load_workplan 認不出形狀時不會 raise（features: oops 會變字串），這裡檢查：key 不在或空是 []，其餘要是有 name 的 mapping list。"""
