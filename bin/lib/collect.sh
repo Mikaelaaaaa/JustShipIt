@@ -337,7 +337,8 @@ def waiting_of(card, gates, agent_status):
     if blockers == []:
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": card["mr"]["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
-    if blockers and mergeready.OPEN_REVIEW in blockers and set(blockers) <= REPORT_ONLY:
+    # 只對 pane 還在、閒著的卡：沒派出、被停掉、pane 不在或 herdr 讀不到時，唯一的動作「開啟 pane」沒有作用
+    if blockers and mergeready.OPEN_REVIEW in blockers and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
         return {"type": "report 待你決定", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane"],
                 "question": mergeready.OPEN_REVIEW, "recommended": None, "evidence": card["mr"]["url"], "risk": None,
                 "default_if_unanswered": "MR 不合併", "confirmed": None}

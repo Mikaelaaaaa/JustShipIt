@@ -30,7 +30,9 @@ mk() { # <slug> <iid>：Consider 留一項沒處理、邏輯表對應 head
 mk idle 31
 mk working 31
 mk running 32
-printf '{"r/idle":{"pane":"p1","mode":"autopilot"},"r/working":{"pane":"p2","mode":"autopilot"},"r/running":{"pane":"p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+mk nodisp 31
+mk stopped 31
+printf '{"r/idle":{"pane":"p1","mode":"autopilot"},"r/working":{"pane":"p2","mode":"autopilot"},"r/running":{"pane":"p1","mode":"autopilot"},"r/stopped":{"pane":"p1","mode":"stopped"}}' > "$OPSX_STATE_DIR/dispatch.json"
 export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
 printf '{"id":"cli:agent:list","result":{"agents":[{"pane_id":"p1","agent_status":"idle"},{"pane_id":"p2","agent_status":"working"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
 
@@ -46,4 +48,10 @@ C="$(card "$J" r working)"
 assert_eq "$(q "$C" waiting)" null "agent 還在改不算待處理"
 assert_eq "$(q "$C" section)" 進行中
 assert_eq "$(q "$(card "$J" r running)" waiting)" null "MR 沒全綠不算 report 待你決定"
+# 沒有 pane（沒派出、被停掉）：只有「開啟 pane」可按也沒用，不標
+assert_eq "$(q "$(card "$J" r nodisp)" waiting)" null "沒派出的卡不標 report 待你決定"
+assert_eq "$(q "$(card "$J" r stopped)" waiting)" null "停掉的卡不標 report 待你決定"
+# herdr 讀不到：分不出 pane 在不在，也不標
+J="$(OPSX_TEST_HERDR_LIST_FAIL='socket gone' opsx collect --root "$ROOT")"
+assert_eq "$(q "$(card "$J" r idle)" waiting)" null "herdr 讀不到不標 report 待你決定"
 echo "collect-report-needs-you ok"
