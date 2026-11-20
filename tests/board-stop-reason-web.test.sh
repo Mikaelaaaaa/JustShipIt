@@ -39,6 +39,12 @@ for (const name of ['rowReady', 'rowInbox']) assert.ok(body(name).includes('stop
 const line = stoppedLine({waiting: null, agent_status: null, stopped});
 assert.ok(line.includes('停住：等 reviewer（review 站）') && line.includes('10:05'), '待指派的停住行要有原因與時:分：' + line);
 assert.ok(!stoppedLine({waiting: null, stopped: {reason: '<b>x</b>', at}}).includes('<b>'), '停住行的原因要 escape');
+// 今天的只有時:分，不是今天的加月/日（停住紀錄的時間跟看板在同一台機器寫）
+const now = new Date(), p2 = n => String(n).padStart(2, '0');
+const todayAt = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}T09:07:00+08:00`;
+assert.ok(stoppedNote({waiting: null, stopped: {reason: 'r', at: todayAt}}).includes('停住：r 09:07</span>'), '今天的只有時:分');
+assert.ok(stoppedNote({waiting: null, stopped: {reason: 'r', at: '2026-11-10T14:03:00+08:00'}}).includes('停住：r 11/10 14:03</span>'), '不是今天的加月/日');
+assert.ok(stoppedLine({waiting: null, stopped: {reason: 'r', at: '2026-11-10T14:03:00+08:00'}}).includes('停住：r 11/10 14:03</span>'), '停住行也加月/日');
 for (const c of [{waiting: {type: '等待決定'}, stopped}, {waiting: null, stopped: null}, {waiting: null, agent_status: 'working', stopped}])
   assert.strictEqual(stoppedLine(c), '', '有 waiting、沒有紀錄、agent 在跑時沒有停住行');
 JS

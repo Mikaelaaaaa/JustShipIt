@@ -518,12 +518,18 @@ function rowRunning(c){
 /* 停住 start */
 function stoppedNote(c){
   if(c.waiting||!c.stopped||c.agent_status==='working')return '';
-  return `<span class="sep">·</span><span class="faint">停住：${esc(c.stopped.reason)} ${esc(String(c.stopped.at).slice(11,16))}</span>`;
+  return `<span class="sep">·</span><span class="faint">停住：${esc(c.stopped.reason)} ${esc(stoppedAt(c.stopped.at))}</span>`;
 }
 /* 待指派與收件匣的列沒有第二行：有停住才加一行 */
 function stoppedLine(c){
   if(c.waiting||!c.stopped||c.agent_status==='working')return '';
-  return `<div class="l2"><span class="faint">停住：${esc(c.stopped.reason)} ${esc(String(c.stopped.at).slice(11,16))}</span></div>`;
+  return `<div class="l2"><span class="faint">停住：${esc(c.stopped.reason)} ${esc(stoppedAt(c.stopped.at))}</span></div>`;
+}
+/* 今天只寫時:分，不是今天加月/日；停住紀錄由同一台機器的 hook 寫，日期直接跟本機今天比 */
+function stoppedAt(at){
+  const s=String(at),now=new Date(),p2=n=>String(n).padStart(2,'0');
+  const today=`${now.getFullYear()}-${p2(now.getMonth()+1)}-${p2(now.getDate())}`;
+  return s.slice(0,10)===today?s.slice(11,16):`${s.slice(5,7)}/${s.slice(8,10)} ${s.slice(11,16)}`;
 }
 /* 停住 end */
 function rowReady(c){

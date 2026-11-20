@@ -42,7 +42,7 @@ relay_step="$(printf '%s\n' "$subs" | grep -F '有新的派工指示')"
 printf '%s' "$relay_step" | grep -qF 'SendMessage' || fail "轉送步沒寫 SendMessage：$relay_step"
 printf '%s' "$relay_step" | grep -qF '<top>/openspec/changes/<主>/inbox.md' || fail "轉送步沒帶主殼絕對路徑：$relay_step"
 for k in 'DONE' 'opsx stack' 'new subagent' 'type: decision'; do
-  printf '%s' "$relay_step" | grep -qF "$k" || fail "轉送步沒處理已 DONE 的子 change，缺 $k：$relay_step"
+  printf '%s' "$relay_step" | grep -qF "$k" || fail "轉送步沒處理已 DONE 的子 change，缺 ${k}：$relay_step"
 done
 
 echo ok

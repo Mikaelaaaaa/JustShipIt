@@ -87,7 +87,7 @@ st_open_gates() {
   local f n=0
   for f in "$1/gates.md" "$1"/subs/*/gates.md; do
     [ -f "$f" ] || continue
-    n=$((n + $(grep -cE '^status:[[:space:]]*open[[:space:]]*$' "$f" || true)))
+    n=$((n + $(st_gates_file_count "$f" all)))
   done
   printf '%s' "$n"
 }
@@ -100,11 +100,17 @@ st_open_gates_blocking() {
   done
   printf '%s' "$n"
 }
-st_gates_file_blocking() { # <gates.md>
-  awk '
-    function flush() { if (open && (!ask || appr)) n++; open = 0; ask = 0; appr = 0 }
+st_gates_file_blocking() { st_gates_file_count "$1" blocking; } # <gates.md>
+# <gates.md> <all|blocking>：open gate 數，blocking 不算只問接站的。
+# 帶 blocks-from: apply 的（dispatch 開的 install-deps）在同目錄還沒有 tasks.md 時不算：explore／grill／propose 用不到依賴。collect.sh 的 gates_in_force 同一條
+st_gates_file_count() {
+  local early=0
+  [ -f "${1%/*}/tasks.md" ] || early=1
+  awk -v mode="$2" -v early="$early" '
+    function flush() { if (open && !(early && later) && (mode == "all" || !ask || appr)) n++; open = 0; ask = 0; appr = 0; later = 0 }
     /^## / { flush() }
     /^status:[ \t]*open[ \t]*$/ { open = 1 }
+    /^blocks-from:[ \t]*apply[ \t]*$/ { later = 1 }
     /^type:[ \t]*approval[ \t]*$/ { appr = 1 }   # 核准只有人能答，不管問法
     /^(## |問題:).*要不要(接|派|繼續)([ ]*\/|[ ]*下一|\?|？|：|$)/ { ask = 1 }
     END { flush(); print n + 0 }
@@ -144,18 +150,25 @@ wp_pr_field() { # <top> <slug> <field>
 }
 st_workplan_merged() { [ "$(wp_pr_field "$1" "$2" status)" = merged ]; } # <top> <slug>
 # 這個 PR 本來就不開 MR（workplan 的 mr: none），且 branch 相對 <primary remote>/main 沒有自己的 commit：沒東西可推，下一站是 archive。
+# 成立回 0、不印；不成立回 1，標了 mr 卻判不成時印一行原因（沒標 mr、或 PR 已 merged 不印）。
 # branch 或 base 查不到都不成立，交回 pr 處理。workplan 沒標就不跑 git，collect 掃整個 repo 時不多 fork。
-st_no_mr_done() { # <top> <slug>
-  local branch base
-  [ "$(wp_pr_field "$1" "$2" mr)" = none ] || return 1
+st_no_mr_why() { # <top> <slug>
+  local mr branch base n
+  mr="$(wp_pr_field "$1" "$2" mr)"
+  [ -n "$mr" ] || return 1
   ! st_workplan_merged "$1" "$2" || return 1   # 已 merged 的 PR 是做完了，不是還在等 /archive
+  [ "$mr" = none ] || { printf 'mr: %s 不認得，只認 none\n' "$mr"; return 1; }
   branch="$(wp_pr_field "$1" "$2" branch)"
-  [ -n "$branch" ] || return 1
+  [ -n "$branch" ] || { printf 'workplan 沒寫 branch\n'; return 1; }
   base="$(primary_remote "$1")/main"
-  git -C "$1" show-ref --verify --quiet "refs/heads/$branch" || return 1
-  git -C "$1" show-ref --verify --quiet "refs/remotes/$base" || return 1
-  [ "$(git -C "$1" rev-list --count "$base..refs/heads/$branch" 2>/dev/null)" = 0 ]
+  git -C "$1" show-ref --verify --quiet "refs/heads/$branch" || { printf '本地 branch %s 查不到\n' "$branch"; return 1; }
+  git -C "$1" show-ref --verify --quiet "refs/remotes/$base" || { printf '%s 查不到\n' "$base"; return 1; }
+  n="$(git -C "$1" rev-list --count "$base..refs/heads/$branch" 2>/dev/null)"
+  [ "$n" = 0 ] && return 0
+  printf 'branch 有 %s 個自己的 commit\n' "${n:-?}"
+  return 1
 }
+st_no_mr_done() { st_no_mr_why "$1" "$2" >/dev/null; } # <top> <slug>
 # 這一站能不能送 /opsx-workflow:<stage> 給 agent：一般各站可以；archive 只有沒 MR、還沒歸檔的卡可以，workplan 已 merged 的卡沒東西要送
 st_sendable_stage() { # <top> <slug> <stage>
   case "$3" in
@@ -184,7 +197,7 @@ st_split_into() {
 
 # 印「階段 · slug · kind · Read 清單」。沒卡印 explore。
 stage_of() { # <top> <slug>
-  local top="$1" slug="$2" d kind
+  local top="$1" slug="$2" d kind why
   d="$(st_card_dir "$1" "$2")"
   if [ -z "$slug" ] || [ ! -d "$d" ]; then printf 'explore · （沒有對到卡，先建殼）· — · skills/explore/SKILL.md\n'; return; fi
   kind="$(st_card_kind "$d")"; kind="${kind:-dev}"
@@ -201,8 +214,8 @@ stage_of() { # <top> <slug>
   if [ -f "$d/report.md" ]; then
     if st_mr_in_report "$d"; then printf 'babysit · %s · %s · skills/babysit/SKILL.md（MR 已開，等合併；有留言用 babysit）\n' "$slug" "$kind"
     elif [ -f "$d/tasks.md" ] && [ "$(st_tasks_open "$d")" -gt 0 ]; then printf 'apply · %s · %s · %s（review 退回了 task，先做完）\n' "$slug" "$kind" "$reads"
-    elif st_no_mr_done "$top" "$slug"; then printf 'archive · %s · %s · skills/archive/SKILL.md（沒有 MR：workplan mr: none、branch 沒有 commit）\n' "$slug" "$kind"
-    else printf 'pr · %s · %s · skills/pr/SKILL.md · skills/pr/references/mr-note.md\n' "$slug" "$kind"; fi; return
+    elif why="$(st_no_mr_why "$top" "$slug")"; then printf 'archive · %s · %s · skills/archive/SKILL.md（沒有 MR：workplan mr: none、branch 沒有 commit）\n' "$slug" "$kind"
+    else printf 'pr · %s · %s · skills/pr/SKILL.md · skills/pr/references/mr-note.md%s\n' "$slug" "$kind" "${why:+（workplan mr: $(wp_pr_field "$top" "$slug" mr)，但 ${why}）}"; fi; return
   fi
   if [ -f "$d/tasks.md" ]; then
     if [ "$(st_tasks_open "$d")" -gt 0 ]; then printf 'apply · %s · %s · %s\n' "$slug" "$kind" "$reads"; return; fi
