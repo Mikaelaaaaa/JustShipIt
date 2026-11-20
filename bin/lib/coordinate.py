@@ -28,6 +28,9 @@ import runtime  # noqa: E402
 import safefile  # noqa: E402
 import submit  # noqa: E402
 
+# 討論卡：派工指示有一條含這句。開卡端寫的是「做到 propose 完成就停（留在待指派），不要 apply」，檔裡只放前半句，括號裡改了也認得
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
+    PROPOSE_STOP = _f.read().strip()
 MAX_DISPATCH = 6
 # 同時活著的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
@@ -963,6 +966,8 @@ class Round:
             key, top = card_key(c), repo_paths[c["repo"]]
             entry = self.dispatch_file.get(key)
             parked = self.memo["_parked"].get(key)
+            # 收件匣的討論卡派去跑 explore 到 propose：還沒有 tasks.md，P2 也派
+            discuss = c["section"] == "收件匣" and stops_at_propose(c)
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
@@ -975,13 +980,13 @@ class Round:
                         self.notify(c, "gate", parked["gate"], "gate %s 等的 PR 合了，要你回" % parked["gate"],
                                     "看板：停下之後合進 main 的 PR：%s；回了這個 gate 才重派" % "、".join(newly))
                     continue
-            elif c["section"] != "待指派":
+            elif c["section"] != "待指派" and not discuss:
                 continue
             elif key in self.woken_cards:
                 continue   # 這輪收尾時已交給 session；collect 是收尾前讀的，還當它待指派
             elif entry and entry.get("mode") == "stopped":
                 continue   # 人在板上停掉的
-            if not os.path.isfile(os.path.join(c["path"], "tasks.md")) or c["mr"]:
+            if not (discuss or os.path.isfile(os.path.join(c["path"], "tasks.md"))) or c["mr"]:
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session
             owner = None if parked else self.session_feature_of(top, c["slug"])
@@ -1010,7 +1015,7 @@ class Round:
                 self.log("?? %s 等級算不出來：%s" % (key, got["error"]))
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本的工作，不算自動派新卡
-            if got["level"] == "P2" and not parked:
+            if got["level"] == "P2" and not parked and not discuss:
                 self.log("-- %s 是 P2（%s），不自動派" % (key, got["reason"]))
                 continue
             # P0（自己判出或繼承來的）排最前、一起派，不佔每輪上限；在跑的卡一律不停
@@ -1425,6 +1430,10 @@ def drive_dead(key, disp):
 def is_merged(c):
     """forge 說合了才算；只看 workplan 的 merged 不算，那可能是卡自己 /opsx-workflow:archive 做到一半。"""
     return bool(c["mr"] and c["mr"]["merged_at"])
+
+
+def stops_at_propose(c):
+    return any(PROPOSE_STOP in n["text"] for n in c["notes"])
 
 
 def owner_gone(c):
