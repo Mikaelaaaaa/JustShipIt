@@ -21,6 +21,8 @@ import safefile  # noqa: E402
 COORDINATOR = "opsx-coordinator"
 # herdr 收不下 prompt 的兩種情形：沒有這個 agent、或它卡在對話框。呼叫者各有退路，不排隊
 UNAVAILABLE = ("agent_not_found", "agent_blocked")
+# 名字對不到活著的 pane 是錯誤，不是普通的「協調者不在」：退回桌面時標題接上這句，讓人一眼看出來
+LOST = "協調者 %s 對不到活著的 pane（在它的 pane 重開 session，或跑 opsx lead）" % COORDINATOR
 QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 LOCK = QUEUE + ".lock"
@@ -108,6 +110,14 @@ def look(read):
     if rc != 0:
         return "unknown", (err or out).strip()
     return box_state(out), ""
+
+
+def lost(why):
+    return "agent_not_found" in why
+
+
+def lost_title(title):
+    return "%s · %s" % (title, LOST)
 
 
 def one_line(text):
@@ -235,7 +245,14 @@ def main(argv):
     print(result)
     if why:
         print(why, file=sys.stderr)
-    return 0 if result in ("sent", "queued") else 1
+    if result in ("sent", "queued"):
+        return 0
+    if argv[1] == "say" and result == "unavailable" and lost(why):
+        rc, out, err = run(runtime.notify("[opsx] " + LOST, one_line(argv[3]), sound="request"))
+        if rc == 0:
+            return 3
+        print((err or out).strip(), file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

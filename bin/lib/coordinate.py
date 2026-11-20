@@ -495,6 +495,9 @@ class Round:
         if result == "unavailable":
             if sent is not None:
                 return
+            if coordq.lost(why):
+                self.log("?? 協調者 %s 對不到活著的 pane，%s 改發桌面錯誤：%s" % (COORDINATOR, key, why.replace("\n", " ")[:200]))
+                title = coordq.lost_title(title)
             rc, out, err = self.act(runtime.notify(title, body, sound="request"))
             why = "" if rc == 0 else (err or out)
             result = "sent" if rc == 0 else "error"
@@ -513,16 +516,20 @@ class Round:
             return
         result, why = coordq.flush(self.state, read=self.run, act=self.act)
         if result == "unavailable":
-            self.notify_queue()
+            self.notify_queue(why)
         elif result == "error":
             self.log("?? 協調者佇列這輪送不出去，留到下一輪：%s" % why.replace("\n", " ")[:200])
 
-    def notify_queue(self):
+    def notify_queue(self, why):
         lines, files = coordq.take(self.state)
         if not lines:
             coordq.done(files)
             return
-        rc, out, err = self.act(runtime.notify("[opsx] 協調者不在，排隊的 %d 則事件" % len(lines), coordq.merge(lines), sound="request"))
+        title = "[opsx] 協調者不在，排隊的 %d 則事件" % len(lines)
+        if coordq.lost(why):
+            self.log("?? 協調者 %s 對不到活著的 pane，排隊的 %d 則改發桌面錯誤：%s" % (COORDINATOR, len(lines), why.replace("\n", " ")[:200]))
+            title = coordq.lost_title("[opsx] 排隊的 %d 則事件" % len(lines))
+        rc, out, err = self.act(runtime.notify(title, coordq.merge(lines), sound="request"))
         if rc == 0:
             coordq.done(files)
             return
