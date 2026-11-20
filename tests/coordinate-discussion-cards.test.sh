@@ -44,11 +44,16 @@ assert_eq "$(count '^opsx dispatch')" 0 "沒帶指示的收件匣卡不派：$(c
 # --- 名額滿了帶指示的卡等下一輪（反例）---
 rm -f "$MEMO"
 printf '1\n' > "$OPSX_STATE_DIR/max-working"
+# 名額照 dispatch.json 條目與 herdr agent list 數：busy 的 pane 有 agent 在跑、cwd 在條目的 worktree 裡
+mkdir -p "$FX/wt/busy"
+printf '{"demo/busy":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":null,"worktree":"%s"}}' "$FX/wt/busy" > "$DISP"
+printf '{"id":"cli:agent:list","result":{"agents":[{"pane_id":"w1:p1","agent_status":"working","cwd":"%s"}],"type":"agent_list"}}' "$FX/wt/busy" > "$FX/agents.json"
+export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
 cards "[$(live_card busy "$(notes)" working),$(inbox_card g-p2 "$(notes "$N")")]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 0 "名額滿了不派：$(cat "$OPSX_FAKE_LOG")"
 grep -q '達上限 1' "$LOG" || fail "要記達上限：$(cat "$LOG")"
-rm -f "$OPSX_STATE_DIR/max-working"
+rm -f "$OPSX_STATE_DIR/max-working"; unset OPSX_TEST_HERDR_AGENTS
 
 # --- propose 完的討論卡 pane 不收，由同一個 pane 接 apply（D8）---
 for st in idle done; do
