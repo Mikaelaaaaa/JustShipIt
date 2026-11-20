@@ -9,7 +9,10 @@ source "$OPSX_ROOT/bin/lib/rules.sh"
 render_agents_md() { # <interactive|autopilot> <repo 根目錄>
   local mode_rule grant_note=""
   case "$1" in
-    autopilot) mode_rule="$(rule_autopilot "$2")" || return 1 ;;
+    autopilot)
+      mode_rule="$(rule_autopilot "$2")" || return 1
+      # AGENTS.md 只在派工時寫一次，之後分支可能增刪 tests/run.sh，所以兩種測試段都列
+      mode_rule="${mode_rule/"$(rule_tests "$2")"/"$(rule_tests_both)"}" ;;
     interactive)
       mode_rule="$(rule_interactive)"
       grant_note='本卡是 interactive：下表凡寫「寫 gate」「一律 gate」處，一律改成在 pane 直接問人，不寫 gate。' ;;

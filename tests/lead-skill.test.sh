@@ -4,6 +4,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 F="$OPSX_ROOT/skills/lead/SKILL.md"
 assert_file "$F"
 
+# babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
+grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
+grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
+
 # 五塊依序出現
 line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
 prev=0
@@ -74,6 +79,33 @@ assert_eq "$(printf '%s\n' "$ASK" | grep -o 'compare' | wc -l | tr -d ' ')" 1 "�
 case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要寫「不用 \`compare\` to choose」" ;; esac
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
+
+# 職責 8–11（specs/opsx-lead「① 一直追要使用者做的事」「可授權的 approval gate 給一次性授權指令」「閒時派待指派」
+# 「收件匣派去 explore」「寫 skill 的卡派工時要求 skill-creator」）：用編號切出那一條，別條的字不算。
+# 比對整句，反例的那句也要在，單字會被別處的字滿足（working 在 max-working 裡）
+duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
+D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+for s in 'leave ① out only when nothing is pending' 'starting with `!`' '下一輪' 'until it is gone' \
+  'what it unblocked has moved' '`action:` is push, mr, install or delete' '--grant repo'; do
+  case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac
+done
+for s in 'no pane is working and ① has no open gate' 'priority level, then workplan order' 'P2 included' \
+  'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
+  'While any pane is working, dispatch nothing extra'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
+done
+for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
+  'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
+  case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
+done
+case "$D10" in *'P2 included'*) fail "職責 10 不能派 P2 收件匣卡：$D10" ;; esac
+for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv' 'agents/*.md' \
+  'evaluation loop' 'only changes code gets no such note'; do
+  case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
+done
+# 授權指令由使用者自己答：職責 2 的不代答不變，Duties 裡沒有自動採用
+duty 2 | grep -qF 'never answer them' || fail "職責 2 要保留 never answer them"
+case "$DUTIES" in *自動採用*) fail "Duties 不能有「自動採用」" ;; esac
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"

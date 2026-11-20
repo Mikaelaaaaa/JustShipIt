@@ -98,7 +98,7 @@ git -C "$R" checkout -q -b main 2>/dev/null || git -C "$R" checkout -q main
 out="$(run_hook openspec-router.sh "$(j "$R" "" '{}' "hi")")"; reason "$out" | grep -q '沒有對到卡' || fail "router: no card: $(reason "$out")"
 git -C "$R" checkout -q feat/eval-core/mikaela
 
-# 沒對到卡時列進行中 change 與下一步（session-change-list）
+# 沒對到卡時只印進行中 change 的張數（session-change-list）
 L="$(mk_repo Listing)"; LC="$L/openspec/changes"
 git -C "$L" checkout -q -b main 2>/dev/null || git -C "$L" checkout -q main
 mkdir -p "$LC/archive"
@@ -109,7 +109,7 @@ printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/.openspec.yaml"
 printf '## 1. x\n\n- [ ] 1.1 a\n' > "$LC/eval-core/tasks.md"
 printf -- '---\ntype: 功能\n---\n\n## 一句話\n\nx\n' > "$LC/kb-export/inbox.md"
 r="$(lr)"
-assert_eq "$r" "opsx：explore · 沒有對到卡 · 進行中 2 張：/opsx-workflow:apply eval-core · /opsx-workflow:explore kb-export · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡列清單"
+assert_eq "$r" "opsx：explore · 沒有對到卡 · 進行中 2 張 · 新工作先建殼 · skills/explore/SKILL.md" "router: 沒對到卡只印張數"
 assert_eq "$(lr SessionStart)" "$r" "router: SessionStart 與 UserPromptSubmit 同一段"
 rm -rf "$LC/kb-export"
 mkdir -p "$LC/archive/2026-11-01-old" "$LC/big" "$LC/legacy" "$LC/eval-core/subs/core"
@@ -119,8 +119,8 @@ printf -- '---\ntype: 功能\nsplit_into: a, b\n---\n\n## 一句話\n\nx\n' > "$
 printf 'schema: spec-driven\ncreated: 2026-10-01\n' > "$LC/legacy/.openspec.yaml"
 printf 'schema: opsx\ncreated: 2026-11-05\n' > "$LC/eval-core/subs/core/.openspec.yaml"
 r="$(lr)"
-case "$r" in *"進行中 1 張：/opsx-workflow:apply eval-core · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不列: $r" ;; esac
-case "$r" in *old*|*big*|*legacy*|*" core"*|*/core*) fail "router: 清單不該有 old、big、legacy、core: $r" ;; esac
+case "$r" in *"進行中 1 張 · 新工作先建殼"*) ;; *) fail "router: archive、已拆、舊卡、子殼不算: $r" ;; esac
+case "$r" in *eval-core*|*old*|*big*|*legacy*|*core*) fail "router: 不列卡名: $r" ;; esac
 # 對到卡時維持一行
 mkdir -p "$LC/kb-export"; printf -- '---\ntype: 功能\n---\n\nx\n' > "$LC/kb-export/inbox.md"
 git -C "$L" checkout -q -b feat/eval-core/mikaela
@@ -984,6 +984,7 @@ STOP_STATE="$OPSX_STATE_DIR/stop-chain"
 # 每次呼叫先清擋的次數；要測次數的 case 用 KEEP=1 sg 保留
 sg() { [ -n "${KEEP:-}" ] || rm -rf "$STOP_STATE"; printf '{"cwd":"%s","stop_hook_active":%s}' "$R" "${1:-false}" | bash "$H/openspec-stop-gate.sh" 2>/dev/null; true; }
 done_report() { printf '# report\n\n## MR\nhttps://gitlab.example.com/a/b/-/merge_requests/212 · opened 2026-11-10 · auto-merge: no\nbabysit: 2026-11-10T14:00:00+08:00\n' > "$C/report.md"; }
+logic_report() { done_report; printf '\n## 邏輯表\n%s\n' "$1" >> "$C/report.md"; printf '# 邏輯表\n' > "$C/logic-map.md"; }   # <邏輯表那一行>：卡目錄也放 logic-map.md
 # 放行時回報協調者：fake herdr 只在這個 PATH 前綴下才有，opsx-coordinator 在（OPSX_TEST_COORDINATOR_UP）
 CL="$FX/coord.log"; mkdir -p "$FX/cbin"
 printf '#!/usr/bin/env bash\nexec bash "%s/tests/fakes/herdr" "$@"\n' "$OPSX_ROOT" > "$FX/cbin/herdr"; chmod +x "$FX/cbin/herdr"
@@ -1019,7 +1020,8 @@ out="$(sg)"; assert_eq "$out" "" "stop: open gate 放行 tests red"
 rm -f "$C/gates.md"
 printf '{"phase":"apply","step":8,"total":8,"label":"x","tests":"green","at":"2026-11-05T15:00:00+08:00"}' > "$C/status.json"
 rm -f "$C/report.md"; out="$(sg)"; assert_eq "$(decision "$out")" block "stop: 沒 report"; reason "$out" | grep -q '/opsx-workflow:review' || fail "stop: 要叫跑 review"
-done_report; sleep 1
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"abc1234def","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$OPSX_TEST_GLAB_JSON"
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'; sleep 1
 out="$(sg)"; assert_eq "$out" "" "stop: 全齊放行"
 out="$(sgc)"; assert_eq "$out" "" "stop: 全齊放行（回報版）"
 # babysit 做完：coordinate 另送「可以合併」，這裡只記不推
@@ -1444,9 +1446,36 @@ assert_eq "$(said 1)" "babysit 做完，MR 卡在 CI 紅" "stop: CI 紅記下原
 # CI 還在跑、MR ready、查不到：都不推
 printf '%s' "${OPEN_MR/\"success\"/\"running\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: CI 在跑不推"
-printf '%s' "$OPEN_MR" > "$OPSX_TEST_GLAB_JSON"
+# MR ready 而且邏輯表對應 MR head：不推（coordinate 送「可以合併」）
+printf '%s' "${OPEN_MR/abc123/abc1234def}" > "$OPSX_TEST_GLAB_JSON"
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: MR ready 不推"
 assert_eq "$(grep -c '^mr view' "$CL")" 1 "stop: 同一次 Stop 只查一次 forge"
+# MR ready 但邏輯表不是 MR 最新 head：推，不然卡停在進行中沒人知道（specs/opsx-coordinate「babysit 做完、MR 全綠但邏輯表舊時推」）
+logic_report 'openspec/changes/eval-core/logic-map.md · 9f8e7d6'
+out="$(sgc)"; assert_eq "$out" "" "stop: 邏輯表舊照樣放行"
+assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，邏輯表不是 MR 最新 head$' "$CL"
+logic_report '產表失敗：fetch 失敗'
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，邏輯表不是 MR 最新 head$' "$CL"
+done_report
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，邏輯表不是 MR 最新 head$' "$CL"
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'; rm "$C/logic-map.md"
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，邏輯表不是 MR 最新 head$' "$CL"
+# 邏輯表對了，但 report.md 有 review 留給人決定、沒處理的項：推
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+printf '\n## 四桶\n### Consider\n- a.ts:3 測試沒蓋到空字串\n' >> "$C/report.md"
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+printf '\n## 四桶\n### Consider\n- x.py:3 使用者可能不接受 2 秒延遲\n' >> "$C/report.md"
+out="$(sgc)"; assert_grep '^agent prompt opsx-coordinator \[eval-core\] 停住：babysit 做完，report.md 有留給人決定的項目$' "$CL"
+# 待修有項目：既有的檢查先擋下、叫 /apply，輪不到這裡推
+printf '\n## 四桶\n### 待修（範圍內）\n- a.ts:9 漏判 null · task R1.1\n' >> "$C/report.md"
+out="$(sgc)"; assert_eq "$(decision "$out")" block "stop: 待修有項目擋"; reason "$out" | grep -q '/opsx-workflow:apply' || fail "stop: 待修有項目要叫 /apply: $(reason "$out")"
+# Consider 每項行尾都標了接受或開卡：不推
+logic_report 'openspec/changes/eval-core/logic-map.md · abc1234'
+printf '\n## 四桶\n### Consider\n- a.ts:3 測試沒蓋到空字串 · 接受\n- b.ts:1 不接受空 sha · 開卡 me-20261117-1500\n' >> "$C/report.md"
+out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: Consider 都處理過不推"
+rm -f "$C/logic-map.md"
 printf '' > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_eq "$out" "" "stop: 查不到 MR 時有 babysit: 行照樣放行"
 assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，查不到 MR 狀態" "stop: 查不到 MR 不推，紀錄寫查不到"

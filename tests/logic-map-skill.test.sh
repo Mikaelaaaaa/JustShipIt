@@ -265,3 +265,44 @@ assert_fixed 'asks what a line' "$FX/description"
 assert_fixed 'When producing a map, it reads only the code' "$FX/description"
 assert_fixed '「邏輯表的 D3 是什麼」' "$FX/description"
 assert_not_fixed '「D3 是什麼」' "$FX/description"
+
+# --- 引用業務說明的句子：觸發、對回節點、頂端標功能、不一致要明說 ---
+assert_fixed 'a ⚠ item, or a sentence of its business sections' "$FX/description"
+assert_fixed '「業務說明這句是什麼意思」' "$FX/description"
+assert_fixed 'Use this section when the user quotes a D node, a condition-table row, a ⚠ item, or a sentence of a business section of an existing map and asks what it means.' "$FX/answer-first"
+for k in 'When the quoted line is a sentence of `## 這支 PR 在做什麼（業務說明）` or of a feature'"'"'s `### 業務上在做什麼`, find the D nodes it summarizes from that feature'"'"'s 做了什麼, 流程圖, and 條件表, and open the reply with one line 「這句對到 D2、D4」 before the four parts.' \
+  'Parts 1 to 4 cover only those nodes, and part 2 gives no row to a gate before them; this overrides the every-gate rule of part 2.' \
+  'For a sentence of the top summary, search every feature'"'"'s 做了什麼, 流程圖, and 條件表, write each node as 「功能 n Dm」, and answer only the situations the sentence names, across features when it spans them.' \
+  'When the sentence does not match the condition of a node it maps to, write 「這句跟 Dn 的條件不一致」 (「這句跟功能 n Dm 的條件不一致」 for a top-summary sentence) right after that line, quote the condition-table row, and list it in part 3 as a decision for the user with 2 to 4 options.' \
+  'When part of the sentence maps to a node and part maps to none, write 「這句有一部分對不到任何 D 節點」 right after that line, quote that part, and list it in part 3 as a decision for the user with 2 to 4 options.' \
+  'When the sentence maps to no D node but describes a step of 做了什麼 or an action in the flowchart, open the reply with 「這句對到 做了什麼第 n 步」 and answer from that step, with no decision.' \
+  'When it claims a check or a result that no step and no node shows, open the reply with 「這句對不到任何 D 節點」, quote the sentence, and write only part 3, not parts 1, 2, and 4, listing it there as a decision for the user with 2 to 4 options; do not read the code to find one.'; do
+  assert_fixed "$k" "$ANS"
+done
+# 業務句規則寫在讀檔規則之後、四部分之前
+grep -nF 'Do not read the code.' "$ANS" | head -1 | cut -d: -f1 > "$FX/ans-read"
+grep -nF 'When the quoted line is a sentence of' "$ANS" | cut -d: -f1 > "$FX/ans-biz"
+grep -nF 'Answer in 繁體中文, in four parts' "$ANS" | cut -d: -f1 > "$FX/ans-four"
+[ -s "$FX/ans-biz" ] || fail "回答段沒有業務句規則"
+[ "$(cat "$FX/ans-biz")" -gt "$(cat "$FX/ans-read")" ] || fail "業務句規則要排在讀檔規則之後"
+[ "$(cat "$FX/ans-four")" -gt "$(cat "$FX/ans-biz")" ] || fail "業務句規則要排在四部分之前"
+
+# eval：question-reply fixture 的邏輯表有兩段業務說明，有一題引用業務句、斷言開頭那行對到 D2
+QR="$DIR/evals/fixtures/question-reply/setup.sh"
+assert_fixed '## 這支 PR 在做什麼（業務說明）' "$QR"
+assert_fixed '### 業務上在做什麼' "$QR"
+assert_fixed '角色不在可匯出名單的人會被擋下。' "$QR"
+python3 -I - "$DIR/evals/evals.json" > "$FX/biz-eval" <<'PY' || fail "evals.json 沒有引用業務句的題：$(cat "$FX/biz-eval")"
+import json, sys
+
+evals = json.load(open(sys.argv[1], encoding="utf-8"))["evals"]
+hits = [e for e in evals if "角色不在可匯出名單的人會被擋下" in e["prompt"] and e["files"] == ["fixtures/question-reply"]]
+if len(hits) != 1:
+    print("找到 %d 題" % len(hits))
+    sys.exit(1)
+text = " ".join(hits[0]["assertions"])
+missing = [k for k in ("這句對到", "D2", "src/") if k not in text]
+if missing:
+    print("斷言少了：%s" % missing)
+    sys.exit(1)
+PY

@@ -178,6 +178,52 @@ card "$A" card-j; printf -- '- [ ] 1.1 x\n' > "$A/openspec/changes/card-j/tasks.
 out="$(cd "$A" && opsx dispatch --feature archive --agent claude --mode interactive 2>&1)" || fail "feature archive 應該照常派：$out"
 assert_eq "$(key Acmecorp-AI/card-j)" true
 
+# --- 卡在同名的 repo（登記的 dup/Acmecorp-CS 跟 code/Acmecorp-CS 同名）：說同名、列兩個路徑，不派（opsx-dispatch「找卡時遇到同名衝突的 repo 要說衝突」）---
+DUP="$(mk_repo dup/Acmecorp-CS)"; mkdir -p "$DUP/openspec/changes"
+printf '\n[[source]]\nkind = "gitlab"\nrepo = "dup-cs"\nproject = "g/dupcs"\npath = "%s"\n' "$DUP" >> "$OPSX_STATE_DIR/sources.toml"
+card "$DUP" card-k
+dispatch_refused "$P" card-k
+assert_grep "$C" "$FX/err"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_not_grep '沒有這張卡' "$FX/err"
+assert_no_file "$DUP/.claude/worktrees/card-k"
+# 不同名的已登記 repo 照派
+card "$A" card-l
+dispatch_ok "$P" card-l >/dev/null
+assert_eq "$(key Acmecorp-AI/card-l)" true
+# 站在同名的 repo 裡派它自己的卡、或 --repo 指到同名的 repo：一樣不派（D8）
+card "$DUP" card-m
+dispatch_refused "$DUP" card-m
+assert_grep "$C" "$FX/err"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_no_file "$DUP/.claude/worktrees/card-m"
+card "$C" card-n
+dispatch_refused "$P" card-n --repo "$C"
+assert_grep "$DUP" "$FX/err"
+assert_grep '改名' "$FX/err"
+assert_eq "$(key Acmecorp-CS/card-n)" false
+assert_no_file "$C/.claude/worktrees/card-n"
+# --repo 指到沒登記、但跟已登記的 Acmecorp-AI 同名的資料夾：不派，列兩個路徑（D13）
+U="$(mk_repo unreg/Acmecorp-AI)"; mkdir -p "$U/openspec/changes"
+card "$U" card-o
+dispatch_refused "$P" card-o --repo "$U"
+assert_grep "$A" "$FX/err"
+assert_grep "$U" "$FX/err"
+assert_no_file "$U/.claude/worktrees/card-o"
+# --repo 指到第三個沒登記、跟同名衝突的 Acmecorp-CS 同名的資料夾：一樣不派（D15）
+T="$(mk_repo third/Acmecorp-CS)"; mkdir -p "$T/openspec/changes"
+card "$T" card-q
+dispatch_refused "$P" card-q --repo "$T"
+assert_grep '改名' "$FX/err"
+assert_no_file "$T/.claude/worktrees/card-q"
+# 卡同時在同名的 dup/Acmecorp-CS 與沒衝突的 Acmecorp-AI：照舊不派，但說可以用 --repo 派 Acmecorp-AI 那張（D14）
+card "$DUP" card-p; card "$A" card-p
+dispatch_refused "$P" card-p
+assert_grep '同名' "$FX/err"
+assert_grep "--repo $A" "$FX/err"
+
 # --- sources.toml 壞了就不找（放最後：之後不再用到登記清單）---
 printf 'not = [valid\n' > "$OPSX_STATE_DIR/sources.toml"
 card "$A" card-i
