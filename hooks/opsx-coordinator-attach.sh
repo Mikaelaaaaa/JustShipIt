@@ -37,7 +37,16 @@ else
     *) ctx SessionStart "opsx：查不到 $COORDINATOR_AGENT 在哪（herdr：$(printf '%s' "$got" | head -c 200 | tr '\n' ' ')），名字沒有掛回這個 pane，卡片的事件會送不到協調者"; exit 0 ;;
   esac
 fi
-if ! out="$(herdr agent rename "$pane" "$COORDINATOR_AGENT" 2>&1)"; then
+# /exit 後 herdr 要幾秒才放掉名字（agent_name_taken），照 relaunch.sh 重試同樣的次數；6 次乘 1 秒在 hook 的 10 秒內
+try=1
+until out="$(herdr agent rename "$pane" "$COORDINATOR_AGENT" 2>&1)"; do
+  case "$out" in
+    *agent_name_taken*)
+      if [ "$try" -lt 6 ]; then try=$((try + 1)); sleep "${OPSX_DISPATCH_RETRY_SLEEP:-1}"; continue; fi
+      ctx SessionStart "opsx：這個 session 是協調者，但 herdr 還沒放掉 $COORDINATOR_AGENT 這個名字（試了 ${try} 次），名字沒有掛回 pane ${pane}。過一會兒再 resume 一次這個 session"
+      exit 0 ;;
+  esac
   ctx SessionStart "opsx：這個 session 是協調者，但把 pane $pane 改名成 $COORDINATOR_AGENT 失敗（herdr：$(printf '%s' "$out" | head -c 200 | tr '\n' ' ')）。卡片的事件會送不到協調者；把這段錯誤告訴使用者，或用 opsx lead 重開協調者"
-fi
+  exit 0
+done
 exit 0

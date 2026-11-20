@@ -113,22 +113,23 @@ def look(read):
     return box_state(out), ""
 
 
-def remember(state, agent):
-    """把 herdr agent get 回的協調者 Claude session id 與 pane 寫進 coordinator.json，SessionStart hook 憑它把名字掛回換過的 pane。
-    沒有 session id 回 False；內容沒變不重寫。"""
-    sid = (agent.get("agent_session") or {}).get("value")
-    if not sid:
-        return False
+def session_of(agent):
+    """herdr agent get 的 result.agent 裡的 Claude session id；herdr 還沒給時是 None。"""
+    return (agent.get("agent_session") or {}).get("value")
+
+
+def remember(state, sid):
+    """把協調者的 Claude session id 寫進 coordinator.json，SessionStart hook 憑它把名字掛回換過的 pane。
+    回檔裡原本的 session id（沒有檔或讀不懂是 None）；一樣就不重寫。讀寫的 OSError 交給呼叫者。"""
     path = os.path.join(state, IDENTITY)
-    text = json.dumps({"session_id": sid, "pane": agent.get("pane_id")}, ensure_ascii=False) + "\n"
     try:
         with open(path) as f:
-            if f.read() == text:
-                return True
-    except FileNotFoundError:
-        pass
-    safefile.write_atomic(path, text)
-    return True
+            old = json.load(f).get("session_id")
+    except (FileNotFoundError, json.JSONDecodeError):
+        old = None
+    if old != sid:
+        safefile.write_atomic(path, json.dumps({"session_id": sid}) + "\n")
+    return old
 
 
 def lost(why):
@@ -260,7 +261,11 @@ def main(argv):
         result, why = flush(argv[2])
     elif len(argv) == 3 and argv[1] == "remember":
         # stdin 是 herdr agent get 的輸出；沒有 session id 退出 3
-        return 0 if remember(argv[2], json.load(sys.stdin)["result"]["agent"]) else 3
+        sid = session_of(json.load(sys.stdin)["result"]["agent"])
+        if not sid:
+            return 3
+        remember(argv[2], sid)
+        return 0
     else:
         print("usage: coordq.py say <state dir> <一行> | coordq.py flush <state dir> | coordq.py remember <state dir> < agent get 的輸出", file=sys.stderr)
         return 64

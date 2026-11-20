@@ -91,7 +91,12 @@ case "$1 $2" in
   "agent wait") code="$(pop_err "${OPSX_TEST_WAIT_ERR:-}")"; [ -n "$code" ] && herdr_err "$code" wait
     [ -n "${OPSX_TEST_ON_WAIT:-}" ] && bash "$OPSX_TEST_ON_WAIT" "$@"; echo '{"result":{"status":"idle"}}' ;;
   # OPSX_TEST_RENAME_FAIL 設了就回 herdr 的錯誤，錯誤碼是它的值（佇列 hook、協調者 SessionStart hook 用）
-  "agent rename") if [ -n "${OPSX_TEST_RENAME_FAIL:-}" ]; then echo '{"error":{"code":"'"$OPSX_TEST_RENAME_FAIL"'","message":"no agent named '"$3"'"},"id":"cli:agent:rename"}' >&2; exit 1; fi
+  # OPSX_TEST_RENAME_TAKEN_LEFT 指到一個計數檔：>0 時回 agent_name_taken 並遞減，模擬 /exit 後 herdr 還沒放掉名字
+  "agent rename") if [ -n "${OPSX_TEST_RENAME_TAKEN_LEFT:-}" ] && [ "$(cat "$OPSX_TEST_RENAME_TAKEN_LEFT")" -gt 0 ]; then
+                    echo "$(( $(cat "$OPSX_TEST_RENAME_TAKEN_LEFT") - 1 ))" > "$OPSX_TEST_RENAME_TAKEN_LEFT"
+                    echo '{"error":{"code":"agent_name_taken","message":"agent name '"$4"' is already used"},"id":"cli:agent:rename"}' >&2; exit 1
+                  fi
+                  if [ -n "${OPSX_TEST_RENAME_FAIL:-}" ]; then echo '{"error":{"code":"'"$OPSX_TEST_RENAME_FAIL"'","message":"no agent named '"$3"'"},"id":"cli:agent:rename"}' >&2; exit 1; fi
                   echo '{"result":{"renamed":true}}' ;;
   # OPSX_TEST_PANE_CLOSE_FAIL 設了就回錯誤碼（pane 已經不在）
   "pane close") if [ -n "${OPSX_TEST_PANE_CLOSE_FAIL:-}" ]; then echo '{"error":{"code":"'"$OPSX_TEST_PANE_CLOSE_FAIL"'","message":"no pane '"$3"'"},"id":"cli:pane:close"}' >&2; exit 1; fi

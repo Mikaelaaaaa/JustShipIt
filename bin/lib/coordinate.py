@@ -482,7 +482,17 @@ class Round:
         except (json.JSONDecodeError, KeyError, TypeError):
             self.log("?? 協調者 %s 的 herdr agent get 讀不懂，這輪沒記 session id：%s" % (COORDINATOR, out.replace("\n", " ")[:200]))
             return
-        coordq.remember(self.state, agent)
+        sid = coordq.session_of(agent)
+        if not sid:
+            return
+        # 身分檔寫不進去只少了自動掛名，不能讓整輪 coordinate 停下
+        try:
+            old = coordq.remember(self.state, sid)
+        except OSError as e:
+            self.log("?? 協調者身分檔 coordinator.json 寫不進去，這輪沒記 session id：%s" % e)
+            return
+        if old is not None and old != sid:
+            self.log("?? 協調者 %s 的 session 從 %s 換成 %s（pane %s）；不是 /clear 的話，名字可能掛到了別的 session" % (COORDINATOR, old, sid, agent.get("pane_id")))
 
     def coordinator_reachable(self):
         """協調者這輪在不在。每輪只查一次、不寫 log：協調者不在時，只送到桌面的事件不必每輪各試一次 prompt。

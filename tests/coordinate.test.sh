@@ -1615,20 +1615,31 @@ rm -f "$MEMO"
 CJ="$OPSX_STATE_DIR/coordinator.json"; rm -f "$CJ"
 cards "[]"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s1 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(jq -r '.session_id + " " + .pane' "$CJ")" "s1 w3:p7" "協調者在要記下 session 與 pane"
-# /clear 換了 session id：下一輪改記新的
+assert_eq "$(cat "$CJ")" '{"session_id": "s1"}' "協調者在要記下 session id，只存 session_id"
+assert_not_grep '??' "$LOG"
+# /clear 換了 session id：下一輪改記新的，記一行 ?? 寫出舊、新 id 與 pane（D13）
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "session id 換了要改記"
-# 內容沒變不重寫
+grep '??' "$LOG" | grep 's1' | grep 's2' | grep -q 'w3:p7' || fail "換 session id 要記 ?? 含舊 id、新 id、pane：$(cat "$LOG")"
+# 內容沒變不重寫、不記 ??
 touch -t 202001010000 "$CJ"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s2 round || fail "rc: $(cat "$FX/out")"
 [ -z "$(find "$CJ" -newermt 2020-01-02)" ] || fail "內容沒變不重寫"
-# 協調者不在、--dry：不動身分檔
+assert_not_grep '??' "$LOG"
+# 協調者不在、--dry、herdr 回了協調者但沒有 agent_session：都不動身分檔
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "協調者不在不動身分檔"
 OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_SESSION=s3 round --dry || fail "rc: $(cat "$FX/out")"
 assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "--dry 不動身分檔"
-rm -f "$CJ"
+OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"pane_id":"w3:p7","agent_status":"idle"}}}' round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(jq -r '.session_id' "$CJ")" "s2" "沒有 agent_session 不動身分檔"
+# 身分檔寫不進去（被換成目錄）：記 ??，這輪照常跑完，gate 照送
+rm -f "$CJ"; mkdir "$CJ"; rm -f "$MEMO"
+cards "$HUMAN"
+OPSX_TEST_COORDINATOR_UP=1 round || fail "身分檔寫不進去 coordinate 仍要 rc 0：$(cat "$FX/out")"
+grep '??' "$LOG" | grep -q 'coordinator.json' || fail "寫不進去要記 ?? 含 coordinator.json：$(cat "$LOG")"
+assert_grep '^agent prompt opsx-coordinator \[demo/a1\] gate g1 ' "$OPSX_FAKE_LOG"
+rmdir "$CJ"; rm -f "$MEMO"
 
 # --- 協調者在：事件走 agent prompt，不發桌面通知 ---
 cards "$HUMAN"

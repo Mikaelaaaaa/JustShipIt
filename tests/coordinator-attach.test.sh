@@ -65,6 +65,22 @@ reset; remember s1 w9:p8; export OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_PANE
 out="$(start w9:pM s1 resume)"; assert_eq "$?" 0 "佔著的 pane 沒在跑 agent rc"
 assert_grep '^agent rename w9:pM opsx-coordinator$' "$OPSX_FAKE_LOG"
 
+# --- herdr 還沒放掉名字（agent_name_taken）：重試，放掉了就改成；一直沒放掉就說再 resume 一次，不叫人跑 opsx lead ---
+export OPSX_DISPATCH_RETRY_SLEEP=0
+reset; remember s1 w9:p8; export OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_PANE=w3:p7 OPSX_TEST_COORD_STATUS=unknown
+echo 2 > "$FX/taken"; export OPSX_TEST_RENAME_TAKEN_LEFT="$FX/taken"
+out="$(start w9:pM s1 resume)"; assert_eq "$?" 0 "name_taken 後成功 rc"
+assert_eq "$(grep -c '^agent rename w9:pM opsx-coordinator$' "$OPSX_FAKE_LOG")" 3 "試到 herdr 放掉名字為止"
+assert_eq "$out" "" "改成了不注入 context"
+reset; remember s1 w9:p8; export OPSX_TEST_COORDINATOR_UP=1 OPSX_TEST_COORD_PANE=w3:p7 OPSX_TEST_COORD_STATUS=unknown
+echo 99 > "$FX/taken"; export OPSX_TEST_RENAME_TAKEN_LEFT="$FX/taken"
+out="$(start w9:pM s1 resume)"; assert_eq "$?" 0 "一直 name_taken 仍以 0 結束"
+assert_eq "$(grep -c '^agent rename' "$OPSX_FAKE_LOG")" 6 "最多試 6 次"
+ctxt="$(context "$out")"
+case "$ctxt" in *還沒放掉*) ;; *) fail "要說 herdr 還沒放掉名字：$out" ;; esac
+case "$ctxt" in *"opsx lead"*) fail "name_taken 不叫人跑 opsx lead：$out" ;; esac
+unset OPSX_TEST_RENAME_TAKEN_LEFT
+
 # --- 沒給 pane id 時說查不到，不說兩個協調者 ---
 reset; remember s1 w9:p8; export OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"agent_status":"idle"}}}'
 out="$(start w9:pM s1 resume)"; assert_eq "$?" 0 "沒給 pane id rc"
