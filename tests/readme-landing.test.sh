@@ -8,7 +8,7 @@ GIF="docs/assets/opsx-board-demo.gif"
 assert_file "$README"
 
 # --- Requirement：README 首行是英文 tagline ---
-[ "$(sed -n '1p' "$README")" = '# opsx-workflow' ] || fail "README 第一行不是 # opsx-workflow"
+[ "$(sed -n '1p' "$README")" = '# JustShipIt' ] || fail "README 第一行不是 # JustShipIt"
 tagline="$(sed -n '2,$p' "$README" | grep -m1 -v '^[[:space:]]*$')"
 [ -n "$tagline" ] || fail "標題後沒有 tagline"
 printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII 字元：$tagline"
@@ -32,6 +32,15 @@ printf '%s\n' "$quick" | grep -qF 'docs/setup.md' || fail "快速開始沒連到
 printf '%s\n' "$quick" | grep -qF 'openspec' || fail "快速開始前置條件沒提 openspec CLI"
 ! grep -qF 'ogulcancelik' "$README" || fail "README 含查無佐證的 herdr 外部連結"
 grep -qF 'references/work-split.md' "$README" || fail "README 沒連到 references/work-split.md"
+
+# --- Requirement：專案顯示名稱是 JustShipIt ---
+BOARD="$OPSX_ROOT/herdr-board/web/index.html"
+for f in "$README" "$SETUP"; do
+  grep -qF 'Mikaelaaaaa/JustShipIt' "$f" || fail "$f 沒有 Mikaelaaaaa/JustShipIt"
+  ! grep -qF 'Mikaelaaaaa/opsx-workflow' "$f" || fail "$f 還有舊 repo 名 Mikaelaaaaa/opsx-workflow"
+done
+grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
+grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
 # --- Requirement：README 引用示範 GIF ---
 assert_file "$OPSX_ROOT/$GIF"

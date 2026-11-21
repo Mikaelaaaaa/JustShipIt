@@ -1,4 +1,4 @@
-# opsx-workflow
+# JustShipIt
 
 A Claude Code plugin that runs a change from inbox card to pull request, with a board to watch it, and leaves the merge to a human.
 
@@ -15,7 +15,7 @@ A Claude Code plugin that runs a change from inbox card to pull request, with a 
 需要 Claude Code 2.1.275 以上（並在 Claude Code 設定開啟沙盒，下面的安全模型靠它）、Python 3.11 以上、openspec CLI（`npm i -g @fission-ai/openspec`）、`gh` 或 `glab`（開 PR 與 MR），看板與派工另外需要 herdr。各平台能用到哪裡見[安裝](#install)。
 
 ```
-/plugin install opsx-workflow --marketplace Mikaelaaaaa/opsx-workflow
+/plugin install opsx-workflow --marketplace Mikaelaaaaa/JustShipIt
 ```
 
 裝完在終端機跑一次全域初始化，再到每個要用的 repo 根目錄初始化：
