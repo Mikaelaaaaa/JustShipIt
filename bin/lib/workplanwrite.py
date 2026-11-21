@@ -7,7 +7,7 @@
     workplanwrite.add_feature(top, {"name": ..., "status": "active", "depends-on": [], "prs": [{...}]})
     workplanwrite.add_pr(top, <feature 名>, {"name": ..., "branch": ..., "changes": [{...}]})
     workplanwrite.add_change(top, <PR 名>, {"name": ..., "status": "pending"})
-    $OPSX_PY -I workplanwrite.py attach <top> <卡> <父卡或空字串> <分支尾巴的名字>   新卡掛進 workplan（common.sh 的 new_shell、dispatch 呼叫）
+    $OPSX_PY -I workplanwrite.py attach <top> <卡> <父卡或空字串> <分支尾巴的名字> <kind 或空字串>   新卡掛進 workplan（common.sh 的 new_shell、dispatch 呼叫）
 item 的值是字串、字串清單、或 mapping 清單（巢狀項目）；照 dict 順序寫出，第一個鍵要是 name。
 """
 from __future__ import annotations
@@ -15,6 +15,7 @@ from __future__ import annotations
 import fcntl
 import os
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -58,8 +59,8 @@ def _header(lines: list, key: str, start: int, end: int, indent: int):
     return next((i for i in range(start, end) if pat.match(lines[i])), None)
 
 
-def _items(lines: list, h: int, what: str) -> list:
-    """lines[h] 是清單頭，回每一項的 (第一行, 結束後一行, 縮排, 名字)。
+def _items(lines: list, h: int) -> list:
+    """lines[h] 是清單頭，回每一項的 (第一行, 結束後一行, 縮排, 名字)；底下沒有項目回空清單。
     最後一項結束在清單最後一行內容之後，所以清單後面接的註解與空行不算進去。"""
     hind = _indent(lines[h])
     ind, starts, last = None, [], None
@@ -76,9 +77,7 @@ def _items(lines: list, h: int, what: str) -> list:
         if k == ind:
             starts.append(j)
         last = j
-    if not starts:
-        raise WorkplanError("workplan 的 %s 底下沒有項目" % what)
-    return [(s, e, ind, _name(lines[s])) for s, e in zip(starts, starts[1:] + [last + 1])]
+    return [(s, e, ind, _name(lines[s])) for s, e in zip(starts, starts[1:] + [last + 1])] if starts else []
 
 
 def _name(line: str):
@@ -90,7 +89,7 @@ def _children(lines: list, item: tuple, kind: str):
     """項目底下的子清單項目；沒有子清單頭是 None。"""
     key = CHILD[kind][0]
     h = _header(lines, key, item[0], item[1], item[2] + 2)
-    return None if h is None else _items(lines, h, "%s %s 的 %s:" % (kind, item[3], key))
+    return None if h is None else _items(lines, h)
 
 
 def _open_empty(lines: list, key: str, start: int, end: int, indent: int):
@@ -103,7 +102,7 @@ def _open_empty(lines: list, key: str, start: int, end: int, indent: int):
 
 
 def _target(lines: list, path: str, kind: str, owner):
-    """新項目要插入的 (行 index, 縮排)：目標清單最後一項的最後一行之後；清單是 `[]` 時就在清單頭之後。
+    """新項目要插入的 (行 index, 縮排)：目標清單最後一項的最後一行之後；清單是 `[]` 或底下沒有項目時就在清單頭之後。
     清單是 `[]` 時會先把 lines 裡那一行改成區塊清單的頭。"""
     h = _header(lines, "features", 0, len(lines), 0)
     if h is None:
@@ -111,9 +110,9 @@ def _target(lines: list, path: str, kind: str, owner):
         if e is None:
             raise WorkplanError("%s 沒有 features:" % path)
         return e + 1, 2
-    features = _items(lines, h, "features:")
+    features = _items(lines, h)
     if kind == "feature":
-        return features[-1][1], features[-1][2]
+        return (features[-1][1], features[-1][2]) if features else (h + 1, 2)
     parent = "feature" if kind == "PR" else "PR"
     owners = features if kind == "PR" else [p for f in features for p in _children(lines, f, "feature") or []]
     for item in owners:
@@ -122,10 +121,11 @@ def _target(lines: list, path: str, kind: str, owner):
         e = _open_empty(lines, CHILD[parent][0], item[0], item[1], item[2] + 2)
         if e is not None:
             return e + 1, item[2] + 4
-        sibs = _children(lines, item, parent)
-        if sibs is None:
+        ch = _header(lines, CHILD[parent][0], item[0], item[1], item[2] + 2)
+        if ch is None:
             raise WorkplanError("workplan 的 %s %s 沒有 %s:" % (parent, owner, CHILD[parent][0]))
-        return sibs[-1][1], sibs[-1][2]
+        sibs = _items(lines, ch)
+        return (sibs[-1][1], sibs[-1][2]) if sibs else (ch + 1, item[2] + 4)
     raise WorkplanError("workplan 沒有 %s %s" % (parent, owner))
 
 
@@ -209,10 +209,40 @@ def add_change(top: str, pr: str, item: dict) -> None:
     _add(top, "change", pr, item)
 
 
+def _rebranch(top: str, slug: str, kind: str) -> None:
+    """卡的 PR branch 是建卡時照 type 寫的（`feat|fix/<slug>/<尾巴>`）、而且還沒建出來，就改成 kind 的前綴（workplan-attach D14）。
+    其他形式的 branch 是人寫的，不動。"""
+    path = os.path.join(top, "openspec", "workplan.yaml")
+    with WorkplanLock(top):
+        with open(path, encoding="utf-8") as f:
+            old = f.read()
+        lines = old.split("\n")
+        h = _header(lines, "features", 0, len(lines), 0)
+        prs = [p for f in (_items(lines, h) if h is not None else []) for p in _children(lines, f, "feature") or []]
+        pr = next((p for p in prs if p[3] == slug), None)
+        if pr is None:
+            return
+        pat = re.compile(r"""^ {%d}branch:\s*["']?(feat|fix)/%s/([^"'\s/]+)["']?\s*$""" % (pr[2] + 2, re.escape(slug)))
+        at = next((i for i in range(pr[0], pr[1]) if pat.match(lines[i])), None)
+        if at is None:
+            return
+        m = pat.match(lines[at])
+        was, new = "%s/%s/%s" % (m[1], slug, m[2]), "%s/%s/%s" % (KIND_PREFIX.get(kind, "feat"), slug, m[2])
+        if new == was or subprocess.run(["git", "-C", top, "show-ref", "--verify", "--quiet", "refs/heads/" + was]).returncode == 0:
+            return
+        lines[at] = '%sbranch: "%s"' % (" " * (pr[2] + 2), new)
+        safefile.write_atomic(path, "\n".join(lines))
+        got = priority.owners(chain.load_workplan(path).get("features") or []).get(slug)
+        if got is None or got[1].get("branch") != new:
+            safefile.write_atomic(path, old)
+            raise WorkplanError("改寫後讀回 %s 的 %s branch 不是 %s，已還原" % (path, slug, new))
+
+
 def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
-    """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D7–D9；母卡 me-20261118-1113 D7–D9）。
-    repo 沒有 workplan、或卡已在 workplan 就不動。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼；
-    父卡不在 workplan 當成沒有父卡。父卡的 feature 不是 complete 就在它底下加 PR，否則自成 feature，
+    """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D7–D9、D16、D18；母卡 me-20261118-1113 D7–D9）。
+    repo 沒有 workplan 就不動；卡已在 workplan 時，有給 kind（dispatch）只做 _rebranch。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼；
+    父卡名不是 PR／change 名時當成 feature 名找（feature session 的 agent），都找不到當成沒有父卡。
+    卡是 P2、父卡的 feature 不是 complete 就在它底下加 PR；否則（含 P0／P1 的卡）自成 feature，
     milestone 沿用父 feature 的，沒有父卡用 current_milestone。掛入前是 P2 就先寫自動的 P2 覆寫再寫 workplan，
     中間不會有一刻卡變成 P1 被協調者派走。kind 空字串時讀卡的 .openspec.yaml，還沒有 kind 就照 type 定前綴。"""
     if not os.path.exists(os.path.join(top, "openspec", "workplan.yaml")):
@@ -220,14 +250,18 @@ def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
     plan = priority.load_plan(top)
     own = priority.owners(plan["features"])
     if slug in own:
+        if kind:
+            _rebranch(top, slug, kind)
         return
     if not user:
         raise WorkplanError("分支尾巴沒有名字：OPSX_USER 沒設，git config user.name 是空的或占位字「Your Name」")
-    inbox =os.path.join(top, "openspec", "changes", slug, "inbox.md")
+    inbox = os.path.join(top, "openspec", "changes", slug, "inbox.md")
     fm, _ = priority.frontmatter(priority.read_text(inbox))
     if not parent and (fm.get("source") or "").startswith("agent:"):
         parent = fm["source"][len("agent:"):]
-    owner = own.get(parent.split("--")[0]) if parent else None
+    parent = parent.split("--")[0]
+    by_feature = {f.get("name"): f for f in plan["features"]}
+    owner = own[parent][0] if parent in own else by_feature.get(parent)
     got = priority.levels(top)[slug]
     if "error" in got:
         raise WorkplanError(got["error"])
@@ -239,11 +273,11 @@ def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
     prefix = KIND_PREFIX.get(kind, "feat") if kind else ("fix" if fm.get("type") == "bug" else "feat")
     pr = {"name": slug, "branch": "%s/%s/%s" % (prefix, slug, user),
           "status": "pending", "depends-on": [], "changes": [{"name": slug, "status": "pending"}]}
-    if owner is not None and owner[0].get("status") != "complete":
-        add_pr(top, owner[0]["name"], pr)
+    if owner is not None and owner.get("status") != "complete" and got["level"] == "P2":
+        add_pr(top, owner["name"], pr)
         return
     feature = {"name": slug}
-    milestone = owner[0].get("milestone") if owner is not None else plan["current"]
+    milestone = owner.get("milestone") if owner is not None else plan["current"]
     if milestone:
         feature["milestone"] = milestone
     feature.update({"status": "active", "depends-on": [], "prs": [pr]})

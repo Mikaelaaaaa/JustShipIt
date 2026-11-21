@@ -425,6 +425,16 @@ s="$(wnew --kind-of-work incident --impact security --evidence 'bin/x.sh:1 洩�
 assert_eq "$(where "$WP" "$s" | cut -f1)" "$s"
 assert_not_grep '^priority:' "$WP/openspec/changes/$s/inbox.md"
 assert_eq "$(opsx priority "$s" --repo "$WP" | cut -f1)" P0 "incident P0 卡不寫覆寫"
+# 掛入前是 P0／P1 的卡不掛進父 feature，自成 feature、沿用父 feature 的 milestone（workplan-attach D16）
+fa_prs="$(grep -c '^      - name:' "$WP/openspec/workplan.yaml")"
+s="$(wnew --kind-of-work incident --impact security --evidence 'bin/x.sh:2 洩漏' --type bug --source agent:pa -- 有父卡的安全事件)"
+assert_eq "$(where "$WP" "$s")" "$s	1.0	fix/$s/mika" "有父卡的 incident 卡自成 feature、milestone 沿用 fa"
+assert_eq "$(grep -c '^      - name:' "$WP/openspec/workplan.yaml")" "$((fa_prs + 1))" "只多了新 feature 自己的 PR，fa 的 prs 不變"
+# 父卡名是 feature 名（feature session 的 agent 開的卡）：找不到 PR 就當 feature 名找（workplan-attach D18）
+s="$(wnew --type 功能 --source agent:fa --kind-of-work planned -- session agent 開的)"
+assert_eq "$(where "$WP" "$s")" "fa	1.0	feat/$s/mika" "source 是 feature 名時掛進那個 feature"
+s="$(wnew --type 功能 --source agent:fc --kind-of-work planned -- complete feature 的 session)"
+assert_eq "$(where "$WP" "$s")" "$s	1.0	feat/$s/mika" "feature 名指到 complete 的 feature 時自成 feature、沿用它的 milestone"
 WN="$(mk_opsx_repo wn)"; wp_fixture "$WN" ""
 s="$(opsx new --type 功能 --repo "$WN" -- 沒設目前階段)"
 assert_eq "$(where "$WN" "$s")" "$s	-	feat/$s/mika" "沒有 current_milestone 就不寫 milestone"

@@ -270,6 +270,25 @@ out="$(OPSX_USER=mika opsx dispatch xc --kind chore --agent claude --mode autopi
 assert_eq "$(git -C "$R3/.claude/worktrees/xc" rev-parse --abbrev-ref HEAD)" "chore/xc/mika" "kind chore 的前綴是 chore"
 grep -q 'branch: "chore/xc/mika"' "$R3/openspec/workplan.yaml" || fail "workplan 的 branch 要是 chore/xc/mika：$(cat "$R3/openspec/workplan.yaml")"
 opsx stop xc >/dev/null 2>&1
+# 建卡時已掛進 workplan（還沒有 kind，照 type 寫 feat/）：派工的 kind 是 refactoring、branch 還沒建，就改成 refactor/（workplan-attach D14）
+mkdir -p "$R3/openspec/changes/xr"; printf 'schema: opsx\n' > "$R3/openspec/changes/xr/.openspec.yaml"
+printf -- '---\ntype: 功能\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/xr/inbox.md"
+python3 -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$R3" xr "" mika "" || fail "建卡時的掛入"
+grep -q 'branch: "feat/xr/mika"' "$R3/openspec/workplan.yaml" || fail "建卡時照 type 是 feat/xr/mika：$(cat "$R3/openspec/workplan.yaml")"
+out="$(OPSX_USER=mika opsx dispatch xr --kind refactoring --agent claude --mode autopilot 2>&1)" || fail "dispatch kind refactoring: $out"
+assert_eq "$(git -C "$R3/.claude/worktrees/xr" rev-parse --abbrev-ref HEAD)" "refactor/xr/mika" "已掛的卡照 kind 改前綴"
+grep -q 'branch: "refactor/xr/mika"' "$R3/openspec/workplan.yaml" || fail "workplan 的 branch 要改成 refactor/xr/mika：$(cat "$R3/openspec/workplan.yaml")"
+opsx stop xr >/dev/null 2>&1
+# branch 已經建出來就不改
+mkdir -p "$R3/openspec/changes/xe"; printf 'schema: opsx\n' > "$R3/openspec/changes/xe/.openspec.yaml"
+printf -- '---\ntype: bug\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/xe/inbox.md"
+python3 -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$R3" xe "" mika "" || fail "建卡時的掛入 xe"
+git -C "$R3" branch fix/xe/mika || fail "先建 branch"
+cp "$R3/openspec/workplan.yaml" "$FX/wp3.xe"
+out="$(OPSX_USER=mika opsx dispatch xe --kind chore --agent claude --mode autopilot 2>&1)" || fail "dispatch xe: $out"
+assert_eq "$(git -C "$R3/.claude/worktrees/xe" rev-parse --abbrev-ref HEAD)" "fix/xe/mika" "branch 已建出來就沿用"
+cmp -s "$FX/wp3.xe" "$R3/openspec/workplan.yaml" || fail "branch 已建出來時 workplan 不動：$(diff "$FX/wp3.xe" "$R3/openspec/workplan.yaml")"
+opsx stop xe >/dev/null 2>&1
 
 # --- 補掛失敗只警告、照 kind 預設 branch 派（workplan-attach D11）：沒有 inbox frontmatter、milestone 欄位壞掉 ---
 mkdir -p "$R3/openspec/changes/nofm"; printf 'schema: opsx\nkind: refactoring\n' > "$R3/openspec/changes/nofm/.openspec.yaml"

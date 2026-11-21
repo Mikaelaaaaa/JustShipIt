@@ -131,6 +131,40 @@ add add_change p1 "$C2" || fail "changes: [] 時 add_change rc"
 assert_eq "$(empty_ok changes)" ok "changes: [] 只改那一行、其餘插入"
 assert_eq "$(wp 'p1["changes"][0]["name"]')" c2
 
+# --- 區塊頭底下沒有項目（只有註解、空行，或直接接下一個區塊）也是空清單：插在區塊頭下一行（workplan-attach D10）---
+reset 'features:
+# 都清掉了
+
+notes: keep
+'
+add add_feature "$F2" || fail "沒有項目的 features: 時 add_feature rc"
+assert_eq "$(only_inserts)" ok "沒有項目的 features: 只插入行"
+assert_eq "$(wp 'w["features"][0]["name"]')" f2
+assert_eq "$(sed -n 2p "$WP")" '  - name: "f2"' "新 feature 插在 features: 的下一行，註解之前"
+reset 'features:
+  - name: f1
+    status: active
+    prs:
+  - name: f3
+    status: active
+    prs:
+'
+add add_pr f1 "$P2" || fail "沒有項目的 prs: 時 add_pr rc"
+assert_eq "$(only_inserts)" ok "沒有項目的 prs: 只插入行"
+assert_eq "$(wp 'f1["prs"][0]["name"]')" p2
+assert_eq "$(wp 'w["features"][1]["prs"]')" None "另一個 feature 沒有項目的 prs: 不動"
+reset 'features:
+  - name: f1
+    status: active
+    prs:
+      - name: p1
+        branch: feat/p1/m
+        changes:
+'
+add add_change p1 "$C2" || fail "沒有項目的 changes: 時 add_change rc"
+assert_eq "$(only_inserts)" ok "沒有項目的 changes: 只插入行"
+assert_eq "$(wp 'p1["changes"][0]["name"]')" c2
+
 # --- Scenario「名字已存在就拒絕」 ---
 reset "$BASE"
 add add_feature '{"name":"f1","status":"active"}' 2> "$FX/err"; rc=$?
