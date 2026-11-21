@@ -14,8 +14,10 @@ tagline="$(sed -n '2,$p' "$README" | grep -m1 -v '^[[:space:]]*$')"
 printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII 字元：$tagline"
 
 # --- Requirement：README 含首頁必備段落，依序 ---
-want=(示範 為什麼做 功能重點 快速開始 流程 看板 常用指令 安全模型 路線圖)
-got="$(grep '^## ' "$README" | sed 's/^## //')"
+want=(為什麼做 快速開始 示範 功能重點 流程 看板 常用指令 安全模型 安裝 文件 狀態 參與開發 授權)
+bare="$(grep '^## ' "$README" | grep -vE '^## <a id="[a-z0-9-]+"></a>' | head -1)"
+[ -z "$bare" ] || fail "二級標題沒有 anchor：$bare"
+got="$(grep '^## ' "$README" | sed -E 's/^## (<a id="[a-z0-9-]+"><\/a>)?//')"
 last=0
 for h in "${want[@]}"; do
   n="$(printf '%s\n' "$got" | grep -nxF -- "$h" | head -1 | cut -d: -f1)"
@@ -23,7 +25,7 @@ for h in "${want[@]}"; do
   [ "$n" -gt "$last" ] || fail "README 二級標題順序不對：$h"
   last=$n
 done
-quick="$(awk '/^## 快速開始/{f=1;next} /^## /{f=0} f' "$README")"
+quick="$(awk '/^## .*快速開始$/{f=1;next} /^## /{f=0} f' "$README")"
 printf '%s\n' "$quick" | grep -qE '^(bash <plugin root>/bin/)?opsx init --global$' || fail "快速開始沒有 opsx init --global 這一行"
 printf '%s\n' "$quick" | grep -qxF 'opsx init' || fail "快速開始沒有單獨一行 opsx init"
 printf '%s\n' "$quick" | grep -qF 'docs/setup.md' || fail "快速開始沒連到 docs/setup.md"
@@ -38,11 +40,11 @@ grep -qF "$GIF" "$README" || fail "README 沒引用 $GIF"
 # --- Requirement：README 引用 TUI 截圖 ---
 TUI_PNG="docs/assets/opsx-tui-demo.png"
 [ -f "$OPSX_ROOT/$TUI_PNG" ] || fail "缺 $TUI_PNG"
-awk '/^## 示範/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
+awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
 
 # --- Requirement：流程段寫出自動開發的角色 ---
 # 只看說明文字：流程圖裡的節點名不算寫出角色
-flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
+flow="$(awk '/^## .*流程$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
@@ -57,7 +59,8 @@ leak='ts''g-navigator|agen''tory|10\.65\.|172\.21\.|59\.120\.|mikaela''_lin|/Use
 for s in 'MIT License' 'Apache License' 'licensed under' 'GPL' 'SPDX-License-Identifier'; do
   ! grep -qiF -- "$s" "$README" || fail "README 宣稱授權：$s"
 done
-! awk '/^## 路線圖/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '補 LICENSE' || fail "LICENSE 已存在，路線圖不該再列補 LICENSE"
+! awk '/^## .*狀態$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '補 LICENSE' || fail "LICENSE 已存在，狀態段不該再列補 LICENSE"
+awk '/^## .*授權$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '[MIT](LICENSE)' || fail "授權段沒連到 LICENSE"
 
 # --- Requirement：LICENSE 檔與 plugin.json 一致 ---
 assert_file "$OPSX_ROOT/LICENSE"
