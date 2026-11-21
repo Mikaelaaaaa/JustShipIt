@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# README 是公開首頁：首行 tagline、必備段落、GIF、不外洩、不宣稱授權；安裝細節搬到 docs/setup.md 不遺失。
-# 驗收：openspec/changes/me-20261112-1025/specs/readme-landing/spec.md
+# README 是公開首頁：首行 tagline、必備段落、GIF、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
+# 驗收：openspec/specs/readme-landing/spec.md
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 README="$OPSX_ROOT/README.md"
 SETUP="$OPSX_ROOT/docs/setup.md"
@@ -39,6 +39,7 @@ for f in "$README" "$SETUP"; do
   grep -qF 'Mikaelaaaaa/JustShipIt' "$f" || fail "$f 沒有 Mikaelaaaaa/JustShipIt"
   ! grep -qF 'Mikaelaaaaa/opsx-workflow' "$f" || fail "$f 還有舊 repo 名 Mikaelaaaaa/opsx-workflow"
 done
+! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
 grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
 grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
@@ -61,7 +62,7 @@ done
 printf '%s\n' "$flow" | grep -qF '回 gate' || fail "流程段沒寫人要回 gate"
 printf '%s\n' "$flow" | grep -qF '合併永遠留給人' || fail "流程段沒寫人要合併"
 
-# --- Requirement：不外洩也不宣稱授權 ---
+# --- Requirement：不外洩且授權段只連到 LICENSE ---
 # 禁用字樣拼接寫：這個檔自己不能被下面的追蹤檔掃描命中
 leak='ts''g-navigator|agen''tory|10\.65\.|172\.21\.|59\.120\.|mikaela''_lin|/Users/mikae''la|spar''k[12]|gmt''c|agn''etory|192\.168\.|10\.66\.|newre''tail|srv19[0-9]|a60''00|台''鋼'
 ! grep -qiE -- "$leak|/Users/|~/code" "$README" || fail "README 含禁用字樣：$(grep -oiE -- "$leak|/Users/|~/code" "$README" | head -1)"

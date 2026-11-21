@@ -2,7 +2,7 @@
 
 A Claude Code plugin that runs a change from inbox card to pull request, with a board to watch it, and leaves the merge to a human.
 
-![opsx 看板示範：三個示範專案的卡片從收件匣到完成](docs/assets/opsx-board-demo.gif)
+![JustShipIt 看板示範：三個示範專案的卡片從收件匣到完成](docs/assets/opsx-board-demo.gif)
 
 ## <a id="why"></a>為什麼做
 
@@ -33,7 +33,7 @@ opsx init
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/opsx-board-demo.gif" alt="opsx 看板示範：三個示範專案的卡片從收件匣到完成" /><br /><sub>網頁看板：每張卡現在在哪一站、哪裡卡住在等你。示範資料是虛構的三個專案（shop-web、shop-api、cli-tool）</sub></td>
+    <td width="50%"><img src="docs/assets/opsx-board-demo.gif" alt="JustShipIt 看板示範：三個示範專案的卡片從收件匣到完成" /><br /><sub>網頁看板：每張卡現在在哪一站、哪裡卡住在等你。示範資料是虛構的三個專案（shop-web、shop-api、cli-tool）</sub></td>
     <td width="50%"><img src="docs/assets/opsx-tui-demo.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
   </tr>
 </table>
@@ -108,7 +108,7 @@ flowchart LR
 
 ## <a id="security"></a>安全模型
 
-- 開啟 Claude Code 沙盒後，agent 在沙盒內跑，只能寫目前 repo、worktree 與 opsx 狀態目錄；opsx 不替你開沙盒。
+- 開啟 Claude Code 沙盒後，agent 在沙盒內跑，只能寫目前 repo、worktree 與 opsx 狀態目錄；JustShipIt 不替你開沙盒。
 - 做到 push、開 MR、遷移資料庫這類事，授權閘門先看你給過什麼授權；沒給就寫成 gate 等你回。
 - 合併核准存在沙盒內寫不到的位置，只有你在沙盒外（終端機或看板）才寫得進去（同樣要先開沙盒）。
 - herdr socket 只有協調者 session 連得到，一般 agent 的 herdr 動作走受限的佇列。
@@ -147,7 +147,7 @@ plugin 與 `opsx` CLI 的裝法各平台相同（見[快速開始](#quick-start)
 
 - 跑測試：`bash tests/run.sh [pattern]`，`pattern` 依測試檔名過濾，不給就全跑。
 - 這個 repo 自己的改動也走 opsx 流程：開卡、explore、grill、propose、apply、review、pr。
-- [UPSTREAM.md](UPSTREAM.md) 列出從別處搬進來或蒸餾過的檔。升上游版本時拿它逐檔 diff，沒列的檔是 opsx 自己寫的。
+- [UPSTREAM.md](UPSTREAM.md) 列出從別處搬進來或蒸餾過的檔。升上游版本時拿它逐檔 diff，沒列的檔是 JustShipIt 自己寫的。
 
 ## <a id="license"></a>授權
 
