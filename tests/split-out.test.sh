@@ -113,16 +113,32 @@ badind m1 '  ## 一句話
 沒縮排的行' 沒縮排的行
 badind m2 '  ## 證據
 
-  - 某證據' m2
+  - 某證據' '沒有 ## 一句話（id m2）'
 badind m3 '  ## 一句話
 
-  ## 證據' m3
+  ## 證據' '是空的（id m3）'
 reset; card x
 indented m4 '  ## 一句話
 
    多一格的一句'
 split x m4; assert_eq "$?" 0 "m4 三格空白要拆得出：$(cat "$ERR")"
 assert_grep '^ 多一格的一句$' "$C/m4/inbox.md"
+# m5：標題尾端有空白仍算 ## 一句話
+reset; card x
+indented m5 $'  ## 一句話 \n\n  標題尾端有空白'
+split x m5; assert_eq "$?" 0 "m5 標題尾端有空白要拆得出：$(cat "$ERR")"
+assert_grep '^標題尾端有空白$' "$C/m5/inbox.md"
+
+# --- merge-card 寫入再 split-out 讀回：新殼 frontmatter 之後的內容跟來源一模一樣 ---
+reset; card x; card src
+printf '\n## 派工指示\n\n- 2026-11-20T10:00:00+08:00 先跑 lint\n' >> "$C/src/inbox.md"
+body() { awk 'n >= 2; /^---$/ { n++ }' "$1"; }
+body "$C/src/inbox.md" > "$FX/src-body.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+split x src; assert_eq "$?" 0 "往返拆回要退出 0：$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" src
+body "$C/src/inbox.md" > "$FX/back-body.md"
+cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
 # --- 只刪那一段 ---
 reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"

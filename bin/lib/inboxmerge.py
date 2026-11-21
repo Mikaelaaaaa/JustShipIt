@@ -44,6 +44,7 @@ ID_LINE = re.compile(r"^- id: (\S+)\s*$")
 FIELD = re.compile(r"^- (id|kind_of_work|evidence|type|area): (.*)$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 INDENT = "  "
+SUMMARY_HEAD = re.compile(r"^## 一句話\s*$")   # 跟 collect.sh 讀一般卡一句話的規則一樣容許尾端空白
 
 
 SPLIT_INTO = re.compile(r"^split_into:\s*(.*?)\s*(#.*)?$")
@@ -168,10 +169,11 @@ def unindent(rest: list, mid: str) -> str:
 def summary(body: str, mid: str) -> str:
     """還原內文裡 `## 一句話` 段的非空行接成一行，給看板那一列用。"""
     lines = body.split("\n")
-    if "## 一句話" not in lines:
+    head = next((i for i, x in enumerate(lines) if SUMMARY_HEAD.match(x)), None)
+    if head is None:
         raise ValueError("縮排的併入段沒有 ## 一句話（id %s）" % mid)
     got = []
-    for x in lines[lines.index("## 一句話") + 1:]:
+    for x in lines[head + 1:]:
         if HEAD.match(x):
             break
         if x.strip():
