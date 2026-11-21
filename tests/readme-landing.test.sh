@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
-# README 是公開首頁：首行 tagline、必備段落、看板截圖、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
+# README 是公開首頁：置中 logo 與英文 tagline、必備段落、看板截圖、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
 # 驗收：openspec/specs/readme-landing/spec.md
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 README="$OPSX_ROOT/README.md"
 SETUP="$OPSX_ROOT/docs/setup.md"
 assert_file "$README"
+top="$(sed -n '1,/^## /p' "$README")"
 
-# --- Requirement：README 首行是英文 tagline ---
-[ "$(sed -n '1p' "$README")" = '# JustShipIt' ] || fail "README 第一行不是 # JustShipIt"
-tagline="$(sed -n '2,$p' "$README" | grep -m1 -v '^[[:space:]]*$')"
-[ -n "$tagline" ] || fail "標題後沒有 tagline"
+# --- Requirement：README 開頭是置中 logo 與英文 tagline ---
+for svg in docs/assets/brand/justshipit-logo-light.svg docs/assets/brand/justshipit-logo-dark.svg; do
+  [ -f "$OPSX_ROOT/$svg" ] || fail "缺 $svg"
+  printf '%s\n' "$top" | grep -qF "$svg" || fail "開頭沒引用 $svg"
+done
+printf '%s\n' "$top" | grep -qF '<picture>' || fail "開頭 logo 沒用 <picture>"
+printf '%s\n' "$top" | grep -qF 'prefers-color-scheme: dark' || fail "開頭 logo 沒依 prefers-color-scheme 切換"
+printf '%s\n' "$top" | grep -qF 'alt="JustShipIt"' || fail "開頭 logo 的 alt 不是 JustShipIt"
+tagline="$(printf '%s\n' "$top" | grep -m1 -F '<p align="center"><b>' | sed -E 's#.*<b>(.*)</b>.*#\1#')"
+[ -n "$tagline" ] || fail "logo 下沒有置中的 tagline"
 printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII 字元：$tagline"
+badges="$(grep -o 'img\.shields\.io/[^"]*' "$README")"
+[ "$(printf '%s' "$badges" | grep -c .)" -le 1 ] || fail "README 只能放一個 license badge：$badges"
+[ -z "$badges" ] || printf '%s\n' "$badges" | grep -qF 'img.shields.io/badge/license-MIT' || fail "README 的 badge 不是 license：$badges"
+! grep -qi 'speclink' "$README" || fail "README 提到參考專案名"
 
 # --- Requirement：README 含首頁必備段落，依序 ---
-want=(為什麼做 快速開始 示範 功能重點 流程 看板 常用指令 安全模型 安裝 文件 狀態 參與開發 授權)
+want=(解決什麼問題 怎麼運作 功能 安裝 常用指令 安全模型 文件 狀態 參與開發 授權)
 bare="$(grep '^## ' "$README" | grep -vE '^## <a id="[a-z0-9-]+"></a>' | head -1)"
 [ -z "$bare" ] || fail "二級標題沒有 anchor：$bare"
 got="$(grep '^## ' "$README" | sed -E 's/^## (<a id="[a-z0-9-]+"><\/a>)?//')"
@@ -24,11 +35,11 @@ for h in "${want[@]}"; do
   [ "$n" -gt "$last" ] || fail "README 二級標題順序不對：$h"
   last=$n
 done
-quick="$(awk '/^## .*快速開始$/{f=1;next} /^## /{f=0} f' "$README")"
-printf '%s\n' "$quick" | grep -qE '^(bash <plugin root>/bin/)?opsx init --global$' || fail "快速開始沒有 opsx init --global 這一行"
-printf '%s\n' "$quick" | grep -qxF 'opsx init' || fail "快速開始沒有單獨一行 opsx init"
-printf '%s\n' "$quick" | grep -qF 'docs/setup.md' || fail "快速開始沒連到 docs/setup.md"
-printf '%s\n' "$quick" | grep -qF 'openspec' || fail "快速開始前置條件沒提 openspec CLI"
+quick="$(awk '/^## .*安裝$/{f=1;next} /^## /{f=0} f' "$README")"
+printf '%s\n' "$quick" | grep -qE '^(bash <plugin root>/bin/)?opsx init --global$' || fail "安裝段沒有 opsx init --global 這一行"
+printf '%s\n' "$quick" | grep -qxF 'opsx init' || fail "安裝段沒有單獨一行 opsx init"
+printf '%s\n' "$quick" | grep -qF 'docs/setup.md' || fail "安裝段沒連到 docs/setup.md"
+printf '%s\n' "$quick" | grep -qF 'openspec' || fail "安裝段前置條件沒提 openspec CLI"
 ! grep -qF 'ogulcancelik' "$README" || fail "README 含查無佐證的 herdr 外部連結"
 grep -qF 'references/work-split.md' "$README" || fail "README 沒連到 references/work-split.md"
 
@@ -43,25 +54,20 @@ grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShip
 grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
 # --- Requirement：README 把看板當現況寫 ---
-sed -n '1,/^## /p' "$README" | grep -qF 'docs/assets/board-web.png' || fail "開頭圖不是看板截圖 docs/assets/board-web.png"
+printf '%s\n' "$top" | grep -qF 'docs/assets/board-web-framed.png' || fail "開頭主圖不是 docs/assets/board-web-framed.png"
 for w in 舊版 新版 設計預覽 實作中 現有版本; do
   ! grep -qF -- "$w" "$README" || fail "README 含看板版本字眼：$w"
 done
-demo="$(awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README")"
-printf '%s\n' "$demo" | grep -qF '虛構的示範資料' || fail "示範段沒標明示範資料是虛構的"
-for img in docs/assets/board-web.png docs/assets/card-detail-web.png docs/assets/changes-web.png docs/assets/opsx-tui-demo.png; do
+feat="$(awk '/^## .*功能$/{f=1;next} /^## /{f=0} f' "$README")"
+printf '%s\n' "$feat" | grep -qF '虛構的示範資料' || fail "功能段沒標明截圖是虛構的示範資料"
+for img in docs/assets/board-web-framed.png docs/assets/card-detail-web-framed.png docs/assets/changes-web-framed.png docs/assets/opsx-tui-demo-framed.png; do
   [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
-  printf '%s\n' "$demo" | grep -qF "$img" || fail "示範段沒引用 $img"
+  printf '%s\n' "$feat" | grep -qF "$img" || fail "功能段沒引用 $img"
 done
-
-# --- Requirement：README 引用 TUI 截圖 ---
-TUI_PNG="docs/assets/opsx-tui-demo.png"
-[ -f "$OPSX_ROOT/$TUI_PNG" ] || fail "缺 $TUI_PNG"
-awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
 
 # --- Requirement：流程段寫出自動開發的角色 ---
 # 只看說明文字：流程圖裡的節點名不算寫出角色
-flow="$(awk '/^## .*流程$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
+flow="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
