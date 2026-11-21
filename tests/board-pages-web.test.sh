@@ -225,5 +225,35 @@ const swh = sw.subWaitingHtml([bt, {repo: 'a', slug: 'bu', session: 'a/fb', sect
 assert.ok(swh.includes('#card/a/bt') && swh.includes('as') && !swh.includes('#card/a/bu'), '待處理欄的子 change 區塊連到主 change 的細節頁');
 assert.strictEqual(sw.subWaitingHtml([{repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}], sess), '', '沒有等你的子 change：不畫區塊');
 assert.ok(fn('colExtra').includes('subWaitingHtml('), '待處理欄底下畫子 change 等你');
+
+// ---------- 看板抽屜（D9） ----------
+const fakeAsk = c => c.waiting ? `<div class="ask">${esc(c.waiting.question)} 建議 ${esc(c.waiting.recommended)}<button data-act="answer" data-text="A">A</button></div>` : '';
+const dr = new Function('esc', 'bot', 'priorityBadge', 'askBox', 'sideFacts', cut('抽屜') + ';return {drawerHtml};')(
+  esc, () => '<svg class="bot"></svg>', () => '', fakeAsk, () => '<div>進度與 MR 條件</div>');
+const waitCard = {repo: 'a', slug: 'x', title: 'X 卡', section: '待處理', waiting: {type: '等待決定', question: '要 A 還是 B', recommended: 'A'}};
+// Scenario 點卡片打開抽屜
+const open = dr.drawerHtml(waitCard);
+assert.ok(open.includes('id="drawer"') && open.includes('data-key="a/x"'), '抽屜帶卡的身分，按鈕找得到是哪張卡');
+assert.ok(open.includes('要 A 還是 B') && open.includes('建議 A') && open.includes('data-act="answer"'), '抽屜有問題、建議與回答按鈕（askBox）');
+assert.ok(open.includes('進度與 MR 條件'), '抽屜有進度與 MR 條件（sideFacts）');
+assert.ok(open.includes('data-act="drawer-detail"') && open.includes('開啟細節'), '抽屜有「開啟細節」');
+assert.ok(open.includes('data-act="drawer-close"'), '抽屜有關閉鈕與遮罩');
+// Scenario 沒在等的卡
+const idle = dr.drawerHtml({...waitCard, waiting: null});
+assert.ok(idle.includes('沒有在等你') && !idle.includes('data-act="answer"'), '沒在等：寫「沒有在等你」，沒有回答按鈕');
+// 跳脫
+assert.ok(!dr.drawerHtml({...waitCard, title: '<b>t</b>'}).includes('<b>t</b>'), '標題經 escape');
+// 接線：點卡片與「自己選／看詳情」開抽屜，「開啟細節」跳細節頁，Esc 先關抽屜，看板頁畫抽屜
+assert.ok(html.includes('if(rowEl){openDrawer(rowEl.dataset.key);return;}'), '點卡片本體開抽屜，不跳頁');
+assert.ok(html.includes("if(a==='open'){openDrawer(k);return;}"), '自己選／看詳情開抽屜');
+assert.ok(html.includes("if(a==='drawer-detail'){openCard(k);return;}"), '開啟細節跳 #card');
+assert.ok(html.includes("if(a==='drawer-close'){closeDrawer();return;}"), '關閉鈕與遮罩關抽屜');
+assert.ok(html.includes("if(e.key==='Enter'&&e.target.matches('.card[data-key]')){openDrawer(e.target.dataset.key);return;}"), '卡片上按 Enter 開抽屜');
+assert.ok(/if\(e\.key==='Escape'\)\{if\(!\$\('#dialog'\)\.hidden\)closeDispatch\(\);else if\(panelOpen\)setPanel\(false\);else if\(ui\.drawer\)closeDrawer\(\);/.test(html), 'Esc 先關抽屜，不跳頁');
+assert.ok(fn('pageBoard').includes('drawerHtml('), '看板頁畫抽屜');
+assert.ok(fn('render').includes("r.page==='board'?ui.drawer:null"), '抽屜開著時回覆框 Enter 與按鈕找得到這張卡');
+assert.ok(fn('render').includes("if(r.page!=='board')ui.drawer=null;"), '離開看板頁抽屜關閉');
+// 其他頁照舊直接進細節頁
+assert.ok(html.includes("openCard(btn.dataset.key);return;}") && fn('overview').includes('cardHref(c)'), '紀錄與總覽連結照舊進細節頁');
 JS
 echo ok
