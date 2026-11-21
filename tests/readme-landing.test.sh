@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# README 是公開首頁：首行 tagline、必備段落、GIF、不外洩、不宣稱授權；安裝細節搬到 docs/setup.md 不遺失。
-# 驗收：openspec/changes/me-20261112-1025/specs/readme-landing/spec.md
+# README 是公開首頁：首行 tagline、必備段落、GIF、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
+# 驗收：openspec/specs/readme-landing/spec.md
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 README="$OPSX_ROOT/README.md"
 SETUP="$OPSX_ROOT/docs/setup.md"
@@ -8,14 +8,16 @@ GIF="docs/assets/opsx-board-demo.gif"
 assert_file "$README"
 
 # --- Requirement：README 首行是英文 tagline ---
-[ "$(sed -n '1p' "$README")" = '# opsx-workflow' ] || fail "README 第一行不是 # opsx-workflow"
+[ "$(sed -n '1p' "$README")" = '# JustShipIt' ] || fail "README 第一行不是 # JustShipIt"
 tagline="$(sed -n '2,$p' "$README" | grep -m1 -v '^[[:space:]]*$')"
 [ -n "$tagline" ] || fail "標題後沒有 tagline"
 printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII 字元：$tagline"
 
 # --- Requirement：README 含首頁必備段落，依序 ---
-want=(示範 為什麼做 功能重點 快速開始 流程 看板 常用指令 安全模型 路線圖)
-got="$(grep '^## ' "$README" | sed 's/^## //')"
+want=(為什麼做 快速開始 示範 功能重點 流程 看板 常用指令 安全模型 安裝 文件 狀態 參與開發 授權)
+bare="$(grep '^## ' "$README" | grep -vE '^## <a id="[a-z0-9-]+"></a>' | head -1)"
+[ -z "$bare" ] || fail "二級標題沒有 anchor：$bare"
+got="$(grep '^## ' "$README" | sed -E 's/^## (<a id="[a-z0-9-]+"><\/a>)?//')"
 last=0
 for h in "${want[@]}"; do
   n="$(printf '%s\n' "$got" | grep -nxF -- "$h" | head -1 | cut -d: -f1)"
@@ -23,13 +25,34 @@ for h in "${want[@]}"; do
   [ "$n" -gt "$last" ] || fail "README 二級標題順序不對：$h"
   last=$n
 done
-quick="$(awk '/^## 快速開始/{f=1;next} /^## /{f=0} f' "$README")"
+quick="$(awk '/^## .*快速開始$/{f=1;next} /^## /{f=0} f' "$README")"
 printf '%s\n' "$quick" | grep -qE '^(bash <plugin root>/bin/)?opsx init --global$' || fail "快速開始沒有 opsx init --global 這一行"
 printf '%s\n' "$quick" | grep -qxF 'opsx init' || fail "快速開始沒有單獨一行 opsx init"
 printf '%s\n' "$quick" | grep -qF 'docs/setup.md' || fail "快速開始沒連到 docs/setup.md"
 printf '%s\n' "$quick" | grep -qF 'openspec' || fail "快速開始前置條件沒提 openspec CLI"
 ! grep -qF 'ogulcancelik' "$README" || fail "README 含查無佐證的 herdr 外部連結"
 grep -qF 'references/work-split.md' "$README" || fail "README 沒連到 references/work-split.md"
+
+# --- Requirement：專案顯示名稱是 JustShipIt ---
+BOARD="$OPSX_ROOT/herdr-board/web/index.html"
+for f in "$README" "$SETUP"; do
+  grep -qF 'Mikaelaaaaa/JustShipIt' "$f" || fail "$f 沒有 Mikaelaaaaa/JustShipIt"
+  ! grep -qF 'Mikaelaaaaa/opsx-workflow' "$f" || fail "$f 還有舊 repo 名 Mikaelaaaaa/opsx-workflow"
+done
+! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
+sed -n '1,/^## /p' "$README" | grep -qF '現有版本' || fail "開頭的看板動圖沒標明是現有版本"
+awk '/^## .*看板$/{f=1;next} /^## /{f=0} f' "$README" | grep -m1 -v '^[[:space:]]*$' | grep -qF '以新版看板為準' || fail "看板段第一句沒標明以新版看板為準"
+demo="$(awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README")"
+for img in docs/assets/board-web.png docs/assets/card-detail-web.png docs/assets/changes-web.png docs/assets/opsx-tui-demo.png; do
+  [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
+  printf '%s\n' "$demo" | grep -qF "$img" || fail "示範段沒引用 $img"
+done
+for img in board-web.png card-detail-web.png changes-web.png; do
+  printf '%s\n' "$demo" | grep -F "$img" | grep -qF '設計預覽' || fail "$img 的圖說沒標明設計預覽"
+done
+! printf '%s\n' "$demo" | grep -F 'opsx-tui-demo.png' | grep -qF '設計預覽' || fail "TUI 截圖是現有版本，圖說不該寫設計預覽"
+grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
+grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
 # --- Requirement：README 引用示範 GIF ---
 assert_file "$OPSX_ROOT/$GIF"
@@ -38,11 +61,11 @@ grep -qF "$GIF" "$README" || fail "README 沒引用 $GIF"
 # --- Requirement：README 引用 TUI 截圖 ---
 TUI_PNG="docs/assets/opsx-tui-demo.png"
 [ -f "$OPSX_ROOT/$TUI_PNG" ] || fail "缺 $TUI_PNG"
-awk '/^## 示範/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
+awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF "$TUI_PNG" || fail "示範段沒引用 TUI 截圖 $TUI_PNG"
 
 # --- Requirement：流程段寫出自動開發的角色 ---
 # 只看說明文字：流程圖裡的節點名不算寫出角色
-flow="$(awk '/^## 流程/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
+flow="$(awk '/^## .*流程$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
@@ -50,14 +73,15 @@ done
 printf '%s\n' "$flow" | grep -qF '回 gate' || fail "流程段沒寫人要回 gate"
 printf '%s\n' "$flow" | grep -qF '合併永遠留給人' || fail "流程段沒寫人要合併"
 
-# --- Requirement：不外洩也不宣稱授權 ---
+# --- Requirement：不外洩且授權段只連到 LICENSE ---
 # 禁用字樣拼接寫：這個檔自己不能被下面的追蹤檔掃描命中
 leak='ts''g-navigator|agen''tory|10\.65\.|172\.21\.|59\.120\.|mikaela''_lin|/Users/mikae''la|spar''k[12]|gmt''c|agn''etory|192\.168\.|10\.66\.|newre''tail|srv19[0-9]|a60''00|台''鋼'
 ! grep -qiE -- "$leak|/Users/|~/code" "$README" || fail "README 含禁用字樣：$(grep -oiE -- "$leak|/Users/|~/code" "$README" | head -1)"
 for s in 'MIT License' 'Apache License' 'licensed under' 'GPL' 'SPDX-License-Identifier'; do
   ! grep -qiF -- "$s" "$README" || fail "README 宣稱授權：$s"
 done
-! awk '/^## 路線圖/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '補 LICENSE' || fail "LICENSE 已存在，路線圖不該再列補 LICENSE"
+! awk '/^## .*狀態$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '補 LICENSE' || fail "LICENSE 已存在，狀態段不該再列補 LICENSE"
+awk '/^## .*授權$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '[MIT](LICENSE)' || fail "授權段沒連到 LICENSE"
 
 # --- Requirement：LICENSE 檔與 plugin.json 一致 ---
 assert_file "$OPSX_ROOT/LICENSE"

@@ -5,7 +5,7 @@
 ## 安裝（Claude Code 2.1.275+）
 
 ```
-/plugin install opsx-workflow --marketplace Mikaelaaaaa/opsx-workflow
+/plugin install opsx-workflow --marketplace Mikaelaaaaa/JustShipIt
 ```
 
 或本機路徑：`claude plugin marketplace add <本機 clone 路徑> && claude plugin install opsx-workflow@opsx-workflow`。
