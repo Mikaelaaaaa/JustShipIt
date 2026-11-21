@@ -2823,6 +2823,12 @@ assert_eq "$(count '^notification show \[opsx-workflow/oa\] gate gw ')" 1 "opsx 
 owcards '[{"slug":"ob","waiting":{"gate_id":"ga","type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":null,"options":["這次"]}}]'
 round || fail "沒派出的授權題 rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx (answer|stop)')" 0 "沒派出的授權題不答不停：$(cat "$OPSX_FAKE_LOG")"
+# 其他 repo 沒派出的卡、子 change 的一般決定題不代答（反例）
+: > "$OPSX_FAKE_LOG"; rm -f "$MEMO"; mkdir -p "$R/openspec/changes/ob"
+owcards '[{"repo":"demo","slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
+  '[{"repo":"demo","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
+round || fail "其他 repo 沒派出與子 change rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 0 "其他 repo 沒派出的卡與子 change 不代答：$(cat "$OPSX_FAKE_LOG")"
 # 用量上限暫停中不答（邊界）
 printf '{"_usage_limit":{"seen_at":"%s","resets_at":"2099-01-01T00:00:00+08:00"}}' "$(ago 1)" > "$MEMO"
 owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \

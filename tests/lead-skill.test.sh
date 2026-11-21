@@ -125,4 +125,9 @@ for k in 'opsx-workflow' 'decision' '照建議' 'ponytail' '④' 'Every other ga
   case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
 done
 case "$D2" in *"Every gate is the user's"*) fail "職責 2 不該再寫每個 gate 都是使用者的" ;; esac
+# ④ 的資料來源是 decisions.tsv（D14）；另開卡題的範圍判斷只在其他 repo（D13）
+for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event' 'In other repos, a gate that asks whether to open another card'; do
+  case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
+done
+case "$D2" in *"lists what it answered in block ④"*) fail "職責 2 不能寫成 opsx coordinate 自己列 ④" ;; esac
 echo ok
