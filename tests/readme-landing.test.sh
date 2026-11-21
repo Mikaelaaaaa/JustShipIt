@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# README 是公開首頁：首行 tagline、必備段落、GIF、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
+# README 是公開首頁：首行 tagline、必備段落、看板截圖、不外洩、授權段只連 LICENSE；安裝細節搬到 docs/setup.md 不遺失。
 # 驗收：openspec/specs/readme-landing/spec.md
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 README="$OPSX_ROOT/README.md"
 SETUP="$OPSX_ROOT/docs/setup.md"
-GIF="docs/assets/opsx-board-demo.gif"
 assert_file "$README"
 
 # --- Requirement：README 首行是英文 tagline ---
@@ -40,23 +39,20 @@ for f in "$README" "$SETUP"; do
   ! grep -qF 'Mikaelaaaaa/opsx-workflow' "$f" || fail "$f 還有舊 repo 名 Mikaelaaaaa/opsx-workflow"
 done
 ! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
-sed -n '1,/^## /p' "$README" | grep -qF '現有版本' || fail "開頭的看板動圖沒標明是現有版本"
-awk '/^## .*看板$/{f=1;next} /^## /{f=0} f' "$README" | grep -m1 -v '^[[:space:]]*$' | grep -qF '以新版看板為準' || fail "看板段第一句沒標明以新版看板為準"
+grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
+grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
+
+# --- Requirement：README 把看板當現況寫 ---
+sed -n '1,/^## /p' "$README" | grep -qF 'docs/assets/board-web.png' || fail "開頭圖不是看板截圖 docs/assets/board-web.png"
+for w in 舊版 新版 設計預覽 實作中 現有版本; do
+  ! grep -qF -- "$w" "$README" || fail "README 含看板版本字眼：$w"
+done
 demo="$(awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README")"
+printf '%s\n' "$demo" | grep -qF '虛構的示範資料' || fail "示範段沒標明示範資料是虛構的"
 for img in docs/assets/board-web.png docs/assets/card-detail-web.png docs/assets/changes-web.png docs/assets/opsx-tui-demo.png; do
   [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
   printf '%s\n' "$demo" | grep -qF "$img" || fail "示範段沒引用 $img"
 done
-for img in board-web.png card-detail-web.png changes-web.png; do
-  printf '%s\n' "$demo" | grep -F "$img" | grep -qF '設計預覽' || fail "$img 的圖說沒標明設計預覽"
-done
-! printf '%s\n' "$demo" | grep -F 'opsx-tui-demo.png' | grep -qF '設計預覽' || fail "TUI 截圖是現有版本，圖說不該寫設計預覽"
-grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
-grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
-
-# --- Requirement：README 引用示範 GIF ---
-assert_file "$OPSX_ROOT/$GIF"
-grep -qF "$GIF" "$README" || fail "README 沒引用 $GIF"
 
 # --- Requirement：README 引用 TUI 截圖 ---
 TUI_PNG="docs/assets/opsx-tui-demo.png"
