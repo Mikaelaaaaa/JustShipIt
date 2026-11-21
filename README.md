@@ -33,8 +33,12 @@ opsx init
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/opsx-board-demo.gif" alt="JustShipIt 看板示範：三個示範專案的卡片從收件匣到完成" /><br /><sub>網頁看板（舊版，新版合併後換新截圖）：每張卡現在在哪一站、哪裡卡住在等你。示範資料是虛構的三個專案（shop-web、shop-api、cli-tool）</sub></td>
-    <td width="50%"><img src="docs/assets/opsx-tui-demo.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
+    <td width="50%"><img src="docs/assets/board-web.png" alt="新版網頁看板：離開期間 banner、總覽視覺化，下面是依功能分組的欄位" /><br /><sub>新版看板的設計預覽（實作中）：總覽、離開期間 banner、欄內依功能分組</sub></td>
+    <td width="50%"><img src="docs/assets/card-detail-web.png" alt="新版卡片細節頁：等你決定的 gate 與選項按鈕，下方是卡目錄的文件清單與內容" /><br /><sub>新版卡片細節頁的設計預覽（實作中）：gate 直接按選項回，旁邊讀卡目錄的文件</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/changes-web.png" alt="新版變更頁：依 repo 分組列出每個 openspec change 與目前狀態" /><br /><sub>新版變更頁的設計預覽（實作中）：每個 openspec change 依 repo 分組。三張都是虛構的示範資料（acme-web、acme-api、acme-infra）</sub></td>
+    <td width="50%"><img src="docs/assets/opsx-tui-demo.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane（現有版本）：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
   </tr>
 </table>
 
@@ -82,7 +86,7 @@ flowchart LR
 
 ## <a id="board"></a>看板
 
-本段以新版看板為準。新版還在開發，main 上目前是舊版，上面示範段的截圖也是舊版。
+本段以新版看板為準。新版還在開發，main 上目前是舊版：README 開頭的動圖是舊版，示範段的看板截圖是新版的設計預覽。
 
 新版網頁看板：
 
@@ -151,7 +155,7 @@ plugin 與 `opsx` CLI 的裝法各平台相同（見[快速開始](#quick-start)
 - **可用**：上面那條流程的每一站、網頁看板與 herdr 右側 pane、授權閘門、`opsx dispatch` 與 `opsx drive` 背景派工、`opsx coordinate` 與 `opsx lead` 協調。
 - **部分**：Linux 上沒有排程，`opsx sync` 與 `opsx coordinate` 要手動跑；Windows 沒測過。
 - **規劃中**：
-  - **新版看板**：上面看板段寫的設計，開發中，合併後換示範截圖。
+  - **新版看板**：上面看板段寫的設計，開發中；示範段是它的設計預覽。
   - **1.0 全自動**：任一台電腦裝好就能用；卡從收件到 PR 自己跑完，合併留給人。
   - **2.0 Orca**：卡的 worktree 在 Orca IDE 裡開得到，驗證過後執行層從 herdr 換成 Orca。
 

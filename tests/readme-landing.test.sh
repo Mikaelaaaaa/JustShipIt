@@ -41,7 +41,12 @@ for f in "$README" "$SETUP"; do
 done
 ! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
 awk '/^## .*看板$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '以新版看板為準' || fail "看板段沒標明以哪個版本為準"
-awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '舊版' || fail "示範段沒標明截圖是舊版"
+demo="$(awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README")"
+printf '%s\n' "$demo" | grep -qF '設計預覽' || fail "示範段沒標明看板截圖是設計預覽"
+for img in docs/assets/board-web.png docs/assets/card-detail-web.png docs/assets/changes-web.png docs/assets/opsx-tui-demo.png; do
+  [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
+  printf '%s\n' "$demo" | grep -qF "$img" || fail "示範段沒引用 $img"
+done
 grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
 grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
