@@ -129,6 +129,21 @@ indented m5 $'  ## 一句話 \n\n  標題尾端有空白'
 split x m5; assert_eq "$?" 0 "m5 標題尾端有空白要拆得出：$(cat "$ERR")"
 assert_grep '^標題尾端有空白$' "$C/m5/inbox.md"
 
+# --- 縮排段帶附件：附件隨來源卡歸檔，拆不出、指名歸檔位置、什麼都不改 ---
+reset; card x
+indented att1 '  ## 一句話
+
+  帶附件的來源
+
+  ## 附件
+
+  - attachments/shot.png'
+cp "$C/x/inbox.md" "$FX/keep.md"
+split x att1; assert_eq "$?" 1 "帶附件要退出 1：$(cat "$ERR")"
+assert_grep '## 附件' "$ERR"; assert_grep 'archive/\*-att1/attachments/' "$ERR"
+cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "帶附件：x/inbox.md 不該變"
+assert_eq "$(dirs)" "x " "帶附件：沒有新殼"
+
 # --- merge-card 寫入再 split-out 讀回：新殼 frontmatter 之後的內容跟來源一模一樣 ---
 reset; card x; card src
 printf '\n## 派工指示\n\n- 2026-11-20T10:00:00+08:00 先跑 lint\n' >> "$C/src/inbox.md"

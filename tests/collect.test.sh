@@ -317,7 +317,7 @@ mkmerged t $'## 一句話\n\n多行一句話\n\n## 證據\n\n## 併入：2026-11
 mkmerged u $'## 一句話\n\n縮排段壞了\n\n## 證據\n\n## 併入：2026-11-20T17:35:21+08:00 agent:personal-skill\n\n- id: agent-20261118-1913\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  一句\n沒縮排的行\n'
 J="$(opsx collect --root "$RM")"; assert_eq "$?" 0 "merged collect rc: $J"
 assert_eq "$(q "$(card "$J" rm v)" merged)" '[{"id": "agent-20261118-1910", "kind_of_work": "planned", "source": "agent:personal-skill", "text": "沒有 hnsw 索引", "type": "bug", "when": "2026-11-20T17:35:20+08:00"}]' "縮排段列得出，欄位跟一行形狀一樣"
-assert_eq "$(q "$(card "$J" rm t)" merged)" '[{"id": "me-20261120-1425", "kind_of_work": "planned", "source": "me", "text": "第一行 第二行", "type": "bug", "when": "2026-11-20T17:35:22+08:00"}]' "多行一句話去空白後用一個空白接起來，派工指示不進 text"
+assert_eq "$(q "$(card "$J" rm t)" merged)" '[{"id": "me-20261120-1425", "kind_of_work": "planned", "source": "me", "text": "第一行", "type": "bug", "when": "2026-11-20T17:35:22+08:00"}]' "多行一句話只取第一個非空行（跟一般卡一樣），派工指示不進 text"
 assert_eq "$(q "$(card "$J" rm u)" merged)" '[]' "格式錯的縮排段不列"
 case "$(q "$J" errors)" in *"u 的併入段格式不對：## 併入：2026-11-20T17:35:21+08:00 agent:personal-skill"*) ;; *) fail "格式錯的縮排段要進 errors：$(q "$J" errors)" ;; esac
 case "$(q "$J" errors)" in */v/inbox.md*) fail "好的縮排段不該進 errors：$(q "$J" errors)" ;; esac

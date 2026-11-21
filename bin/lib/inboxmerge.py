@@ -45,6 +45,7 @@ FIELD = re.compile(r"^- (id|kind_of_work|evidence|type|area): (.*)$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 INDENT = "  "
 SUMMARY_HEAD = re.compile(r"^## 一句話\s*$")   # 跟 collect.sh 讀一般卡一句話的規則一樣容許尾端空白
+ATTACH_HEAD = re.compile(r"^## 附件\s*$")
 
 
 SPLIT_INTO = re.compile(r"^split_into:\s*(.*?)\s*(#.*)?$")
@@ -167,20 +168,17 @@ def unindent(rest: list, mid: str) -> str:
 
 
 def summary(body: str, mid: str) -> str:
-    """還原內文裡 `## 一句話` 段的非空行接成一行，給看板那一列用。"""
+    """還原內文裡 `## 一句話` 段的第一個非空行，給看板那一列用；跟 collect.sh 的 one_liner 取法一樣。"""
     lines = body.split("\n")
     head = next((i for i, x in enumerate(lines) if SUMMARY_HEAD.match(x)), None)
     if head is None:
         raise ValueError("縮排的併入段沒有 ## 一句話（id %s）" % mid)
-    got = []
     for x in lines[head + 1:]:
         if HEAD.match(x):
             break
         if x.strip():
-            got.append(x.strip())
-    if not got:
-        raise ValueError("縮排的併入段 ## 一句話 是空的（id %s）" % mid)
-    return " ".join(got)
+            return x.strip()
+    raise ValueError("縮排的併入段 ## 一句話 是空的（id %s）" % mid)
 
 
 def parse(block: list) -> dict:
@@ -250,7 +248,12 @@ def _card_unlocked(card_dir: str, mid: str) -> str:
     with open(os.path.join(card_dir, "inbox.md"), encoding="utf-8") as f:
         cur = f.read()
     start, end = find(cur, mid)
-    return card_body(parse([x.rstrip("\n") for x in cur.splitlines(keepends=True)[start:end]]))
+    fields = parse([x.rstrip("\n") for x in cur.splitlines(keepends=True)[start:end]])
+    # 附件跟來源卡一起歸檔了，新殼帶不回來；拆出來連結會斷，所以不拆
+    if "body" in fields and any(ATTACH_HEAD.match(x) for x in fields["body"].split("\n")):
+        raise ValueError("縮排的併入段有 ## 附件（id %s），附件隨來源卡歸檔在 %s/archive/*-%s/attachments/，拆出帶不回來，請手動處理"
+                         % (mid, os.path.dirname(os.path.abspath(card_dir)), mid))
+    return card_body(fields)
 
 
 def card(card_dir: str, mid: str) -> str:
