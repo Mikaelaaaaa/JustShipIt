@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# 看板的頁面：路由、欄內分組、markdown、卡內檔案 tab、變更頁與已歸檔頁、歸檔按鈕（specs/board-pages、specs/board-actions「歸檔按鈕的顯示」）。
+# 函式寫在網頁的 inline script 裡，這裡用 node 把標記之間切出來直接執行；DOM 接線由使用者在瀏覽器實測（D8）。
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+command -v node >/dev/null || fail "需要 node 才能跑看板頁面的網頁測試"
+
+node - "$OPSX_ROOT/herdr-board/web/index.html" <<'JS' || fail "看板頁面"
+const fs = require('node:fs');
+const assert = require('node:assert');
+const html = fs.readFileSync(process.argv[2], 'utf8');
+const cut = name => { const s = html.indexOf(`/* ${name} start */`), e = html.indexOf(`/* ${name} end */`);
+  if (s < 0 || e < s) throw new Error(`index.html 找不到標記 ${name} start / end`); return html.slice(s, e); };
+const fn = name => { const a = html.indexOf(`function ${name}(`); if (a < 0) throw new Error(`index.html 找不到 function ${name}(`); return html.slice(a, html.indexOf('\n}', a)); };
+const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+// ---------- 路由 ----------
+const {splitHash, route, cardPath} = new Function(cut('路由') + ';return {splitHash, route, cardPath};')();
+const pageOf = h => route(splitHash(h).path);
+// Scenario hash 對到頁面（一般場景）
+assert.deepStrictEqual(pageOf('#board'), {page: 'board'});
+assert.deepStrictEqual(pageOf('#card/a/x'), {page: 'card', repo: 'a', slug: 'x', file: null}, '檔案 tab 停在第一個檔（file 是 null）');
+assert.deepStrictEqual(pageOf('#card/a/x/design.md'), {page: 'card', repo: 'a', slug: 'x', file: 'design.md'});
+assert.deepStrictEqual(pageOf('#changes'), {page: 'changes'});
+assert.deepStrictEqual(pageOf('#archived'), {page: 'archived'});
+assert.deepStrictEqual(pageOf('#log'), {page: 'log'});
+// 邊界場景
+assert.deepStrictEqual(pageOf(''), {page: 'board'}, '沒有 hash');
+assert.deepStrictEqual(pageOf('#nope'), {page: 'board'}, '不認得的頁面');
+assert.deepStrictEqual(pageOf('#card/a/missing'), {page: 'card', repo: 'a', slug: 'missing', file: null}, '卡不在 collect 裡：路由仍是細節頁');
+assert.ok(fn('pageCard').includes('找不到這張卡') && fn('pageCard').includes("href('board')"), '卡不在 collect 裡：顯示「找不到這張卡」與回看板的連結');
+// 篩選條件在 ? 之後，不影響頁面
+assert.deepStrictEqual(splitHash('#log?repo=a&t=today'), {path: 'log', query: 'repo=a&t=today'});
+assert.deepStrictEqual(pageOf('#card/a/x?prio=P0'), {page: 'card', repo: 'a', slug: 'x', file: null});
+assert.deepStrictEqual(pageOf('#card/%E0%A4'), {page: 'board'}, '壞掉的編碼回看板頁');
+// 子目錄的檔案與特殊字元來回不變
+assert.deepStrictEqual(pageOf('#' + cardPath('a b', 'x', 'specs/board-web/spec.md')), {page: 'card', repo: 'a b', slug: 'x', file: 'specs/board-web/spec.md'});
+
+// Scenario 沒有外部資源
+assert.ok(!/<script[^>]+src=["']?https?:/i.test(html), '不載入外部 script');
+assert.ok(!/<link[^>]+href=["']?https?:/i.test(html), '不載入外部 stylesheet');
+
+// ---------- 欄內分組 ----------
+const grp = new Function('esc', cut('分組') + ';return {shouldGroup, groupCards, groupHtml, loadCollapsed, saveCollapsed, COLLAPSE_KEY};')(esc);
+// Scenario 哪些欄分組（Examples 五列）
+for (const [name, n, want] of [['待處理', 2, true], ['進行中', 3, false], ['已完成', 12, true], ['進行中', 5, false], ['進行中', 6, true]])
+  assert.strictEqual(grp.shouldGroup(name, n), want, `${name} ${n} 張：${want ? '分組' : '不分組'}`);
+assert.ok(fn('pageBoard').includes('shouldGroup(s.name,list.length)?groupCards(list)'), '看板頁照 shouldGroup 決定分組');
+// Scenario 依 session 再依 repo 分組
+const card = (slug, more) => ({repo: 'a', slug, waiting: null, ...more});
+const done = [1, 2, 3, 4].map(i => card('f' + i, {session: 'a/fb'})).concat([card('b1', {repo: 'b'}), card('b2', {repo: 'b'})]);
+const groups = grp.groupCards(done);
+assert.deepStrictEqual(groups.map(g => [g.name, g.cards.length]), [['fb', 4], ['b', 2]], '兩組：fb 4 張、b 2 張');
+assert.strictEqual(groups.reduce((n, g) => n + g.cards.length, 0), 6, '組的卡數總和等於欄的卡數');
+assert.deepStrictEqual(groups[1].cards.map(c => c.slug), ['b1', 'b2'], '組內維持欄的排序');
+assert.strictEqual(groups[0].sub, 'a', 'session 組的副標是 repo');
+// 在等你的組排前面
+assert.deepStrictEqual(grp.groupCards([card('x', {repo: 'z'}), card('y', {repo: 'y', waiting: {type: '等待授權'}})]).map(g => g.name), ['y', 'z']);
+// Scenario 收合狀態保留：存進 storage，重整後讀回、組仍是收合的
+const mem = {}; const store = () => ({getItem: k => mem[k] ?? null, setItem: (k, v) => { mem[k] = v; }});
+const shut = new Set(['已完成|feature:a/fb']);
+assert.strictEqual(grp.saveCollapsed(store, shut), true);
+const back = grp.loadCollapsed(store);
+assert.ok(back.has('已完成|feature:a/fb'), '重整後讀回收合狀態');
+const row = c => `<div class="card">${c.slug}</div>`;
+assert.ok(grp.groupHtml('已完成', groups[0], row, back).startsWith('<div class="gk shut"'), 'fb 組仍是收合的');
+assert.ok(grp.groupHtml('已完成', groups[1], row, back).startsWith('<div class="gk"'), 'b 組是展開的');
+assert.ok(grp.groupHtml('已完成', groups[0], row, back).includes('aria-expanded="false"'));
+// Scenario localStorage 不能用：讀寫丟例外時全部展開，畫面照常
+const broken = () => { throw new Error('SecurityError'); };
+assert.strictEqual(grp.loadCollapsed(broken).size, 0, 'localStorage 丟例外：全部展開');
+assert.strictEqual(grp.saveCollapsed(broken, shut), false, '寫入丟例外不往外丟');
+mem[grp.COLLAPSE_KEY] = '{not json';
+assert.strictEqual(grp.loadCollapsed(store).size, 0, '內容壞掉也全部展開');
+mem[grp.COLLAPSE_KEY] = '{"a":1}';
+assert.strictEqual(grp.loadCollapsed(store).size, 0, '不是陣列也全部展開');
+const h = grp.groupHtml('待處理', groups[0], row, grp.loadCollapsed(broken));
+assert.strictEqual((h.match(/<div class="card">/g) || []).length, 4, '展開的組畫出它的卡');
+
+// ---------- markdown ----------
+const {md} = new Function('esc', cut('markdown') + ';return {md};')(esc);
+// Scenario 畫 tasks.md 的勾選框
+const tasks = md('- [x] 1.1 做好\n- [ ] 1.2 還沒');
+const boxes = [...tasks.matchAll(/<input type="checkbox" disabled( checked)?>/g)];
+assert.strictEqual(boxes.length, 2, '兩個勾選框：' + tasks);
+assert.ok(boxes[0][1] && !boxes[1][1], '第一個勾起來、第二個沒勾：' + tasks);
+// Scenario 檔案內容裡的 HTML 不執行：標題、清單、表格、程式碼、行內都先 escape
+for (const src of ['<script>alert(1)</script>', '# <script>alert(1)</script>', '- <script>alert(1)</script>',
+  '| a |\n|---|\n| <script>alert(1)</script> |', '```\n<script>alert(1)</script>\n```', '`<script>alert(1)</script>`', '> <script>alert(1)</script>']) {
+  const out = md(src);
+  assert.ok(!/<script/i.test(out), '不能產生 script 元素：' + out);
+  assert.ok(out.includes('&lt;script&gt;alert(1)&lt;/script&gt;'), '以文字顯示：' + out);
+}
+assert.ok(!md('[x](javascript:alert(1))').includes('href="javascript'), '只有 http(s) 連結變成 <a>');
+assert.ok(md('| a | b |\n|---|---|\n| 1 | 2 |').includes('<table>'), '表格');
+assert.ok(md('## 標題').includes('<h2>標題</h2>'), '標題');
+
+// ---------- 卡內檔案 tab ----------
+const files = new Function('esc', 'md', cut('檔案 tab') + ';return {fileBody, fileTabsHtml, kb};')(esc, md);
+// Scenario 檔案太大
+const big = files.fileBody({ok: true, p: 'report.md', s: 200000, big: true});
+assert.ok(big.includes('檔案太大') && big.includes('report.md'), '顯示「檔案太大」與路徑：' + big);
+// Scenario 讀檔失敗
+assert.ok(files.fileBody({ok: false, error: '找不到 a/x'}).includes('找不到 a/x'), '顯示 error');
+assert.ok(files.fileBody({ok: false, error: '<b>x</b>'}).includes('&lt;b&gt;'), 'error 要 escape');
+assert.ok(files.fileBody({ok: true, p: 'tasks.md', s: 20, t: '- [x] 好'}).includes('checked'), '小檔畫成 markdown');
+assert.ok(files.fileBody(null).includes('載入中'), '還沒回來');
+// tab 與 subs/ N 個檔
+const list = {ok: true, files: [{p: 'proposal.md', s: 100}, {p: 'specs/x/spec.md', s: 2048}], subs: 3};
+const tabs = files.fileTabsHtml(list, 'specs/x/spec.md', p => '#card/a/x/' + p);
+assert.strictEqual((tabs.match(/role="tab"/g) || []).length, 2);
+assert.ok(/aria-selected="true" href="#card\/a\/x\/specs\/x\/spec.md"/.test(tabs), '選到的 tab：' + tabs);
+assert.ok(tabs.includes('subs/ 3 個檔'), 'subs 大於 0 時寫出數量');
+assert.ok(!files.fileTabsHtml({...list, subs: 0}, null, p => p).includes('subs/'), 'subs 是 0 不寫');
+assert.ok(files.fileTabsHtml({ok: false, error: '找不到 a/x'}, null, p => p).includes('找不到 a/x'), '列檔失敗顯示 error');
+// 接線：細節頁進頁時打 /api/card-files，換 tab 才帶 path
+const api = html.slice(html.indexOf('async cardFiles('), html.indexOf('\n', html.indexOf('async cardFiles(')));
+assert.ok(api.includes("'/api/card-files?card='+encodeURIComponent(card)+(path?'&path='+encodeURIComponent(path):'')"), 'card-files 的網址：' + api);
+assert.ok(api.includes("typeof j.ok==='boolean'?j:{ok:false,error:"), '400、404 的 JSON 照樣交給檔案區');
+
+// ---------- 細節頁的段 ----------
+const pc = fn('pageCard');
+const at = t => { const i = pc.indexOf(t); assert.ok(i >= 0, 'pageCard 要有 ' + t); return i; };
+// Scenario 細節頁有抽屜的段：派工指示、併入項目、邏輯表，邏輯表在合併請求段之後
+assert.ok(at('${notesSection(c)}${mergedSection(c)}') < at('${mr}${logicMapSection(c)}${logSec}'), '段的順序');
+for (const t of ['${askBox(c)}', '${cardActs(c)}', '${sideFacts(c)}', '${treeSection(c,data.sessions)}', 'fileTabsHtml(']) at(t);
+// Scenario 沒派出不打最後輸出：只有 dispatch 有 pane 才打 /api/output、才有最後輸出段
+assert.ok(fn('ensureCard').includes('if(c.dispatch&&c.dispatch.pane)loadOutput(c);'), '有 pane 才打 /api/output');
+assert.ok(pc.includes("const out=d.pane?`<section><h3>最後輸出"), '沒有 pane 就沒有最後輸出段');
+// Scenario 回看板保留篩選：回看板連結與頂列連結都經 href，帶上目前的篩選條件
+assert.ok(html.includes("const href=path=>'#'+path+qs(F);"), 'href 帶篩選條件');
+assert.ok(pc.includes(`<a href="\${href('board')}">← 回看板</a>`), '細節頁的回看板連結');
+
+// ---------- 變更頁、已歸檔頁 ----------
+const flt = new Function('esc', cut('篩選') + ';return {emptyF, matchF, facetOf};')(esc);
+const chg = new Function('esc', cut('變更頁') + ';return {changesHtml, archivedHtml, archivedAt};')(esc);
+const live = [{repo: 'a', slug: 'board-revamp', title: '看板改版', kind: 'dev'}, {repo: 'b', slug: 'readme', title: 'README 改寫', kind: 'chore'}];
+const lrow = c => `<a class="lrow">${c.title}</a>`;
+const search = q => live.filter(c => flt.matchF({...flt.emptyF(), q}, flt.facetOf(c), []));
+// Scenario 搜尋：比對標題與 slug，不分大小寫
+assert.deepStrictEqual(search('看板').map(c => c.slug), ['board-revamp'], '打「看板」只剩看板改版');
+assert.deepStrictEqual(search('README').map(c => c.slug), ['readme']);
+assert.deepStrictEqual(search('BOARD-rev').map(c => c.slug), ['board-revamp'], 'slug 也比對、不分大小寫');
+const page = chg.changesHtml(search('看板'), lrow);
+assert.strictEqual((page.match(/class="lrow"/g) || []).length, 1);
+assert.ok(page.includes('data-repo="a"') && !page.includes('data-repo="b"'), '依 repo 分組');
+// Scenario 沒有符合
+const none = chg.changesHtml(search('zzz-沒有'), lrow);
+assert.ok(none.includes('沒有符合的卡') && !none.includes('lrow'), '沒有任何卡的行：' + none);
+// Scenario 列出已歸檔卡
+const arch = [
+  {repo: 'a', slug: 'old', title: '舊的', archived: true, path: '/c/a/openspec/changes/archive/2026-11-01-old', mr: null, priority: null, dispatch: null},
+  {repo: 'a', slug: 'older', title: '更舊', archived: true, path: '/c/a/openspec/changes/archive/2026-10-01-older', mr: null, priority: null, dispatch: null},
+];
+const ah = chg.archivedHtml(arch, c => '#card/a/' + c.slug);
+assert.ok(ah.includes('每個 repo 只列最近 30 張'), '頁首寫明上限');
+assert.strictEqual((ah.match(/class="arow"/g) || []).length, 2, '列出這 2 張');
+assert.ok(ah.indexOf('2026-11-01') < ah.indexOf('2026-10-01'), '新歸檔的在上');
+assert.strictEqual(chg.archivedAt(arch[0]), '2026-11-01', '歸檔時間取自 archive/ 目錄名');
+// Scenario 沒有等級與 agent：列表沒有 MR、等級、agent 欄
+assert.ok(!/MR|P[012]|claude|codex|badge/.test(ah), '已歸檔列沒有 MR、等級、agent：' + ah);
+assert.ok(chg.archivedHtml([], c => '').includes('沒有符合的卡'));
+
+// ---------- 看板欄的卡 ----------
+const constOf = name => new Function(html.slice(html.indexOf(`const ${name}=`), html.indexOf(';', html.indexOf(`const ${name}=`)) + 1) + `return ${name};`)();
+const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', fn('rowAttn') + '\n};return rowAttn;')(
+  esc, constOf('WAIT_BADGE'), constOf('GRANT_OF'), () => '', () => '', () => '', () => '', c => c.slug, {sel: null});
+// Scenario 授權待處理的按鈕：按「這張卡」送 grant card
+const grantRow = rowAttn({slug: 'g', title: 'g', repo: 'r', waiting: {type: '等待授權', gate_id: 'g1', question: 'push?', options: ['這次', '這張卡', '這個 repo 永遠', '拒絕']}});
+const grantBtn = label => (new RegExp(`<button[^>]*>${label}</button>`).exec(grantRow) || [''])[0];
+assert.ok(grantBtn('這張卡').includes('data-act="answer"') && grantBtn('這張卡').includes('data-grant="card"'), '這張卡 → grant card：' + grantRow);
+assert.ok(grantBtn('這次').includes('data-grant="this"') && grantBtn('這個 repo 永遠').includes('data-grant="repo"'), '這次 → this、這個 repo 永遠 → repo');
+assert.ok(grantBtn('拒絕').includes('data-text="拒絕"') && !grantBtn('拒絕').includes('data-grant'), '拒絕不帶 grant');
+assert.ok(html.includes("api.post('answer',{slug:c.slug,gate:c.waiting.gate_id,grant:grant||'',text,repo:repoTop(c)})"), 'answer 的 body 帶 grant');
+// Scenario 可以合併的按鈕：POST /api/merge 帶 slug 與 repo
+const mergeRow = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: 'abc'}, waiting: {type: '可以合併'}});
+assert.ok(mergeRow.includes('data-act="merge"'), '有合併按鈕：' + mergeRow);
+assert.ok(html.includes("function merge(c){act(`opsx merge ${c.slug}`,()=>api.post('merge',{slug:c.slug,repo:repoTop(c)}));}"), 'merge 的 body');
+// Scenario type 不明沒有答案按鈕
+const unknown = rowAttn({slug: 'u', title: 'u', repo: 'r', waiting: {type: 'type 不明', gate_id: 'g1', question: 'q'}});
+assert.ok(!unknown.includes('data-act="answer"'), 'type 不明不能有 answer 按鈕：' + unknown);
+assert.ok(!rowAttn({slug: 'n', title: 'n', repo: 'r', waiting: {type: '等待決定', gate_id: 'g1', question: 'q', recommended: 'x', needs: 'run'}}).includes('照建議'), 'needs: run 沒有照建議');
+assert.ok(grantRow.startsWith('<div class="card you'), '等你的卡有藍條');
+// Scenario 待分類不能指派
+const unfiled = fn('rowUnfiled');
+assert.ok(!unfiled.includes('data-act="dispatch"') && !unfiled.includes('data-act="explore"'), '待分類列沒有指派與先 explore');
+// Scenario 同步進行中不算錯
+assert.ok(fn('syncNow').includes("if(r.status===409)toast('同步進行中');"), '409 顯示同步進行中，不是錯誤 toast');
+// Scenario 沒有孤兒就沒有那一行
+assert.ok(fn('colExtra').includes('(orph.length?`<div class="extra"><h4>孤兒 pane'), '沒有孤兒不畫那一行');
+// Scenario 欄的卡數：欄標題的數字是欄內卡數（收件匣另加待分類）
+assert.ok(fn('pageBoard').includes("const n=list.length+(s.name==='收件匣'?(data.unfiled||[]).length:0);"), '欄的卡數');
+// 頂列的全域動作
+for (const t of ['id="new-open"', 'data-act="sync">立即同步', 'data-act="reap-all"']) assert.ok(html.includes(t), '頂列要有 ' + t);
+
+// ---------- 歸檔按鈕 ----------
+const arc = new Function(cut('歸檔') + ';return {archiveState, archiveCtl, archiveBody};')();
+const mrMerged = {url: 'u', merged_at: '2026-11-20T10:00:00Z'};
+// Scenario 歸檔按鈕的顯示（Examples 三列）
+const yes = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: null, agent_status: null});
+assert.ok(yes.includes('data-act="archive"') && yes.includes('歸檔') && !yes.includes('等協調者收尾'), '已合併、沒有活 pane：歸檔按鈕');
+const wait = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'working'});
+assert.ok(wait.includes('等協調者收尾') && !wait.includes('data-act'), '已合併、有活 pane：等協調者收尾，沒有按鈕');
+assert.strictEqual(arc.archiveCtl({slug: 'x', mr: {url: 'u', merged_at: null}, dispatch: null}), '', '沒合併：兩個都沒有');
+assert.strictEqual(arc.archiveCtl({slug: 'x', mr: null, dispatch: null}), '', '沒有 MR：兩個都沒有');
+// 跟 server 同一條件：pane 已經不在（unknown）算沒有活 pane；idle 是 pane 還在
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'unknown'}), 'ready');
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'idle'}), 'wait');
+assert.deepStrictEqual(arc.archiveBody({repo: 'a', slug: 'x'}, {a: '/code/a'}), {slug: 'x', repo: '/code/a'}, 'POST body 帶 repo 根路徑');
+assert.ok(html.includes("function archiveCard(c){act(`openspec archive ${c.slug} -y`,()=>api.post('archive',archiveBody(c,data.repo_paths)));}"), '按鈕走動作接線（失敗 toast stderr）');
+assert.ok(html.includes("if(a==='archive'){archiveCard(c);return;}"), '點擊接線');
+assert.ok(fn('rowDone').includes('archiveCtl(c)') && fn('cardActs').includes('archiveCtl(c)'), '已完成欄與細節頁都畫歸檔');
+
+// ---------- 子 change 等你 ----------
+// collect 在子 change 有 waiting 時只把 session 放進待處理，主 change 卡留在自己的欄；看板的待處理欄要列出它，點進細節頁從樹上回
+const sw = new Function('esc', 'cardHref', cut('子 change 等你') + ';return {subWaiting, subWaitingHtml};')(esc, c => '#card/' + c.repo + '/' + c.slug);
+const sess = [{repo: 'a', feature: 'fb', mains: [
+  {slug: 'bt', subs: [{slug: 'as', waiting: {type: '等待決定'}}, {slug: 'ct', waiting: null}]},
+  {slug: 'bu', subs: [{slug: 'cu', waiting: null}]}]}];
+const bt = {repo: 'a', slug: 'bt', title: 'BT', session: 'a/fb', section: '進行中'};
+assert.deepStrictEqual(sw.subWaiting(bt, sess), ['as'], '主 change 底下等你的子 change');
+assert.deepStrictEqual(sw.subWaiting({repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}, sess), [], '子 change 都沒在等：不列');
+assert.deepStrictEqual(sw.subWaiting({repo: 'a', slug: 'x', section: '進行中'}, sess), [], '沒有 session：不列');
+assert.deepStrictEqual(sw.subWaiting({...bt, section: '待處理'}, sess), [], '主 change 自己已在待處理：不重複列');
+const swh = sw.subWaitingHtml([bt, {repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}], sess);
+assert.ok(swh.includes('#card/a/bt') && swh.includes('as') && !swh.includes('#card/a/bu'), '待處理欄的子 change 區塊連到主 change 的細節頁');
+assert.strictEqual(sw.subWaitingHtml([{repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}], sess), '', '沒有等你的子 change：不畫區塊');
+assert.ok(fn('colExtra').includes('subWaitingHtml('), '待處理欄底下畫子 change 等你');
+JS
+echo ok

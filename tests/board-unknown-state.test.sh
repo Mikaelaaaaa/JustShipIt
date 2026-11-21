@@ -16,7 +16,7 @@ const esc = (x) => String(x);
 const {herdrWhy, bot} = new Function('esc', html.slice(s, e) + ';return {herdrWhy, bot};')(esc);
 
 const card = (more) => ({dispatch: {agent: 'claude'}, waiting: null, agent_status: null, ...more});
-const cls = (c) => /<svg class="bot ([a-z-]+)"/.exec(bot(c, 30))[1];
+const cls = (c) => /<svg class="bot (bot-[a-z]+) /.exec(bot(c, 30))[1];
 
 assert.strictEqual(cls(card({agent_status: null})), 'bot-unsure', 'null 不能畫成睡著');
 assert.strictEqual(cls(card({agent_status: null, dispatch: null})), 'bot-sleep', '沒派出的卡本來就沒有 agent 狀態，不是狀態不明');

@@ -85,7 +85,7 @@ flowchart LR
 
 - 網頁：herdr 裡叫 action `open-board`，或 `bash herdr-board/scripts/open-board.sh`。
 - 右側 pane：herdr 裡叫 action `open-pane`，同一份清單，↑↓ 選、Enter 跳到 pane。
-- 收件匣 tab：還沒派出的卡，依來源分組；`opsx sync` 每天把指派給你的 issue 與程式碼裡的 `shortcut:` 註解撈進來。
+- 收件匣欄：還沒派出的卡，依來源分組；`opsx sync` 每天把指派給你的 issue 與程式碼裡的 `shortcut:` 註解撈進來。
 
 快捷鍵、收件匣子命令與每日同步見 [docs/setup.md](docs/setup.md)。
 

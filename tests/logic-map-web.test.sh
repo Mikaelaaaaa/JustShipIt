@@ -50,10 +50,13 @@ assert.strictEqual(other.scrollLeft, 0, '換卡從 0 開始');
 restoreLogicMapScroll(drawer(null), pos);
 const fresh = pre('r/x'); restoreLogicMapScroll(drawer(fresh), logicMapScroll(drawer(null)));
 assert.strictEqual(fresh.scrollLeft, 0, '原本沒有邏輯表段時從 0 開始');
-assert.ok(/const lmPos=logicMapScroll\(\$\('#drawer'\)\);[\s\S]*\$\('#drawer'\)\.innerHTML=[\s\S]*restoreLogicMapScroll\(\$\('#drawer'\),lmPos\)/.test(html),
-  'renderDrawer 要在重建 innerHTML 前記下、之後放回');
+// 細節頁畫在 #view：render() 重寫 #view 前記下、之後放回
+const r = html.slice(html.indexOf('function render(){'), html.indexOf('\n}', html.indexOf('function render(){')));
+assert.ok(/const lmPos=logicMapScroll\(\$\('#view'\)\);[\s\S]*setView\(\$\('#view'\),[\s\S]*restoreLogicMapScroll\(\$\('#view'\),lmPos\)/.test(r),
+  'render 要在重寫 #view 前記下、之後放回：' + r);
 
-// 位置：合併請求段之後、紀錄段之前
-assert.ok(html.includes('${mr}${logicMapSection(c)}${logSec}'), 'renderDrawer 要把邏輯表段放在 mr 與 logSec 之間');
+// 位置：細節頁的合併請求段之後、紀錄段之前
+const pc = html.slice(html.indexOf('function pageCard('), html.indexOf('\n}', html.indexOf('function pageCard(')));
+assert.ok(pc.includes('${mr}${logicMapSection(c)}${logSec}'), 'pageCard 要把邏輯表段放在 mr 與 logSec 之間');
 JS
 echo ok
