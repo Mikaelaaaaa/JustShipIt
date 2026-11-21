@@ -24,6 +24,14 @@ has "$r" 'opsx-workflow 的 decision 由協調者照建議答'
 has "$r" '其餘 gate 由使用者答'
 gone "$r" '協調者不代答'
 has "$r" '不開 gate'
+# 沙盒擋掉、跑一次就解掉的 needs: run 題標 by: coordinator；ring3、要人看、裝依賴的不標（coordinator-run-owned）
+has "$r" 'by: coordinator'
+has "$r" '跑一次'
+has "$r" 'push'
+has "$r" 'ring3'
+has "$r" '重開 pane'
+BY="$(printf '%s' "$r" | tr '；' '\n' | grep -F 'by: coordinator')"
+case "$BY" in *代答*) fail "寫 by: coordinator 的那句不該說代答：$BY" ;; esac
 # 段與段用 ' · ' 隔開，AGENTS.md 依它拆條列：「Bash 會被 dontAsk 拒的寫法」要是自己的一段
 has "$r" ' · Bash 會被 dontAsk 拒的寫法'
 gone "$r" ' ·Bash'

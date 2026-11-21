@@ -466,6 +466,19 @@ cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idl
 round || fail "approval + needs run rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "approval + needs: run 也不代答（指令沒人跑，不能回允許）：$(cat "$OPSX_FAKE_LOG")"
 grep '??' "$LOG" | grep -q 'ga' || fail "approval + needs: run 要記 ?? 給人看：$(cat "$LOG")"
+# needs: run 且 by: coordinator：交協調者 session 代跑，coordinate 只通知，不答、不跑建議（coordinator-run-owned）
+for wj in '"type":"等待決定","action":null,"gate_id":"gc1","question":"跑一下","recommended":"chmod +x hooks/reload.sh"' \
+          '"type":"等待授權","action":"push","gate_id":"gc2","question":"push？","recommended":"chmod +x hooks/reload.sh"'; do
+  : > "$OPSX_FAKE_LOG"; : > "$LOG"
+  cards '[{"slug":"a1","section":"進行中","dispatch":'"$D"',"agent_status":"idle","waiting":{'"$wj"',"needs":"run","by":"coordinator","options":[]}}]'
+  round || fail "代跑 rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx answer')" 0 "代跑題不代答：$(cat "$OPSX_FAKE_LOG")"
+  assert_eq "$(count 'chmod')" 0 "coordinate 不自己跑建議：$(cat "$OPSX_FAKE_LOG")"
+  assert_grep ' -- demo/a1 gate gc[12] 交協調者代跑' "$LOG"
+  assert_eq "$(grep -c '?? demo/a1 gate gc[12]' "$LOG")" 0 "代跑題不記 ??：$(cat "$LOG")"
+  assert_grep '^notification show \[demo/a1\] gate gc[12] 要協調者代跑' "$OPSX_FAKE_LOG"
+  assert_eq "$(count '^notification show')" 1 "代跑題通知一次：$(cat "$OPSX_FAKE_LOG")"
+done
 
 # --- 答 gate：drive 與 Stop hook 寫的卡住 gate 只通知，不把「建議」或選項送進 pane ---
 for gid in "drive-review-1" "卡在接 /apply #1" "卡在接 /review"; do
