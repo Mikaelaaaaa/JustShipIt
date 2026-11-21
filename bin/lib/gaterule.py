@@ -4,7 +4,7 @@
 decide(waiting, repo) 回傳三種處置之一：
   ("human", reason)        留給人；reason 是理由代碼，文字由呼叫端對照
   ("park", waits_on)       等 waits_on 那張卡合進 main
-  ("answer", pick)         協調者照建議答；pick 是建議，沒有建議就是第一個選項
+  ("answer", pick)         協調者照建議答；pick 是建議，沒有建議的題留給人
 """
 import re
 
@@ -16,8 +16,9 @@ MERGE_WORDS = ("合併", "merge")
 SPLIT_GATE = "split"
 # 這個 repo 的 decision 由協調者照建議答
 ANSWER_REPO = "opsx-workflow"
-# drive 與 Stop hook 卡住時寫的 gate 標題（drive-<站>-<n>、卡在接 /<站> [#<n>]）：建議欄是給人看的提示，不是答案
-STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?")
+# drive、Stop hook 卡住與協調者等背景工作太久時寫的 gate 標題（drive-<站>-<n>、卡在接 /<站> [#<n>]、stale-wait-<時間>）：
+# 建議欄是給人看的提示，不是答案
+STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?|stale-wait-[0-9]+")
 
 
 def decide(w, repo):
@@ -48,5 +49,5 @@ def decide(w, repo):
     if any(k in pick for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
     if repo == ANSWER_REPO:
-        return ("answer", pick)
+        return ("answer", pick) if w.get("recommended") else ("human", "no-pick")
     return ("human", "decision")

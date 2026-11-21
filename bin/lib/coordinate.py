@@ -607,7 +607,7 @@ class Round:
         送不到 agent 就重派；其他失敗記 ?? 並通知人。"""
         target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
         text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
-        args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--repo", top, "--", text]
+        args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
         rc, out, err = self.act(args)
         if rc == 0:
             self.log("ok   %s gate %s 照建議答：%s" % (card_key(target), w["gate_id"], one_line(pick)[:100]))
@@ -618,6 +618,10 @@ class Round:
             self.redispatch(c, top, "answer 送不到")
             return
         self.log("?? %s gate %s 照建議答不了：%s" % (card_key(target), w["gate_id"], one_line(err)[:200]))
+        # answer.sh 寫完 gates.md 才送話：這行代表題已關，只是 agent 要等下次讀 gates.md 才看到
+        if "gates.md 與 decisions 已寫" in err:
+            self.notify_gate(target, w, "已答、送不進 pane")
+            return
         self.notify_gate(target, w, "照建議答不了，要你回")
 
     def notify_gate(self, c, w, why):

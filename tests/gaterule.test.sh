@@ -39,9 +39,10 @@ assert_eq "$(decide '{"question": "這只有你能做", "recommended": "用 A"}'
 # opsx repo 的決定題照建議答（Scenario Outline，正例）
 assert_eq "$(decide_in opsx-workflow '{"question": "範圍要不要收窄？", "recommended": "A。收窄"}')" "('answer', 'A。收窄')" "opsx 的決定題帶建議"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "照這個拆法", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '照這個拆法')" "opsx 的 split 也照建議答"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('answer', 'B')" "沒有建議帶第一個選項"
 # opsx repo 裡留給人的題不變（Scenario Outline，反例）
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 卡住的 gate"
+assert_eq "$(decide_in opsx-workflow '{"gate_id": "stale-wait-20261120101500", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 協調者自己的 stale-wait gate"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-pick')" "opsx 沒有建議、只有選項"
 assert_eq "$(decide_in opsx-workflow '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "opsx needs run"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "opsx 授權題"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "opsx 合併授權"
