@@ -40,6 +40,8 @@ for f in "$README" "$SETUP"; do
   ! grep -qF 'Mikaelaaaaa/opsx-workflow' "$f" || fail "$f 還有舊 repo 名 Mikaelaaaaa/opsx-workflow"
 done
 ! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
+awk '/^## .*看板$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '以新版看板為準' || fail "看板段沒標明以哪個版本為準"
+awk '/^## .*示範$/{f=1;next} /^## /{f=0} f' "$README" | grep -qF '舊版' || fail "示範段沒標明截圖是舊版"
 grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
 grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
