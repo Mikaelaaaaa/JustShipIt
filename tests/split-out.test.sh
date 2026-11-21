@@ -65,6 +65,65 @@ assert_grep 'type' "$ERR"
 cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "x/inbox.md 不該變"
 assert_eq "$(dirs)" "x " "沒有新殼"
 
+# --- 拆出整份縮排的段（opsx merge-card 寫的形狀，照抄磁碟上實際的段）---
+IND=agent-20261118-1910
+indented() { # indented <id> <縮排兩格的內文>：在 x/inbox.md 尾端加一段 merge-card 形狀的併入
+  printf '\n## 併入：2026-11-20T17:35:20+08:00 agent:personal-skill\n\n- id: %s\n- kind_of_work: planned\n- type: bug\n\n%s\n' "$1" "$2" >> "$C/x/inbox.md"
+}
+reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+indented "$IND" '  ## 一句話
+
+  skill-retrieval 的 packages/db/drizzle/0351_skill_embeddings.sql 沒有 USING hnsw 索引（決策 A）
+
+  ## 證據'
+split x "$IND"; assert_eq "$?" 0 "拆縮排段要退出 0：$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" "$IND"
+printf -- '---\ntype: bug\nsource: agent:personal-skill\nfound: 2026-11-20\nrelated:\nkind_of_work: planned\n---\n\n## 一句話\n\nskill-retrieval 的 packages/db/drizzle/0351_skill_embeddings.sql 沒有 USING hnsw 索引（決策 A）\n\n## 證據\n' > "$FX/want.md"
+cmp -s "$C/$IND/inbox.md" "$FX/want.md" || fail "縮排段還原的 inbox.md 不對：$(diff "$FX/want.md" "$C/$IND/inbox.md")"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "刪段後 x/inbox.md 要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+
+# --- 拆出帶派工指示的縮排段：來源的其他段照順序整份保留 ---
+reset; card x
+indented "$IND" '  ## 一句話
+
+  帶派工指示的來源
+
+  ## 證據
+
+  - bin/x.sh:3 紅
+
+  ## 派工指示
+
+  - 2026-11-20T10:00:00+08:00 P1：做到可合併'
+split x "$IND"; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_eq "$(grep -n -e '^## 一句話$' -e '^帶派工指示的來源$' -e '^## 證據$' -e '^- bin/x.sh:3 紅$' -e '^## 派工指示$' -e '^- 2026-11-20T10:00:00+08:00 P1：做到可合併$' "$C/$IND/inbox.md" | cut -d: -f1 | tr '\n' ' ')" "9 11 13 15 17 19 " "各段沒有縮排、照原順序：$(cat "$C/$IND/inbox.md")"
+assert_not_grep '^  ' "$C/$IND/inbox.md"
+
+# --- 縮排段格式不對（Scenario Outline m1–m3）：退出 1、x 不變、沒有新殼；m4 三格空白只去掉兩格 ---
+badind() { # badind <id> <內文> <stderr 要含的字>
+  reset; card x; indented "$1" "$2"; cp "$C/x/inbox.md" "$FX/keep.md"
+  split x "$1"; assert_eq "$?" 1 "$1 要退出 1：$(cat "$ERR")"
+  assert_grep "$3" "$ERR"
+  cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "$1：x/inbox.md 不該變"
+  assert_eq "$(dirs)" "x " "$1：沒有新殼"
+}
+badind m1 '  ## 一句話
+
+  一句
+沒縮排的行' 沒縮排的行
+badind m2 '  ## 證據
+
+  - 某證據' m2
+badind m3 '  ## 一句話
+
+  ## 證據' m3
+reset; card x
+indented m4 '  ## 一句話
+
+   多一格的一句'
+split x m4; assert_eq "$?" 0 "m4 三格空白要拆得出：$(cat "$ERR")"
+assert_grep '^ 多一格的一句$' "$C/m4/inbox.md"
+
 # --- 只刪那一段 ---
 reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
 merge --kind-of-work planned -- 第一段

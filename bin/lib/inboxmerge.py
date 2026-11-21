@@ -5,7 +5,7 @@
         追加一段，印這段拿到的 id。id 是新卡原本會拿到的 slug；目標裡已經有同一個 id 時依序加 -2、-3。
         鎖內發現目標已有 tasks.md 或已拆就不寫，退出 4。
     $OPSX_PY -I inboxmerge.py card <卡目錄> <id>
-        印那一段拆回獨立卡時的 inbox.md（跟 opsx new 寫的同形）。找不到退出 2。
+        印那一段拆回獨立卡時的 inbox.md（一行形狀跟 opsx new 寫的同形，縮排形狀還原來源整份內文）。找不到退出 2。
     $OPSX_PY -I inboxmerge.py remove <卡目錄> <id>
         刪掉那一段，其餘位元組不動。找不到退出 2。
     $OPSX_PY -I inboxmerge.py ids <卡目錄>
@@ -43,6 +43,7 @@ MERGED_HEAD = re.compile(r"^## 併入：(\S+) (\S+)\s*$")
 ID_LINE = re.compile(r"^- id: (\S+)\s*$")
 FIELD = re.compile(r"^- (id|kind_of_work|evidence|type|area): (.*)$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+INDENT = "  "
 
 
 SPLIT_INTO = re.compile(r"^split_into:\s*(.*?)\s*(#.*)?$")
@@ -154,8 +155,35 @@ def find(text: str, mid: str) -> tuple:
     return hits[0]
 
 
+def unindent(rest: list, mid: str) -> str:
+    """append_full 寫的內文（每個非空行縮排兩格）還原成來源 inbox 內文；段尾空行不算。"""
+    while rest and rest[-1] == "":
+        rest = rest[:-1]
+    for x in rest:
+        if x and not x.startswith(INDENT):
+            raise ValueError("縮排的併入段有一行沒縮排兩格（id %s）：%s" % (mid, x))
+    return "\n".join(x[len(INDENT):] for x in rest)
+
+
+def summary(body: str, mid: str) -> str:
+    """還原內文裡 `## 一句話` 段的非空行接成一行，給看板那一列用。"""
+    lines = body.split("\n")
+    if "## 一句話" not in lines:
+        raise ValueError("縮排的併入段沒有 ## 一句話（id %s）" % mid)
+    got = []
+    for x in lines[lines.index("## 一句話") + 1:]:
+        if HEAD.match(x):
+            break
+        if x.strip():
+            got.append(x.strip())
+    if not got:
+        raise ValueError("縮排的併入段 ## 一句話 是空的（id %s）" % mid)
+    return " ".join(got)
+
+
 def parse(block: list) -> dict:
-    """一段併入的行（不含換行）照 inboxmerge.section 的形狀拆成欄位；形狀不對就 raise 指出哪一行。"""
+    """一段併入的行（不含換行）拆成欄位；形狀不對就 raise 指出哪一行。
+    欄位後空行接的第一行縮排兩格是 append_full 寫的縮排形狀（多回一個 body：還原的來源內文），否則是 section 寫的一行形狀。"""
     m = MERGED_HEAD.match(block[0])
     if not m:
         raise ValueError("併入段標題不是「## 併入：<時間> <來源>」：%s" % block[0])
@@ -178,6 +206,10 @@ def parse(block: list) -> dict:
     if "type" not in out and "area" not in out:
         raise ValueError("併入段要有 - type: 或 - area:（標題 %s）" % block[0])
     rest = block[i + 1:]
+    if rest and rest[0].startswith(INDENT):
+        out["body"] = unindent(rest, out["id"])
+        out["text"] = summary(out["body"], out["id"])
+        return out
     if not rest or rest[0] == "" or any(x != "" for x in rest[1:]):
         raise ValueError("併入段欄位後要是空行加一行一句話（id %s）" % out["id"])
     out["text"] = rest[0]
@@ -193,7 +225,9 @@ def sections(text: str) -> list:
         if not MERGED.match(lines[a]):
             continue
         try:
-            out.append((lines[a], parse(lines[a:b])))
+            got = parse(lines[a:b])
+            got.pop("body", None)   # 看板只列一句話；一行形狀沒有 body
+            out.append((lines[a], got))
         except ValueError as e:
             out.append((lines[a], e))
     return out
@@ -204,6 +238,8 @@ def card_body(fields: dict) -> str:
     lines = ["---", "type: " + kind_type, "source: " + fields["source"], "found: " + fields["when"][:10], "related:", "kind_of_work: " + fields["kind_of_work"]]
     if "evidence" in fields:
         lines.append("evidence: " + fields["evidence"])
+    if "body" in fields:
+        return "\n".join(lines + ["---", "", fields["body"], ""])
     lines += ["---", "", "## 一句話", "", fields["text"], "", "## 證據", "", ""]
     return "\n".join(lines)
 
