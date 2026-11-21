@@ -2,7 +2,9 @@
 
 A Claude Code plugin that runs a change from inbox card to pull request, with a board to watch it, and leaves the merge to a human.
 
-![JustShipIt 看板示範：三個示範專案的卡片從收件匣到完成](docs/assets/opsx-board-demo.gif)
+![JustShipIt 現有版本的網頁看板：三個示範專案的卡片從收件匣到完成](docs/assets/opsx-board-demo.gif)
+
+<sub>現有版本的網頁看板。新版看板的設計預覽見[示範](#demo)。</sub>
 
 ## <a id="why"></a>為什麼做
 
@@ -92,8 +94,8 @@ flowchart LR
 
 - 藍色淺色主題，首頁先看總覽視覺化。
 - 欄內的卡依功能分組，每組可收合。
-- 一個篩選按鈕加 chips 過濾；紀錄頁的項目帶時間。
-- 你離開期間有變動的卡，回來時用 banner 列出。
+- 一個篩選按鈕加 chips 過濾。
+- 你離開期間有變動的卡，回來時用 banner 列出（現有版本已有，新版沿用）。
 - 卡片細節頁直接讀卡目錄裡的文件；另有變更頁與已歸檔頁。
 - 已合併的卡可以按封存，背後跑 `openspec archive`。
 
