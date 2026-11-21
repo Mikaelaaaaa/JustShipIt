@@ -512,15 +512,13 @@ for repo in repos:
 PROGRESS_CLASSES = ("mergeable", "waiting_on_you", "testing", "developing", "not_dispatched")
 ARCHIVED_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)$")
 
-def progress_class(c, top, prs):
+def progress_class(c):
     """由上往下取第一個符合的；不看協調者在不在跑、不看 agent_status。dispatch 為 None 包含 stopped。"""
     w = c["waiting"]
     # 協調者推「可以合併」也照 waiting.type，計數器跟事件一致
     if w and w["type"] == "可以合併": return "mergeable"
-    if w:
-        # gate 一律由人答，交協調者代跑的不算等你。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
-        verdict = gaterule.decide(w)
-        if verdict[0] == "human" or verdict[0] == "park" and chain.merged_into_main(top, prs, verdict[1]): return "waiting_on_you"
+    # 跟分區同一條判斷（needs_human 看全部 open gate）：交協調者代跑的、停 pane 等的卡還沒合的不算等你
+    if w and c["section"] == "待處理": return "waiting_on_you"
     # 不在「已完成」的 archive 卡只有沒 MR、只差歸檔的那種
     if c["stage"] in ("review", "pr", "babysit", "archive"): return "testing"
     if c["dispatch"]: return "developing"
@@ -539,12 +537,11 @@ for repo in repos:
     current = plan["current"] if plan else None
     scoped = [f for f in (plan["features"] if plan else []) if not current or f.get("milestone") == current]
     owned = {pr["name"] for f in scoped for pr in f.get("prs") or []} if current else None
-    prs = [pr for f in (plan["features"] if plan else []) for pr in f.get("prs") or []]
     counts = dict.fromkeys(PROGRESS_CLASSES, 0)
     for c in cards:
         if c["repo"] != repo: continue
         live = c["section"] != "已完成"
-        c["progress_class"] = progress_class(c, repo_paths[repo], prs) if live and (owned is None or c["slug"] in owned) else None
+        c["progress_class"] = progress_class(c) if live and (owned is None or c["slug"] in owned) else None
         if c["progress_class"]: counts[c["progress_class"]] += 1
     planned = [pr["name"] for f in scoped for pr in f.get("prs") or []
                if pr.get("status") != "merged" and not has_shell(repo_paths[repo], pr["name"])]

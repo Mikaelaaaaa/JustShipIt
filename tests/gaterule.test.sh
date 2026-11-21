@@ -23,6 +23,12 @@ assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "你�
 # 只有 by 沒有 needs run 不算代跑；卡住的 gate 標了 by 仍留給人（反例）
 assert_eq "$(decide '{"by": "coordinator", "recommended": "用 A"}')" "('human', 'decision')" "只有 by"
 assert_eq "$(decide '{"gate_id": "drive-apply-3", "needs": "run", "by": "coordinator", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate 標了 by"
+# 合併類、等別張卡、type 不明、split 標了 by 仍照原規則（design D7、D8）
+assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "needs": "run", "by": "coordinator", "recommended": "glab mr merge 12"}')" "('human', 'run')" "合併 action 標了 by"
+assert_eq "$(decide '{"needs": "run", "by": "coordinator", "question": "要 Merge 嗎", "recommended": "glab mr merge 12"}')" "('human', 'run')" "題目含合併字標了 by"
+assert_eq "$(decide '{"needs": "run", "by": "coordinator", "waits_on": "other-card", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "waits-on 標了 by"
+assert_eq "$(decide '{"type": "type 不明", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "type 不明標了 by"
+assert_eq "$(decide '{"gate_id": "split", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "split 標了 by"
 assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "合併授權"
 assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "打 Merge API"}')" "('human', 'merge-grant')" "題目含合併字，不分大小寫"
 # 原本會代答的 gate 都留給人（Scenario Outline，正例）

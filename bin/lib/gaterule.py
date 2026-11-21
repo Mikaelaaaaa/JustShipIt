@@ -21,14 +21,18 @@ STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?")
 def decide(w):
     if w["gate_id"] and STUCK_GATE.fullmatch(w["gate_id"]):
         return ("human", "stuck")
-    # 排在 type 前：approval 型的 push 題也交協調者，使用者在協調者 pane 按權限提示
-    if w.get("needs") == "run" and w.get("by") == "coordinator":
+    # 排在 type 前：approval 型的 push 題也交協調者，使用者在協調者 pane 按權限提示。
+    # 合併類、等別張卡、type 不明、split 不交，往下照原規則
+    merge_text = ((w.get("action") or "") + " " + (w.get("question") or "")).lower()
+    if (w.get("needs") == "run" and w.get("by") == "coordinator" and not w.get("waits_on")
+            and w["type"] != "type 不明" and w["gate_id"] != SPLIT_GATE
+            and not any(k in merge_text for k in MERGE_WORDS)):
         return ("coordinator", "run")
     if w.get("needs") == "run":
         return ("human", "run")
     if w["type"] == "等待授權":
         # 合併永遠由人按：action 不一定剛好寫成 merge（mr-merge、external 打合併 API），題目也要看
-        if any(k in ((w["action"] or "") + " " + (w.get("question") or "")).lower() for k in MERGE_WORDS):
+        if any(k in merge_text for k in MERGE_WORDS):
             return ("human", "merge-grant")
         return ("human", "approval")
     if w["type"] == "終端機等待輸入":
