@@ -21,7 +21,8 @@ printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII
 badges="$(grep -o 'img\.shields\.io/[^"]*' "$README")"
 [ "$(printf '%s' "$badges" | grep -c .)" -le 1 ] || fail "README 只能放一個 license badge：$badges"
 [ -z "$badges" ] || printf '%s\n' "$badges" | grep -qF 'img.shields.io/badge/license-MIT' || fail "README 的 badge 不是 license：$badges"
-! grep -qi 'speclink' "$README" || fail "README 提到參考專案名"
+# 參考專案名只存 sha256，名字本身不進公開 repo
+python3 -I -c 'import hashlib,re,sys; bad="db0ee43ab2f9353ebd68b373591d62bc827688c6e56f95e89fcbedc2de7b1133"; sys.exit(any(hashlib.sha256(w.encode()).hexdigest()==bad for w in set(re.findall(r"[a-z0-9]+", open(sys.argv[1], encoding="utf-8").read().lower()))))' "$README" || fail "README 提到參考專案名"
 
 # --- Requirement：README 含首頁必備段落，依序 ---
 want=(解決什麼問題 怎麼運作 功能 安裝 常用指令 安全模型 文件 狀態 參與開發 授權)
