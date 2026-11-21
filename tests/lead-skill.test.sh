@@ -69,6 +69,23 @@ case "$ASK" in *'add it again'*|*'drops'*) fail "怎麼問 gate 段不能再叫�
 NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
 case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac
 case "$NR" in *'goes in the pop-up'*) fail "needs: run 的 gate 不能進跳卡：$NR" ;; esac
+# by: coordinator 的 needs: run 題歸協調者代跑、照實貼回；沒標 by 的仍給使用者指令（coordinator-run-owned）
+RUN="$(printf '%s\n' "$DUTIES" | grep -F 'by: coordinator' | grep -F 'opsx answer')"
+for s in 'worktree' 'exit code' 'block ①'; do
+  case "$RUN" in *"$s"*) ;; *) fail "代跑段缺：$s — $RUN" ;; esac
+done
+case "$NR" in *'no `by: coordinator`'*'stays out of the pop-up'*) ;; *) fail "給使用者指令的只限沒標 by 的 needs: run：$NR" ;; esac
+# 跑之前重讀 status；失敗、被拒或不是單次指令都不 answer，刪掉 by 那行交給使用者（design D12、D13）
+case "$RUN" in *'re-read'*'status:'*'still `open`'*) ;; *) fail "代跑前要重讀 status、還 open 才跑：$RUN" ;; esac
+case "$RUN" in *'exits non-zero, do not run `opsx answer`'*"delete the gate's \`by: coordinator\` line"*) ;; *) fail "失敗不 answer、刪 by：$RUN" ;; esac
+case "$RUN" in *'not one command'*'delete its `by: coordinator` line'*) ;; *) fail "不是單次指令也刪 by：$RUN" ;; esac
+# force、+ refspec、推別人的 branch、刪除、合併不跑；回結果開頭寫「協調者代跑：」（design D16、D17）
+for s in 'force' '`+` refspec' "another card's branch" 'delete' 'merge'; do
+  case "$RUN" in *"never run"*"$s"*) ;; *) fail "代跑段不跑的清單缺：$s — $RUN" ;; esac
+done
+case "$RUN" in *'"協調者代跑：<指令> → exit 0'*) ;; *) fail "回結果開頭要寫「協調者代跑：」：$RUN" ;; esac
+FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
+case "$FG" in *'`by: coordinator`'*) ;; *) fail "duty 2 開頭要寫明代跑結果是例外：$FG" ;; esac
 # 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
 RR="$(printf '%s\n' "$ASK" | grep -F 'status: open')"
 for s in 'needs: run' 'waits-on' 'subs/' '--sub'; do

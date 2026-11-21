@@ -584,6 +584,8 @@ gcard t-zh-auth '## g1\ntype:  等待授權 \naction: push\nstatus: open\n問題
 gcard t-notype  '## g1\nstatus: open\n問題: 沒寫 type\n建議: 照做\n'
 gcard t-ish     '## g1\ntype: approval-ish\nstatus: open\n問題: 表外\n'
 gcard t-run     '## g1\ntype: decision\nneeds: run\nstatus: open\n問題: 跑一下\n建議: ls -la /tmp\n'
+gcard t-runby   '## g1\ntype: approval\naction: push\nneeds: run\nby: coordinator\nstatus: open\n問題: push？\n建議: git push gitlab feat/a/mikaela-lin\n'
+gcard t-runby2  '## g1\ntype: decision\nneeds: run\nby: coordinator\nstatus: open\n問題: 跑一下\n建議: chmod +x x.sh\n\n## g2\ntype: decision\nstatus: open\n問題: 選\n建議: 用 A\n'
 gcard t-plain   '## g1\ntype: decision\nstatus: open\n問題: 選\n選項: A | B\n建議: A\n'
 gcard t-badneed '## g1\ntype: decision\nneeds: ssh\nstatus: open\n問題: 選\n'
 gcard t-waits   '## g1\ntype: decision\nwaits-on:  grant-gate-levels \nstatus: open\n問題: 等別張卡\n建議: 合併後再開\n'
@@ -611,6 +613,38 @@ assert_eq "$(w t-waits type)" 等待決定 "waits-on 不改 type"
 assert_eq "$(w t-plain waits_on)" null "沒寫 waits-on"
 assert_eq "$(w t-waitsempty waits_on)" null "空值當沒寫"
 assert_eq "$(w t-run waits_on)" null "建議含文字也不影響"
+# by: coordinator：讀進 waiting.by；全是代跑題的卡不進待處理，還有要人答的或沒標 by 的照樣進（coordinator-run-owned）
+assert_eq "$(w t-runby by)" coordinator "寫了 by coordinator"
+assert_eq "$(w t-run by)" null "沒寫 by"
+# 沒派出的卡 coordinate 不處理，代跑題沒人跑，照人的題進待處理
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 待處理 "沒派出的卡，代跑題照樣進待處理"
+assert_eq "$(w t-runby gate_id)" g1 "waiting 照舊是第一個 open gate"
+assert_eq "$(q "$(card "$J" r6 t-runby2)" section)" 待處理 "代跑題後面還有要人答的題"
+assert_eq "$(q "$(card "$J" r6 t-run)" section)" 待處理 "沒標 by 的 needs run"
+# 「等你」計數跟分區同一判斷：代跑題後面還有要人答的題算等你，只剩代跑題不算（design D10）
+assert_eq "$(q "$(card "$J" r6 t-runby2)" progress_class)" waiting_on_you "代跑題後面還有要人答的題算等你"
+assert_eq "$(q "$(card "$J" r6 t-runby)" progress_class)" waiting_on_you "沒派出的卡只剩代跑題也算等你"
+# 派出去的卡只剩代跑題：agent 在工作是進行中，agent 停著是等待中「等協調者」
+O7="$(cd "$R7/r6" && pwd -P)"
+printf '{"r6/t-runby":{"pane":"w1:p1","mode":"autopilot","worktree":"%s/.claude/worktrees/a"},"r6/t-runby2":{"pane":"w1:p2","mode":"autopilot","worktree":"%s/.claude/worktrees/b"}}' "$O7" "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+{ printf '{"id":"cli:agent:list","result":{"agents":['
+  agent6 w1:p1 working "$O7/.claude/worktrees/a"; printf ','
+  agent6 w1:p2 idle "$O7/.claude/worktrees/b"
+  printf '],"type":"agent_list"}}'; } > "$FX/agents-runby.json"
+export HERDR_ENV=1
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "派出去的代跑卡 collect: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 進行中 "派出去、agent 在工作、只剩代跑題"
+assert_eq "$(q "$(card "$J" r6 t-runby)" progress_class)" developing "派出去、只剩代跑題不算等你"
+assert_eq "$(q "$(card "$J" r6 t-runby2)" section)" 待處理 "派出去、還有要人答的題"
+printf '{"r6/t-runby":{"pane":"w1:p2","mode":"autopilot","worktree":"%s/.claude/worktrees/b"}}' "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "派出去的代跑卡 collect 2: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 等待中 "派出去、agent 停著、只剩代跑題"
+assert_eq "$(q "$(card "$J" r6 t-runby)" hold)" 等協調者 "停著等協調者代跑"
+printf '{"r6/t-runby":{"pane":"w1:p2","mode":"stopped","worktree":"%s/.claude/worktrees/b"}}' "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "已停的代跑卡 collect: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 待處理 "已停的卡，代跑題照樣進待處理"
+export HERDR_ENV=""
+printf '{}' > "$OPSX_STATE_DIR/dispatch.json"
 
 # ---------- session：workplan 的 feature 收成 sessions[]（specs/board-collect「收成 session 的 feature」等四條） ----------
 R6="$FX/code6"; S6="$FX/state6"; mkdir -p "$R6/s/.git" "$R6/t/.git" "$R6/u/.git" "$R6/t/openspec/changes" "$R6/u/openspec/changes" "$S6"

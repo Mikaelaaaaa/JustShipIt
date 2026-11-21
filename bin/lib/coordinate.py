@@ -72,6 +72,8 @@ GATE_HUMAN = {
     "hands": ("?? %(key)s gate %(gate)s 要人動手，不代答：%(q100)s → %(pick60)s", "要你動手"),
     "approval": ("?? %(key)s gate %(gate)s 要授權，不代答：%(q100)s", "要你授權"),
     "decision": ("?? %(key)s gate %(gate)s 要你決定，不代答：%(q100)s → %(pick60)s", "要你決定"),
+    # gaterule.decide 回「協調者代跑」：不記 ??，這題不用人看；通知照樣先送協調者 session
+    "coordinator-run": ("-- %(key)s gate %(gate)s 交協調者代跑，coordinate 不跑也不答：%(rec100)s", "要協調者代跑"),
 }
 
 
@@ -726,7 +728,8 @@ class Round:
                 self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是 opsx 送的那句，到 pane 看一下" % ("、".join(matched), pane))
 
     def handle_gate(self, c, top):
-        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
+        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane、通知人，或通知協調者 session 代跑。
+        gate 一律由人答，代跑由協調者 session 做，這裡不答也不跑建議裡的指令。"""
         w, key = c["waiting"], card_key(c)
         verdict = gaterule.decide(w)
         q = w.get("question") or ""
@@ -748,7 +751,7 @@ class Round:
                         scope=session_scope(c))
             return
         pick = w.get("recommended") or (w.get("options") or [None])[0] or ""
-        line, why = GATE_HUMAN[verdict[1]]
+        line, why = GATE_HUMAN["coordinator-run" if verdict[0] == "coordinator" else verdict[1]]
         self.log(line % {"key": key, "gate": w["gate_id"], "q100": q[:100], "q120": q[:120], "pick60": pick[:60],
                          "rec100": (w.get("recommended") or "")[:100]})
         self.notify_gate(c, w, why)
