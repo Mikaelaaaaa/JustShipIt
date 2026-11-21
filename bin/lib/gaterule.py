@@ -24,9 +24,11 @@ def decide(w):
     # 排在 type 前：approval 型的 push 題也交協調者，使用者在協調者 pane 按權限提示。
     # 合併類、等別張卡、type 不明、split 不交，往下照原規則
     merge_text = ((w.get("action") or "") + " " + (w.get("question") or "")).lower()
+    # 協調者跑的就是建議欄，所以這裡連建議也比
+    run_text = merge_text + " " + (w.get("recommended") or "").lower()
     if (w.get("needs") == "run" and w.get("by") == "coordinator" and not w.get("waits_on")
             and w["type"] != "type 不明" and w["gate_id"] != SPLIT_GATE
-            and not any(k in merge_text for k in MERGE_WORDS)):
+            and not any(k in run_text for k in MERGE_WORDS)):
         return ("coordinator", "run")
     if w.get("needs") == "run":
         return ("human", "run")

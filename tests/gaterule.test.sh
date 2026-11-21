@@ -18,7 +18,7 @@ assert_eq "$(decide '{"needs": "run", "recommended": "用 A"}')" "('human', 'run
 # 協調者代跑的題（Scenario Outline，正例）：by 排在 type、合併字與 hands 判斷前
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "chmod +x hooks/reload.sh"}')" "('coordinator', 'run')" "代跑：決定題"
 assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "cd /x/wt && git push gitlab feat/a/mikaela-lin"}')" "('coordinator', 'run')" "代跑：授權題"
-assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "合併前先 push 一次"}')" "('coordinator', 'run')" "代跑：建議含合併字"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "push 前先 fetch 一次"}')" "('coordinator', 'run')" "代跑：授權題，by 排在授權判斷前"
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "你在終端機跑 opsx stop x"}')" "('coordinator', 'run')" "代跑：建議含要人動手的字"
 # 只有 by 沒有 needs run 不算代跑；卡住的 gate 標了 by 仍留給人（反例）
 assert_eq "$(decide '{"by": "coordinator", "recommended": "用 A"}')" "('human', 'decision')" "只有 by"
@@ -26,6 +26,7 @@ assert_eq "$(decide '{"gate_id": "drive-apply-3", "needs": "run", "by": "coordin
 # 合併類、等別張卡、type 不明、split 標了 by 仍照原規則（design D7、D8）
 assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "needs": "run", "by": "coordinator", "recommended": "glab mr merge 12"}')" "('human', 'run')" "合併 action 標了 by"
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "question": "要 Merge 嗎", "recommended": "glab mr merge 12"}')" "('human', 'run')" "題目含合併字標了 by"
+assert_eq "$(decide '{"needs": "run", "by": "coordinator", "question": "CI 綠了，收尾", "recommended": "glab mr merge 42"}')" "('human', 'run')" "建議含合併字標了 by（design D14）"
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "waits_on": "other-card", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "waits-on 標了 by"
 assert_eq "$(decide '{"type": "type 不明", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "type 不明標了 by"
 assert_eq "$(decide '{"gate_id": "split", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "split 標了 by"

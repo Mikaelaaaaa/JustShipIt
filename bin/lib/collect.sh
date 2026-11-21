@@ -351,14 +351,17 @@ def waiting_of(card, gates, agent_status):
     return None
 
 # 全部 open gate 都是「等別張卡合進 main」或交協調者代跑就不用人現在處理（跟 progress_class、coordinate 的 handle_gate 同一條判斷）；
-# MR 可合併、沒有 open gate 的終端機等輸入，一律要人
-def needs_human(card, gates, agent_status, top, prs):
+# MR 可合併、沒有 open gate 的終端機等輸入，一律要人。
+# 代跑題只在卡派出去時跳過：coordinate 只對派出的卡呼叫 handle_gate，沒派出或已停的卡沒人會跑
+def needs_human(card, gates, agent_status, top, prs, dispatched):
     if card["mr"] and card["mr"].get("state") == "ready": return True
     open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
     if not open_gates: return True
     for g in open_gates:
         verdict = gaterule.decide(waiting_of(card, [g], agent_status))
-        if verdict[0] == "coordinator": continue
+        if verdict[0] == "coordinator":
+            if dispatched: continue
+            return True
         if verdict[0] == "human" or chain.merged_into_main(top, prs, verdict[1]): return True
     return False
 
@@ -404,7 +407,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     stopped = None if c["archived"] else stopped_of(os.path.join(state, "stop-said", "%s-%s" % (repo_, slug_)))
     hold = None
     if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
-    elif waiting and needs_human(c, in_force, agent_status, repo_paths[repo_], prs): section = "待處理"
+    elif waiting and needs_human(c, in_force, agent_status, repo_paths[repo_], prs, disp is not None): section = "待處理"
     elif (disp or waiting) and c["stage"] in PRE_APPLY: section = "待指派"
     elif disp or waiting:
         hold = hold_of(c, waiting, agent_status, stopped)
