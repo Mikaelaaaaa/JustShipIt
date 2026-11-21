@@ -5,7 +5,7 @@
 ## 安裝（Claude Code 2.1.275+）
 
 ```
-/plugin install opsx-workflow --marketplace Mikaelaaaaa/opsx-workflow
+/plugin install opsx-workflow --marketplace Mikaelaaaaa/JustShipIt
 ```
 
 或本機路徑：`claude plugin marketplace add <本機 clone 路徑> && claude plugin install opsx-workflow@opsx-workflow`。
@@ -40,7 +40,7 @@ herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 
 資料全是投影（`opsx collect`：`openspec/changes/*/`、`~/.local/state/opsx/`、`herdr agent list`、`glab mr view`），看板自己不存狀態。
 
 - 網頁：herdr 裡叫 action `open-board`（`opsx init --global` 已 `herdr plugin link`），或 `bash herdr-board/scripts/open-board.sh`。
-  首頁四段 待處理 / 進行中 / 待指派 / 已完成，另有收件匣 tab（見下）；按鈕背後是 `opsx answer`（回 gate、三種授權答案）、`opsx dispatch`、`opsx merge`（寫一次性核准，叫 agent `/babysit merge`，閘門只放行那一次）、`opsx stop`。
+  首頁五段 待處理 / 進行中 / 等待中 / 待指派 / 已完成，另有收件匣 tab（見下）。進行中只放 apply 之後、pane 正在工作的卡；pane 沒在工作的（等 CI、等協調者、等別張卡合併、等背景工作）放等待中；還沒到 apply 的一律在待指派。按鈕背後是 `opsx answer`（回 gate、三種授權答案）、`opsx dispatch`、`opsx merge`（寫一次性核准，叫 agent `/babysit merge`，閘門只放行那一次）、`opsx stop`。
 - 右側 pane：herdr 裡叫 action `open-pane`，在按鍵的 pane 右邊以 split 開 pane `board`（`python3 herdr-board/tui.py`）；這個 tab 已經開著就跳過去，不疊第二個。同一份清單，↑↓ 選、Enter 跳 pane、i / d 展開收件匣 / 已完成、q 關；不回 gate、不派工。
 - 快捷鍵：herdr 的鍵綁 action，在 `~/.config/herdr/config.toml` 加兩段（prefix 是你 herdr 的前綴鍵）：
   ```toml

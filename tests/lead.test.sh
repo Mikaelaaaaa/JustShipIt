@@ -41,6 +41,15 @@ assert_eq "$(grep -c '^agent focus' "$OPSX_FAKE_LOG")" 1 "焦點只切一次"
 # 順序：開 tab、起 agent、送第一句、切焦點
 grep -oE '^(tab create|agent start|agent prompt|agent focus)' "$OPSX_FAKE_LOG" | tr '\n' '|' > "$FX/order"
 assert_eq "$(cat "$FX/order")" "tab create|agent start|agent prompt|agent focus|" "呼叫順序"
+# 起好就記下協調者 session（specs/opsx-lead「coordinate 與 opsx lead 記下協調者 session」）
+assert_eq "$(cat "$OPSX_STATE_DIR/coordinator.json")" '{"session_id": "sess-1"}' "lead 要記下協調者 session"
+rm -f "$OPSX_STATE_DIR/coordinator.json"
+# herdr 還沒給 session id：印警告、不寫檔、仍以 0 結束
+: > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"pane_id":"w3:p7"}}}' opsx lead 2>&1)"
+assert_eq "$?" 0 "記不到 session id 仍要 0：$out"
+case "$out" in *"下一輪會補記"*) ;; *) fail "記不到要警告：$out" ;; esac
+assert_no_file "$OPSX_STATE_DIR/coordinator.json"
 
 # --- 給 repo 路徑 ---
 mkdir -p "$FX/other"; : > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"

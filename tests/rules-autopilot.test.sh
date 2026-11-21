@@ -22,6 +22,14 @@ gone "$r" 'OPSX_ROOT='
 # gate 一律由使用者答；操作類題不開 gate（me-20261112-1415 D3、D4）
 has "$r" '協調者不代答'
 has "$r" '不開 gate'
+# 沙盒擋掉、跑一次就解掉的 needs: run 題標 by: coordinator；ring3、要人看、裝依賴的不標（coordinator-run-owned）
+has "$r" 'by: coordinator'
+has "$r" '跑一次'
+has "$r" 'push'
+has "$r" 'ring3'
+has "$r" '重開 pane'
+BY="$(printf '%s' "$r" | tr '；' '\n' | grep -F 'by: coordinator')"
+case "$BY" in *代答*) fail "寫 by: coordinator 的那句不該說代答：$BY" ;; esac
 # 段與段用 ' · ' 隔開，AGENTS.md 依它拆條列：「Bash 會被 dontAsk 拒的寫法」要是自己的一段
 has "$r" ' · Bash 會被 dontAsk 拒的寫法'
 gone "$r" ' ·Bash'
@@ -38,6 +46,23 @@ has "$n" 'pnpm test'
 has "$n" 'pytest'
 has "$n" '主 checkout'
 case "$n" in *$'\n'*) fail "rule_autopilot 要維持單行" ;; esac
+# test-run-rule-edges Scenario Outline：否分支列出前綴規則與清單外做法（一般 4 列、邊界 1 列）
+has "$n" '不加 `VAR=…` 或 `export`'
+has "$n" '`TEST_DATABASE_URL=`'
+has "$n" 'needs: run gate'
+has "$n" '不換寫法重試'
+has "$n" 'pnpm vitest'
+case "$n" in *'TEST_DATABASE_URL='*'pnpm test / pnpm vitest 除外'*) ;; *) fail "TEST_DATABASE_URL 例外要點名 pnpm test 與 pnpm vitest: $n" ;; esac
+# test-run-rule-edges Scenario：有 run.sh 分支寫明只認檔名；否分支不提
+U="$(mk_repo UnrelatedRunner)"
+mkdir -p "$U/tests"; printf '#!/usr/bin/env bash\nmake test\n' > "$U/tests/run.sh"
+u="$(rule_autopilot "$U")"
+has "$u" 'bash tests/run.sh'
+has "$u" '只認 `tests/run.sh` 這個檔名'
+gone "$n" '只認 `tests/run.sh` 這個檔名'
+# 反例：有 tests/run.sh 時不出現否分支的字句
+gone "$r" 'TEST_DATABASE_URL='
+gone "$r" '不換寫法重試'
 # Scenario Outline 邊界：沒有 package.json 的 repo 不提醒 pnpm docs:api
 gone "$n" 'pnpm docs:api'
 gone "$r" 'pnpm docs:api'

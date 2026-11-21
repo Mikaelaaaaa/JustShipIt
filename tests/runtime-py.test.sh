@@ -42,8 +42,9 @@ table() { # <表格檔>
     [ -n "$want" ] || continue
     read -r -a words <<< "$bcall"
     reset; "${words[@]}" >/dev/null < /dev/null || fail "bash rc：$bcall"
-    assert_eq "$(calls)" "$want" "bash：$bcall"
-    bash_argv="$(argv_calls)"
+    # nowait 送給有 pane 的卡之後另外讀一次輸入框（bin/lib/submit.py，tests/prompt-submit.test.sh 驗）：不是這個動詞的 argv
+    assert_eq "$(calls | grep -v -- ' --source visible --format ansi$')" "$want" "bash：$bcall"
+    bash_argv="$(argv_calls | grep -v $'\x1f--source\x1fvisible\x1f--format\x1fansi$')"
     reset; assert_eq "$(py "$pcall")" "$bash_argv" "python 與 bash 逐個參數相同：$pcall"
     assert_eq "$(calls)" "" "python 版不叫 herdr：$pcall"
   done < "$1"
