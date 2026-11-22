@@ -58,6 +58,10 @@ grep -F 'without spawning anything' "$STEP" | grep -qF 'a line that starts with 
 assert_not_fixed 'does not stop /pr' "$STEP"
 assert_fixed 'When step 1b stops at a gate, stop here: do not reply and do not continue to step 6' "$STEP"
 assert_fixed 'continue with step 6 only once the line under `## 邏輯表` names this head or starts with `skip：`' "$STEP"
+# D11 答完那行仍不對就重述並停
+assert_fixed 'When the gate is answered and the line still does neither, say so and stop again' "$STEP"
+# D10 skip：mr: none 只在 workplan 還標 mr: none 時算已處理
+assert_fixed '`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workplan.yaml` still has `mr: none`' "$STEP"
 
 # --- R1.3 router 在 gate 答完後送到 pr：pr 先認 logic-map-undecided，open 就停，答了沒寫回就先照 review 寫回 ---
 awk 'index($0,"## Where you are")==1{on=1;next} /^## /{on=0} on' "$SK" > "$FX/where"

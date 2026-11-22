@@ -63,6 +63,21 @@ for k in 'In `check` and `threads-only`' 'before step 5' '## 邏輯表' 'equal t
   'or starts with `skip：`' 'spawn nothing' 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' \
   'When step 1b stops at a gate, stop: write no mergeable verdict and reply to no thread' \
   'A `check` run that pushed in step 5 compares again the same way before the forge query of step 6' \
-  'The `merge <sha>` mode does none of this'; do
+  'The `merge <sha>` mode does none of this' \
+  'a different sha' 'a `產表失敗：` line' 'no `## 邏輯表` section'; do
   grep -qF -- "$k" "$FX/entry" || fail "入口比對缺 $k"
+done
+
+# --- D10 skip：mr: none 只在 workplan 還標 mr: none 時算已處理（入口與步 8）---
+MRNONE='`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workplan.yaml` still has `mr: none`'
+grep -qF -- "$MRNONE" "$FX/entry" || fail "入口缺 skip：mr: none 的條件"
+assert_fixed "$MRNONE" "$STEP"
+
+# --- D9 放行之後步 8 也不重產 ---
+assert_fixed 'unless the line under `## 邏輯表` starts with `skip：`' "$STEP"
+
+# --- D11 步 1 停在 gate 後跟 pr 5c 同條件；答完那行仍不對就重述並停 ---
+for k in 'until the gate is answered and the line under `## 邏輯表` names the current head or starts with `skip：`' \
+  'When the gate is answered and the line still does neither, say so and stop again'; do
+  grep -qF -- "$k" "$FX/entry" || fail "入口停 gate 缺 $k"
 done

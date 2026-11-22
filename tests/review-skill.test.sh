@@ -153,7 +153,28 @@ assert_fixed 'Then write a gate in gates.md and stop' "$MAP"
 assert_fixed 'the caller'"'"'s next step does not run' "$MAP"
 assert_fixed 'Never fall back to the `<remote>/main` already on disk' "$MAP"
 assert_fixed '`logic-map-failed-<n>`' "$MAP"
-assert_fixed 'one more than the number of `## logic-map-failed-` gates already in gates.md' "$MAP"
+# R1.3 最大號加 1，跟 hooks/openspec-stop-gate.sh write_auto_gate 一樣；較早的 gate 被刪時不重名
+assert_not_fixed 'one more than the number of' "$MAP"
+assert_fixed 'one more than the largest number among the `## logic-map-failed-<n>` gates already in gates.md (0 when there are none)' "$MAP"
+# R1.4 失敗 Outline「subagent 回報成功，但輸出檔不存在」列；FETCH_HEAD 比對釘整句方向
+assert_fixed 'or `<map path>` does not exist afterwards' "$MAP"
+assert_fixed 'When the file is newer, the user fetched into this worktree: skip the fetch of sub-step 1' "$MAP"
+# R1.1 pane 重開後只收到答案的 prompt：先看最新的 logic-map-failed gate，不從子步 1 重來
+grep -F 'look at the newest `## logic-map-failed-<n>` gate in gates.md' "$MAP" > "$FX/failed-entry"
+[ -s "$FX/failed-entry" ] || fail "1b 缺入口讀 logic-map-failed gate"
+for k in 'When it is open, repeat its question and stop; open no new gate' \
+  'When it is answered and the line under `## 邏輯表` is a `產表失敗：` line, or there is no such line yet' \
+  'continue by that answer as the list under sub-step 3 says, instead of starting at sub-step 1'; do
+  grep -qF -- "$k" "$FX/failed-entry" || fail "入口讀 gate 缺 $k"
+done
+python3 -I - "$MAP" <<'PY' || fail "讀 logic-map-failed gate 要在 mr: none 預檢與子步 1 之前"
+import sys
+t = open(sys.argv[1], encoding="utf-8").read()
+if not t.index("look at the newest `## logic-map-failed-<n>`") < t.index("skip：mr: none") < t.index("1. `git fetch <remote> main`"):
+    sys.exit("順序")
+PY
+# R1.2 ref 不存在時 git log 只有 stderr，不能當成空 diff
+assert_fixed '`git rev-parse --verify <remote>/main` succeeds, and `git log --oneline <remote>/main..HEAD` exits 0 and prints nothing' "$MAP"
 # Examples 表每列：失敗行 → type、選項
 grep -F -- '- `產表失敗：fetch 失敗`:' "$MAP" > "$FX/gate-fetch"
 for k in '`type: decision`' '`needs: run`' 'git -C <absolute path of this checkout> fetch <remote> main'; do
