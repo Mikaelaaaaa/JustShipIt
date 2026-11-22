@@ -142,7 +142,7 @@ $missing
       mr_err="$(printf '%s' "$mr" | jq -r '.error // empty')"
       [ -z "$(printf '%s' "$mr" | jq -r '.merged_at // empty')" ] || stage=archive
     else
-      mr_err="mr_json 失敗：$mr_out"
+      mr_err="mr_json 失敗：${mr_stderr:-$mr_out}"
     fi
   fi
   [ "$stage" = babysit ] && grep -q '^babysit:' "$d/report.md" && return 0
@@ -281,8 +281,13 @@ case "$lost_rc" in
 esac
 
 # babysit 站只查一次 forge（hook 只有 10 秒）：stop_reason 看合併了沒、babysit_reason 看卡在哪，都讀這一份
-mr_out=""; mr_rc=0
-if [ "$stage" = babysit ] && [ "$(st_open_gates_blocking "$d")" -eq 0 ]; then mr_out="$(mr_json "$d" 2>&1)" || mr_rc=$?; fi
+mr_out=""; mr_rc=0; mr_stderr=""
+if [ "$stage" = babysit ] && [ "$(st_open_gates_blocking "$d")" -eq 0 ]; then
+  # stderr 分開收：成功時只讀 stdout 的 JSON，快取寫不進去的 mkdir、mktemp 錯誤不能混進去；建不了暫存檔就丟掉 stderr，錯誤文字為空
+  mr_errf="$(mktemp 2>/dev/null)" || mr_errf=/dev/null
+  mr_out="$(mr_json "$d" 2>"$mr_errf")" || mr_rc=$?
+  [ "$mr_errf" = /dev/null ] || { mr_stderr="$(cat "$mr_errf")"; rm -f "$mr_errf"; }
+fi
 
 out="$(stop_reason "$d" "$slug" "$stage")"
 # 背景工作還在跑：agent 只能等通知，這一輪不算沒接站
