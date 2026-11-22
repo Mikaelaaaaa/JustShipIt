@@ -834,7 +834,8 @@ const WAIT_CAT=[['approval','授權','#2563EB'],['decision','決定','#7c3aed'],
 const GROUP_MIN=5;
 const COLLAPSE_KEY='opsx-board-collapsed';
 const needsYou=c=>!!c.waiting;
-const waitsOnYou=c=>needsYou(c)||subWaiting(c,data.sessions||[]).length>0;function waitCat(c){
+const waitsOnYou=c=>needsYou(c)||subWaiting(c,data.sessions||[]).length>0;
+function waitCat(c){
   const w=c.waiting;
   if(!w)return 'none';
   if(w.type==='可以合併')return 'merge';
