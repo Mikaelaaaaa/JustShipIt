@@ -120,6 +120,12 @@ for s in 'no pane is working and ① has no open gate' 'priority level, then wor
   'While any pane is working, dispatch nothing extra' 'Keep the number of working panes below max-working'; do
   case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
 done
+# 放掉且 pane 已收的補卡可以派（inbox-autofill D14）：新句子整句在，原本只派沒有條目的那句也整句還在
+for s in 'Also take a card whose entry has `released_at` and whose pane is closed (`pane_closed_at` or `reaped_at`): coordinate filled it from the inbox, released its pane after propose, and dispatches it again only at P0/P1, so a filled card that came out of propose at P2 waits for you.' \
+  'Take only a card that has no dispatch.json entry, or whose entry is `mode: stopped` and which the user has since asked to restart; any other entry means the card is already dispatched (待指派 also lists cards still in explore, grill or propose whose pane is alive), and `opsx dispatch` refuses it.' \
+  'A card with unmerged dependencies, or one the user stopped, waits, and coordinate holds them back for the same reason.'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺整句：$s — $D9" ;; esac
+done
 # 名額只算工作中的 pane（specs/dispatch-concurrency）：idle、blocked、done 不佔名額，留著 live pane 的說法會跟協調者數得不一樣
 case "$D9" in *'live pane count'*) fail "職責 9 要說工作中的 pane 數，不是 live pane count — $D9" ;; esac
 # 收件匣交給 coordinate 補卡，協調者只判重複、蓋記號（specs/opsx-lead「收件匣那條職責寫明交給 coordinate、只判重複」

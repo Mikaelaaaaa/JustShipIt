@@ -84,4 +84,10 @@ assert_eq "$out" "" "有記號與 P2 的卡不列"
 card d "$P1" "bin/lib/y.py"; printf -- '- [ ] 1.1 x\n' > "$CH/d/tasks.md"
 out="$(opsx dedup --candidates --repo "$A" 2>"$FX/cand.err")"; assert_eq "$?" 0 "candidates: $(cat "$FX/cand.err")"
 assert_eq "$out" "" "不在收件匣的卡不列"
+
+# --- 等級算不出來的卡不列，stderr 一行點名卡與原因，退出 0 ---
+card bad 'type: bug\nsource: me\nfound: 2026-11-20\npriority: P9\npriority_reason: 測試\n' "bin/lib/y.py"
+out="$(opsx dedup --candidates --repo "$A" 2>"$FX/cand.err")"; assert_eq "$?" 0 "candidates: $(cat "$FX/cand.err")"
+assert_eq "$out" "" "等級算不出來的卡不列"
+assert_eq "$(grep -c 'bad.*P9' "$FX/cand.err" || true)" 1 "stderr 一行含卡名與原因：$(cat "$FX/cand.err")"
 echo "inbox-dedup ok"

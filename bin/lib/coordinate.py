@@ -1052,6 +1052,19 @@ class Round:
             return newly
         return [pr["name"]] if pr["name"] in merged else []
 
+    def close_gone_released(self):
+        """opsx release 放掉、pane 已不在 herdr agent 清單的條目記 pane_closed_at：reap 收不到不在的 pane，
+        不記的話 dispatch_new 與 opsx dispatch 會一直等它被收。"""
+        panes = {a.get("pane_id") for a in self.agents}
+        at = self.now.isoformat(timespec="seconds")
+        for key, entry in sorted(self.dispatch_file.items()):
+            if not chain.released_waiting(entry) or entry.get("pane") in panes:
+                continue
+            self.log("-- %s 放掉的 pane %s 已不在 herdr，記成已收" % (key, entry.get("pane")))
+            entry["pane_closed_at"] = at
+            if not self.dry:
+                jsonfile.update(os.path.join(self.state, "dispatch.json"), functools.partial(mark_pane_closed, key=key, at=at))
+
     def dispatch_new(self, cards, repo_paths):
         n = 0
         ranked = sorted((self.rank(c, repo_paths[c["repo"]]), i, c) for i, c in enumerate(cards))
@@ -1094,7 +1107,7 @@ class Round:
                 self.log("-- %s 不是合法的 agent 名，跳過" % key)
                 continue
             # opsx release 放掉、reap 還沒收的 pane 還在同一棵 worktree 上，先派會開出第二個 pane
-            if entry and entry.get("released_at") and not (entry.get("pane_closed_at") or entry.get("reaped_at")):
+            if entry and chain.released_waiting(entry):
                 self.log("-- %s 放掉了，等 reap 收 pane 才派" % key)
                 continue
             # 排在等級與額度之前：已經有 pane 在做的卡不該吃掉這輪的額度
@@ -1137,21 +1150,30 @@ class Round:
         return n
 
     def ready(self, c, top):
-        """待指派裡現在就能派的卡：有 tasks.md、沒有 MR、P0/P1、依賴都合了、沒有活的條目（人停的條目也不活）。"""
+        """待指派裡現在就能派的卡：有 tasks.md、沒有 MR、P0/P1、依賴都合了、沒有活的條目（人停的條目也不活），
+        而且不是 dispatch_new 會跳過的卡（session 的 feature 卡、slug 不合 agent 名、放掉但 pane 還沒收、分支被別的 worktree 佔著）。"""
         entry = self.dispatch_file.get(card_key(c))
         if c["section"] != "待指派" or c["mr"] or not os.path.isfile(os.path.join(c["path"], "tasks.md")):
             return False
-        if entry and (chain.session_alive(entry) or entry.get("mode") == "stopped"):
+        if entry and (chain.session_alive(entry) or entry.get("mode") == "stopped" or chain.released_waiting(entry)):
+            return False
+        if not AGENT_NAME.match(c["slug"]) or self.session_feature_of(top, c["repo"], c["slug"]) or self.branch_holder(top, c["slug"]):
             return False
         got = self.level(top, c["slug"])
         if "error" in got or got["level"] == "P2":
             return False
         return not deps_unmerged(c["slug"], self.workplan(top), read_features(os.path.join(top, "openspec", "workplan.yaml")))
 
+    def filling(self, c):
+        """補出去還沒做完 propose 的卡：條目活著、派工指示有補卡記號、還沒有 tasks.md。它 propose 完就回待指派，先算進存量。"""
+        entry = self.dispatch_file.get(card_key(c))
+        return (bool(entry) and chain.session_alive(entry) and any(AUTOFILL_MARK in n["text"] for n in c["notes"])
+                and not os.path.isfile(os.path.join(c["path"], "tasks.md")))
+
     def fill_inbox(self, cards, repo_paths, n):
         """可派存量（這輪開始時可派的待指派，扣掉 dispatch_new 這輪派出的）低於下限時，從收件匣補判過重複的 P0/P1 卡去做到 propose。
         n 接著 dispatch_new、dispatch_features 的這輪派數。P0 不看下限與名額但照佔名額；補出的 P0 也算進補到下限的張數。"""
-        stock = sum(1 for c in cards if card_key(c) not in self.dispatched_now and self.ready(c, repo_paths[c["repo"]]))
+        stock = sum(1 for c in cards if self.filling(c) or (card_key(c) not in self.dispatched_now and self.ready(c, repo_paths[c["repo"]])))
         picks = []
         for i, c in enumerate(cards):
             key, top = card_key(c), repo_paths[c["repo"]]
@@ -1163,9 +1185,10 @@ class Round:
             got = self.level(top, c["slug"])
             if "error" in got or got["level"] == "P2":
                 continue
-            picks.append(((priority.LEVELS.index(got["level"]), c["since"] or "", c["slug"]), i, c))
+            # since 是 null 的卡排在同等級最後面：沒日期的卡不搶先
+            picks.append(((priority.LEVELS.index(got["level"]), c["since"] is None, c["since"] or "", c["slug"]), i, c))
         filled = 0
-        for (lv, _, _), _, c in sorted(picks):
+        for (lv, _, _, _), _, c in sorted(picks):
             key, top = card_key(c), repo_paths[c["repo"]]
             p0 = lv == priority.LEVELS.index("P0")
             if not p0 and stock + filled >= self.inbox_floor:
@@ -1297,9 +1320,10 @@ class Round:
         return single, slugs
 
     def holds_branch(self, repo, slug, feature):
-        """<slug> 有條目、不是這個 feature 的 session 成員，而且沒停、或停了但 worktree 還在（opsx stop 不收 worktree）。"""
+        """<slug> 有條目、不是這個 feature 的 session 成員，而且沒停、或停了但 worktree 還在（opsx stop 不收 worktree）。
+        放掉且 pane 已收的條目不算：那是協調者補的卡，propose 完交給 session 接手。"""
         entry = self.dispatch_file.get("%s/%s" % (repo, slug))
-        if not entry or entry.get("via") == "@" + feature:
+        if not entry or entry.get("via") == "@" + feature or chain.released_done(entry):
             return False
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
 
@@ -1448,6 +1472,11 @@ def mark_stopped(d, key, at):
     """jsonfile.update 的 mutate：條目標 stopped，不碰 pane。"""
     d[key]["mode"] = "stopped"
     d[key]["stopped_at"] = at
+
+
+def mark_pane_closed(d, key, at):
+    """jsonfile.update 的 mutate：條目記 pane 已收。"""
+    d[key]["pane_closed_at"] = at
 
 
 def put_entry(d, key, entry):
@@ -1722,6 +1751,7 @@ def one_round(state, dry):
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
     r.busy_panes = live_panes(r.dispatch_file, r.agents, own_work_keys(r.dispatch_file, r.state, repo_paths, r.now))
+    r.close_gone_released()
 
     merged = [c for c in cards if is_merged(c)]
     orphans = []

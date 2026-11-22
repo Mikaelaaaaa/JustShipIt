@@ -65,7 +65,14 @@ def candidates(top: str, data: dict) -> list:
             files[c["slug"]] = mergematch.files_in(top, mergematch.card_text(f.read()))
     lines = []
     for c in sorted(inbox, key=operator.itemgetter("slug")):
-        if c["dedup_checked"] or not c["priority"] or c["priority"]["level"] not in ("P0", "P1"):
+        if c["dedup_checked"]:
+            continue
+        if not c["priority"]:
+            # collect 把等級錯誤記在 errors，source 是那張卡的 inbox.md
+            why = [e["message"] for e in data["errors"] if e["source"] == os.path.join(c["path"], "inbox.md")]
+            print("dedup: %s 等級算不出來，不列：%s" % (c["slug"], "；".join(why) or "collect 沒給等級"), file=sys.stderr)
+            continue
+        if c["priority"]["level"] not in ("P0", "P1"):
             continue
         same = sorted(o for o in files if o != c["slug"] and files[o] & files[c["slug"]])
         lines.append("%s\t%s" % (c["slug"], ",".join(same)))

@@ -380,6 +380,16 @@ def session_alive(entry: dict) -> bool:
             and not entry.get("released_at"))
 
 
+def released_waiting(entry: dict) -> bool:
+    """opsx release 放掉了、pane 還沒收（沒有 pane_closed_at 也沒有 reaped_at）：pane 還在同一棵 worktree 上，不能再派。"""
+    return bool(entry.get("released_at")) and not (entry.get("pane_closed_at") or entry.get("reaped_at"))
+
+
+def released_done(entry: dict) -> bool:
+    """opsx release 放掉了、pane 也收了：可以重派，也不再佔著分支。"""
+    return bool(entry.get("released_at")) and bool(entry.get("pane_closed_at") or entry.get("reaped_at"))
+
+
 def human_stopped(entry, feature: str) -> bool:
     """這個 session 的成員條目被人停了。單卡派過再停掉的舊條目（沒有 via @<feature>）不算：它不是這個 session 的成員。"""
     return bool(entry) and entry.get("mode") == "stopped" and entry.get("via") == "@" + feature

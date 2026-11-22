@@ -78,6 +78,30 @@ assert_eq "$(count '^opsx dispatch r')" 0 "P2 與依賴沒合的待指派不派�
 assert_eq "$(filled)" 2 "它們不算存量，補 2 張：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$R/openspec/workplan.yaml"
 
+# ========== dispatch_new 不會派的待指派卡不算存量：活 session 的 feature 卡、放掉但 pane 還沒收的卡 ==========
+reset
+printf 'created: 2026-11-07\n\nfeatures:\n  - name: fx\n    prs:\n      - name: sa\n        status: pending\n        depends-on: []\n        changes:\n          - name: sa\n            status: pending\n      - name: sb\n        status: pending\n        depends-on: []\n        changes:\n          - name: sb\n            status: pending\n' > "$R/openspec/workplan.yaml"
+printf '{"demo/@fx":{"mode":"autopilot","agent":"claude","pane":"w1:s1","drive_pid":null},"demo/rr":{"mode":"autopilot","agent":"claude","pane":"w1:r1","drive_pid":null,"released_at":"2026-11-22T10:00:00+08:00"}}' > "$DISP"
+printf '{"id":"cli:agent:list","result":{"agents":[{"pane_id":"w1:s1","agent_status":"working","cwd":"%s"},{"pane_id":"w1:r1","agent_status":"idle","cwd":"%s"}],"type":"agent_list"}}' "$FX" "$FX" > "$FX/agents.json"
+cards "[$(ready sa sb rr),$(inboxes ia ib)]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch (sa|sb|rr) ')" 0 "session 的卡與還沒收 pane 的卡不單獨派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(filled)" 2 "它們不算存量，補 2 張：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$R/openspec/workplan.yaml"
+
+# ========== 補了還在 explore 的卡算存量 ==========
+reset
+cards "[$(inboxes ia ib ic id ie if ig ih ii ij)]"
+round || fail "第一輪 rc: $(cat "$FX/out")"
+assert_eq "$(filled)" 2 "第一輪補到下限 2：$(cat "$OPSX_FAKE_LOG")"
+# 第二輪：ia、ib 還在 explore（條目活著、派工指示有補卡記號、沒有 tasks.md）
+printf '{"demo/ia":{"mode":"autopilot","agent":"claude","pane":"w1:a1","drive_pid":null},"demo/ib":{"mode":"autopilot","agent":"claude","pane":"w1:a2","drive_pid":null}}' > "$DISP"
+printf '{"id":"cli:agent:list","result":{"agents":[{"pane_id":"w1:a1","agent_status":"working","cwd":"%s"},{"pane_id":"w1:a2","agent_status":"working","cwd":"%s"}],"type":"agent_list"}}' "$FX" "$FX" > "$FX/agents.json"
+AF='"section":"進行中","stage":"explore","agent_status":"working","dedup_checked":'"$STAMP"',"notes":[{"at":"2026-11-22T10:00","text":"做到 propose 完成就停（協調者補卡）"}]'
+cards "[{\"slug\":\"ia\",\"dispatch\":{\"pane\":\"w1:a1\"},$AF},{\"slug\":\"ib\",\"dispatch\":{\"pane\":\"w1:a2\"},$AF},$(inboxes ic id ie if ig ih ii ij)]"
+round || fail "第二輪 rc: $(cat "$FX/out")"
+assert_eq "$(filled)" 0 "還在路上的 2 張算存量，第二輪不補：$(cat "$OPSX_FAKE_LOG")"
+
 # ========== 下限設定檔的值決定下限（Scenario Outline）==========
 for row in "none 2" "3 3" "1 1" "3nl 3"; do
   set -- $row
@@ -109,6 +133,10 @@ reset
 cards "[$(inbox ia P1 2026-11-20 null)]"
 round || fail "沒記號 rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 0 "沒記號的卡不補：$(cat "$OPSX_FAKE_LOG")"
+reset
+cards "[$(inbox ia P1 2026-11-20 '""')]"
+round || fail "記號空字串 rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch')" 0 "記號是空字串的卡不補：$(cat "$OPSX_FAKE_LOG")"
 reset
 cards "[$(inbox ia P2)]"
 round || fail "P2 rc: $(cat "$FX/out")"
@@ -144,6 +172,14 @@ pick() { # <卡甲 slug> <等級> <since> <卡乙 slug> <等級> <since> <被派
 pick a P1 2026-11-20 b P0 2026-11-21 b
 pick a P1 2026-11-21 b P1 2026-11-20 b
 pick me-2 P1 2026-11-20 me-1 P1 2026-11-20 me-1
+# since 是 null 的卡排在同等級最後面
+reset; stock rs
+pdir a P1
+cards "[$(ready rs),{\"slug\":\"a\",\"section\":\"收件匣\",\"stage\":\"explore\",\"since\":null,\"dedup_checked\":$STAMP},$(inbox b P1 2026-11-20)]"
+round || fail "since null rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch b .*協調者補卡')" 1 "有日期的先補：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch a ')" 0 "since null 的排後面：$(cat "$OPSX_FAKE_LOG")"
+unstock
 
 # ========== 排後面的卡下一輪才補 ==========
 reset; stock rs

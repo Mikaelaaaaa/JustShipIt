@@ -164,7 +164,8 @@ def main():
         for o in orphans:
             if o["pane"] in protected:
                 r.skip(o, "pane %s 上還有活著的卡，不關" % o["pane"])
-            elif o["agent_status"] != "idle":
+            # 放掉的 pane 是 propose 做完才放的，agent 停在 done 也是做完了
+            elif o["agent_status"] != "idle" and not (o["reason"] == "released" and o["agent_status"] == "done"):
                 r.skip(o, "pane %s 的 agent 是 %s，這輪不關" % (o["pane"], o["agent_status"]))
             else:
                 r.close(o)
