@@ -187,7 +187,7 @@ status: open
   - session <feature> (milestone: <name or none>, depends-on: [<PR names>])
     - main change <pr> · <branch> (depends-on: [<pr>])
       - sub-change <name> (depends-on: [<sibling sub-change>])
-    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<原因>）
+    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<原因>）  # with this line, drop `(Recommended)` and the `建議:` line; without a second main change, delete this line
 選項: 照這個拆法 (Recommended) | 改拆法 | 不拆
 建議: <why this grouping: similar topics share a session, one main change unless a part ships on its own and must be reviewed separately>
 風險: <what a wrong split costs>

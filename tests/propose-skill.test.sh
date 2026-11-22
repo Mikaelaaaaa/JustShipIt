@@ -25,7 +25,10 @@ for k in 'subs/<sub>/' 'parent: <main>' 'changes[]' 'opsx check <main>' 'both sh
 # R3.3：不另建主殼（4d／步驟 5 已給這張卡一個 PR，另建會多一個 PR）；這張卡就是主殼，改寫它既有的 PR 與 tasks.md
 ! grep -qF 'openspec new change <main>' "$B5" || fail "5b 不該另建主殼"
 has 'The card you are proposing is the main shell' "$B5"
-has 'replace the `changes[]` of its existing PR' "$B5"
+# R4.2（D14）：加進既有 PR，只拿掉這張卡自己那筆；「換掉」會丟掉同 PR group 別的 change
+has 'add the sub-changes to its existing PR' "$B5"
+has 'remove only this card'"'"'s own entry' "$B5"
+! grep -qF 'replace the `changes[]`' "$B5" || fail "5b 不能換掉整個 changes[]"
 grep -F 'own feature and PR named after the slug' "$P" | grep -qF 'unless 5b applies' || fail "4d 要註明 5b 適用時不另加 PR"
 ! head -1 "$B5" | grep -qi 'independent' || fail "5b 標題不該再寫 independent"
 

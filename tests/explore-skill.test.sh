@@ -81,6 +81,9 @@ has 'or is listed in a parent card'"'"'s `split_into`' "$PROSE"
 ! grep -qF 'Judge D5 per sub-change' "$SK" || fail "沒有步驟會對子 change 跑 D5"
 ! grep -qF 'judge each sub-change instead' "$SK" || fail "沒有步驟會對子 change 跑 D5"
 
+# --- R4.1（D11）：範本第二張主 change 那行自己註明刪 Recommended 與 建議，照抄範本也不會被協調者代答 ---
+grep -F 'main change <pr2>' "$SGATE" | grep -qF 'drop `(Recommended)` and the `建議:` line' || fail "範本 pr2 行要註明刪 Recommended 與 建議"
+
 # --- Scenario：移除 autopilot 不確認的句子 ---
 ! grep -qF 'written without the confirmation step' "$SK" || fail "autopilot 不確認的句子要移除"
 has 'Splitting a big card' "$ENGAGE"

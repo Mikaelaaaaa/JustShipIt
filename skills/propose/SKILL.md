@@ -142,7 +142,7 @@ When this proposal produced more than one change, make them sub-changes of one m
 
 1. The card you are proposing is the main shell (`<main>`); do not create another one, since 4d and step 5 already gave this card its PR.
 2. Each change goes under `openspec/changes/<main>/subs/<sub>/` with `inbox.md` (frontmatter `parent: <main>`, `depends-on: [<sibling>]`) and `.openspec.yaml` (`schema: opsx`, `kind:`, `parent: <main>`), the same as `../explore/SKILL.md` "Splitting a big card" steps 1–2.
-3. In `openspec/workplan.yaml`, replace the `changes[]` of its existing PR with the sub-changes and their sibling `depends-on`.
+3. In `openspec/workplan.yaml`, add the sub-changes to its existing PR's `changes[]` with their sibling `depends-on`, and remove only this card's own entry; other changes in that PR stay.
 4. Write the sub shells per 4c and rewrite `<main>`'s tasks.md in 4c's one-item-per-sub-change form, then run `opsx check <main>`.
 
 Give a change its own PR only when it both ships on its own and must be reviewed separately, and write why it cannot be a sub-change in its proposal.md (copy the reason from the split gate's `main change` line when explore wrote one). Separate PRs name in `depends-on` only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
