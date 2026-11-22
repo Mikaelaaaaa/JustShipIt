@@ -333,14 +333,21 @@ PY
   say "dispatch: $repo/$slug 交回 session ${feature}，送 [${slug}] /opsx-workflow:${first} ${slug}；不開 pane"
 }
 
-# 活著的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
+# 工作中的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
 # 數法與上限跟協調者共用 coordinate.py
 warn_slots_full() {
   # 這只是警告，不擋派工。數不成的原因也印 stdout：看板派工成功時只顯示 stdout
-  OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR" <<'PY' || true
-import os, subprocess, sys
-sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime
+  OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR" "${OPSX_CODE_ROOT:-$HOME/code}" <<'PY' || true
+import datetime, os, pathlib, subprocess, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime, sync
 state = sys.argv[1]
+# sources.toml 壞了跟 collect 一樣只看 root 底下的 repo，協調者也是這樣數的
+try:
+    sources = sync.source_paths(pathlib.Path(state))
+except ValueError as e:
+    print("dispatch: sources.toml 壞了，只看 %s 底下的 repo：%s" % (sys.argv[2], e))
+    sources = []
+repos, _, _, _ = sync.scan_repos(pathlib.Path(sys.argv[2]), sources)
 p = subprocess.run(runtime.list_agents(), capture_output=True, text=True)
 if p.returncode != 0:
     print("dispatch: 數不出名額：herdr agent list 失敗（rc %d）" % p.returncode)
@@ -351,7 +358,9 @@ try:
 except coordinate.CoordinateError as e:
     print("dispatch: 不數名額：%s" % e)
     sys.exit(0)
-n = len(coordinate.live_panes(jsonfile.load(os.path.join(state, "dispatch.json")), agents))
+entries = jsonfile.load(os.path.join(state, "dispatch.json"))
+own_work = coordinate.own_work_keys(entries, state, {name: str(path) for name, path in repos.items()}, datetime.datetime.now().astimezone())
+n = len(coordinate.live_panes(entries, agents, own_work))
 if n >= limit:
     print("dispatch: 已有 %d/%d 個 pane" % (n, limit))
 PY
