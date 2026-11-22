@@ -311,7 +311,16 @@ mkmerged y $'## 一句話\n\n沒有併入\n'
 mkmerged w $'## 一句話\n\n欄位不齊\n\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: agent-20261111-1040\n- kind_of_work: planned\n\n沒有 type 也沒有 area\n'
 mkmerged z $'## 一句話\n\n手動搬入\n\n## 併入：me-20261110-1614（全文）\n\n隨手貼的一段\n'
 mkmerged archive/2026-11-01-old $'## 一句話\n\n歸檔的\n\n## 併入：me-20261101-0900（全文）\n\n隨手貼的一段\n'
+# opsx merge-card 寫的縮排形狀（照抄磁碟上實際的段）；u 的段裡有一行沒縮排
+mkmerged v $'## 一句話\n\n收了縮排段\n\n## 證據\n\n## 併入：2026-11-20T17:35:20+08:00 agent:personal-skill\n\n- id: agent-20261118-1910\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  沒有 hnsw 索引\n\n  ## 證據\n'
+mkmerged t $'## 一句話\n\n多行一句話\n\n## 證據\n\n## 併入：2026-11-20T17:35:22+08:00 me\n\n- id: me-20261120-1425\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  第一行\n   第二行\n\n  ## 證據\n\n  ## 派工指示\n\n  - 2026-11-20T10:00:00+08:00 做到可合併\n'
+mkmerged u $'## 一句話\n\n縮排段壞了\n\n## 證據\n\n## 併入：2026-11-20T17:35:21+08:00 agent:personal-skill\n\n- id: agent-20261118-1913\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  一句\n沒縮排的行\n'
 J="$(opsx collect --root "$RM")"; assert_eq "$?" 0 "merged collect rc: $J"
+assert_eq "$(q "$(card "$J" rm v)" merged)" '[{"id": "agent-20261118-1910", "kind_of_work": "planned", "source": "agent:personal-skill", "text": "沒有 hnsw 索引", "type": "bug", "when": "2026-11-20T17:35:20+08:00"}]' "縮排段列得出，欄位跟一行形狀一樣"
+assert_eq "$(q "$(card "$J" rm t)" merged)" '[{"id": "me-20261120-1425", "kind_of_work": "planned", "source": "me", "text": "第一行", "type": "bug", "when": "2026-11-20T17:35:22+08:00"}]' "多行一句話只取第一個非空行（跟一般卡一樣），派工指示不進 text"
+assert_eq "$(q "$(card "$J" rm u)" merged)" '[]' "格式錯的縮排段不列"
+case "$(q "$J" errors)" in *"u 的併入段格式不對：## 併入：2026-11-20T17:35:21+08:00 agent:personal-skill"*) ;; *) fail "格式錯的縮排段要進 errors：$(q "$J" errors)" ;; esac
+case "$(q "$J" errors)" in */v/inbox.md*) fail "好的縮排段不該進 errors：$(q "$J" errors)" ;; esac
 assert_eq "$(q "$(card "$J" rm x)" merged)" '[{"area": "hooks", "id": "agent-20261111-1040", "kind_of_work": "planned", "source": "agent:foo", "text": "hook 漏擋", "when": "2026-11-11T10:40:00+08:00"}, {"area": "hooks", "evidence": "tests/x.sh", "id": "me-20261111-1100", "kind_of_work": "unplanned", "source": "me", "text": "第二項", "when": "2026-11-11T11:00:00+08:00"}, {"id": "agent-20261111-1110", "kind_of_work": "planned", "source": "agent:bar", "text": "新格式", "type": "bug", "when": "2026-11-11T11:10:00+08:00"}]'
 assert_eq "$(q "$(card "$J" rm y)" merged)" '[]'
 assert_eq "$(q "$(card "$J" rm w)" merged)" '[]' "type 與 area 都沒有的段不列"
@@ -433,6 +442,12 @@ pcard q q1
 printf 'milestones:\n  - name: "1.0"\n    goal: "先上線"\nfeatures:\n  - name: f\n    milestone: "1.0"\n' > "$R8/q/openspec/workplan.yaml"
 pcard w w1 'kind_of_work: incident' 'impact: security' 'evidence: x'
 printf 'milestones:\n  - name: "1.0"\n    goal: "先上線"\ncurrent_milestone: "9.9"\n' > "$R8/w/openspec/workplan.yaml"
+# 自動掛進目前 milestone 的 P2 卡不算進進度；人改過等級（priority_auto 拿掉）的才算（workplan-attach D17）
+mkdir -p "$R8/a/.git"
+pcard a auto 'priority: P2' 'priority_reason: 自動掛進 workplan，維持 P2' 'priority_auto: true'
+pcard a lifted 'priority: P1' 'priority_reason: 人排的'
+printf 'milestones:\n  - name: "1.0"\n    goal: "g"\ncurrent_milestone: "1.0"\nfeatures:\n' > "$R8/a/openspec/workplan.yaml"
+printf '  - name: %s\n    milestone: "1.0"\n    prs:\n      - name: %s\n        branch: feat/%s/m\n        status: pending\n        changes:\n          - name: %s\n            status: pending\n' auto auto auto auto lifted lifted lifted lifted >> "$R8/a/openspec/workplan.yaml"
 J="$(opsx collect --root "$R8")"; assert_eq "$?" 0 "priority collect rc: $J"
 # 卡帶等級與理由
 C="$(card "$J" p hot)"; assert_eq "$(q "$C" priority.level)" P0; assert_eq "$(q "$C" priority.overridden)" false
@@ -457,6 +472,9 @@ assert_eq "$(q "$J" progress.p.milestone) $(q "$J" progress.p.goal) $(q "$J" pro
 assert_eq "$(q "$(card "$J" p plain)" progress_class)" null "不在 workplan 的卡在有 milestone 時沒有分類"
 assert_eq "$(q "$J" progress.q.milestone) $(q "$J" progress.q.remaining) $(q "$(card "$J" q q1)" progress_class)" "null 1 not_dispatched"
 assert_eq "$(q "$J" progress.w.milestone) $(q "$J" progress.w.remaining) $(q "$J" progress.w.not_dispatched_planned)" "null 1 []"
+assert_eq "$(q "$(card "$J" a auto)" progress_class)" null "自動 P2 的卡不算進進度"
+assert_eq "$(q "$J" progress.a.remaining)" 1 "a 的剩下只有人改過等級的 lifted"
+[ "$(q "$(card "$J" a lifted)" progress_class)" != null ] || fail "lifted 要有進度分類"
 
 # ---------- 孤兒 pane：cwd 在 opsx worktree 底下，且卡已歸檔 / split / stopped / 目錄不在（specs/opsx-reap「孤兒 pane 的判定」、board-collect「orphans 清單」） ----------
 RP6="$FX/code-reap6"; mkdir -p "$RP6/o/.git" "$RP6/o/openspec/changes/archive"
@@ -584,6 +602,8 @@ gcard t-zh-auth '## g1\ntype:  等待授權 \naction: push\nstatus: open\n問題
 gcard t-notype  '## g1\nstatus: open\n問題: 沒寫 type\n建議: 照做\n'
 gcard t-ish     '## g1\ntype: approval-ish\nstatus: open\n問題: 表外\n'
 gcard t-run     '## g1\ntype: decision\nneeds: run\nstatus: open\n問題: 跑一下\n建議: ls -la /tmp\n'
+gcard t-runby   '## g1\ntype: approval\naction: push\nneeds: run\nby: coordinator\nstatus: open\n問題: push？\n建議: git push gitlab feat/a/mikaela-lin\n'
+gcard t-runby2  '## g1\ntype: decision\nneeds: run\nby: coordinator\nstatus: open\n問題: 跑一下\n建議: chmod +x x.sh\n\n## g2\ntype: decision\nstatus: open\n問題: 選\n建議: 用 A\n'
 gcard t-plain   '## g1\ntype: decision\nstatus: open\n問題: 選\n選項: A | B\n建議: A\n'
 gcard t-badneed '## g1\ntype: decision\nneeds: ssh\nstatus: open\n問題: 選\n'
 gcard t-waits   '## g1\ntype: decision\nwaits-on:  grant-gate-levels \nstatus: open\n問題: 等別張卡\n建議: 合併後再開\n'
@@ -611,6 +631,38 @@ assert_eq "$(w t-waits type)" 等待決定 "waits-on 不改 type"
 assert_eq "$(w t-plain waits_on)" null "沒寫 waits-on"
 assert_eq "$(w t-waitsempty waits_on)" null "空值當沒寫"
 assert_eq "$(w t-run waits_on)" null "建議含文字也不影響"
+# by: coordinator：讀進 waiting.by；全是代跑題的卡不進待處理，還有要人答的或沒標 by 的照樣進（coordinator-run-owned）
+assert_eq "$(w t-runby by)" coordinator "寫了 by coordinator"
+assert_eq "$(w t-run by)" null "沒寫 by"
+# 沒派出的卡 coordinate 不處理，代跑題沒人跑，照人的題進待處理
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 待處理 "沒派出的卡，代跑題照樣進待處理"
+assert_eq "$(w t-runby gate_id)" g1 "waiting 照舊是第一個 open gate"
+assert_eq "$(q "$(card "$J" r6 t-runby2)" section)" 待處理 "代跑題後面還有要人答的題"
+assert_eq "$(q "$(card "$J" r6 t-run)" section)" 待處理 "沒標 by 的 needs run"
+# 「等你」計數跟分區同一判斷：代跑題後面還有要人答的題算等你，只剩代跑題不算（design D10）
+assert_eq "$(q "$(card "$J" r6 t-runby2)" progress_class)" waiting_on_you "代跑題後面還有要人答的題算等你"
+assert_eq "$(q "$(card "$J" r6 t-runby)" progress_class)" waiting_on_you "沒派出的卡只剩代跑題也算等你"
+# 派出去的卡只剩代跑題：agent 在工作是進行中，agent 停著是等待中「等協調者」
+O7="$(cd "$R7/r6" && pwd -P)"
+printf '{"r6/t-runby":{"pane":"w1:p1","mode":"autopilot","worktree":"%s/.claude/worktrees/a"},"r6/t-runby2":{"pane":"w1:p2","mode":"autopilot","worktree":"%s/.claude/worktrees/b"}}' "$O7" "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+{ printf '{"id":"cli:agent:list","result":{"agents":['
+  agent6 w1:p1 working "$O7/.claude/worktrees/a"; printf ','
+  agent6 w1:p2 idle "$O7/.claude/worktrees/b"
+  printf '],"type":"agent_list"}}'; } > "$FX/agents-runby.json"
+export HERDR_ENV=1
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "派出去的代跑卡 collect: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 進行中 "派出去、agent 在工作、只剩代跑題"
+assert_eq "$(q "$(card "$J" r6 t-runby)" progress_class)" developing "派出去、只剩代跑題不算等你"
+assert_eq "$(q "$(card "$J" r6 t-runby2)" section)" 待處理 "派出去、還有要人答的題"
+printf '{"r6/t-runby":{"pane":"w1:p2","mode":"autopilot","worktree":"%s/.claude/worktrees/b"}}' "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "派出去的代跑卡 collect 2: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 等待中 "派出去、agent 停著、只剩代跑題"
+assert_eq "$(q "$(card "$J" r6 t-runby)" hold)" 等協調者 "停著等協調者代跑"
+printf '{"r6/t-runby":{"pane":"w1:p2","mode":"stopped","worktree":"%s/.claude/worktrees/b"}}' "$O7" > "$OPSX_STATE_DIR/dispatch.json"
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-runby.json" opsx collect --root "$R7")"; assert_eq "$?" 0 "已停的代跑卡 collect: $J"
+assert_eq "$(q "$(card "$J" r6 t-runby)" section)" 待處理 "已停的卡，代跑題照樣進待處理"
+export HERDR_ENV=""
+printf '{}' > "$OPSX_STATE_DIR/dispatch.json"
 
 # ---------- session：workplan 的 feature 收成 sessions[]（specs/board-collect「收成 session 的 feature」等四條） ----------
 R6="$FX/code6"; S6="$FX/state6"; mkdir -p "$R6/s/.git" "$R6/t/.git" "$R6/u/.git" "$R6/t/openspec/changes" "$R6/u/openspec/changes" "$S6"
@@ -912,6 +964,12 @@ EOF
 pc10 n solo >/dev/null
 # nc：有 milestones 沒有 current_milestone，兩張活卡，一張不在 workplan
 mkdir -p "$R10/nc/.git"; pc10 nc nc-a >/dev/null; pc10 nc nc-loose >/dev/null
+# opsx-workflow：協調者照建議答的決定題在答掉之前仍開著，派沒派出都算等你、分區仍是待處理（gate-rule 的 answer 處置）
+mkdir -p "$R10/opsx-workflow/.git"
+D=$(pc10 opsx-workflow ow-auto); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
+printf '## g1\ntype: decision\nstatus: open\n問題: 哪個？\n建議: 用 A\n' > "$D/gates.md"
+D=$(pc10 opsx-workflow ow-free); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
+printf '## g1\ntype: decision\nstatus: open\n問題: 哪個？\n建議: 用 A\n' > "$D/gates.md"
 cat > "$R10/nc/openspec/workplan.yaml" <<'EOF'
 milestones:
   - name: "1.0"
@@ -923,7 +981,7 @@ features:
       - name: nc-a
         status: pending
 EOF
-printf '{"r/m-merge":{"pane":"q1","mode":"autopilot"},"r/m-gate":{"pane":"q2","mode":"autopilot"},"r/m-review":{"pane":"q3","mode":"autopilot"},"r/m-apply":{"pane":"q4","mode":"autopilot"},"r/m-auto":{"pane":"q5","mode":"autopilot"},"r/m-park":{"pane":"q6","mode":"stopped"},"r/m-wake":{"pane":"q10","mode":"autopilot"},"r/m-park-merged":{"pane":"q11","mode":"stopped"},"r/m-ready-gate":{"pane":"q7","mode":"autopilot"},"r/m-pr-run":{"pane":"q8","mode":"autopilot"},"r/m-block":{"pane":"p9","mode":"autopilot"},"r/m-ready-working":{"pane":"p4","mode":"autopilot"},"r/m-ready-stale":{"pane":"q12","mode":"autopilot"}}' > "$S10/dispatch.json"
+printf '{"r/m-merge":{"pane":"q1","mode":"autopilot"},"r/m-gate":{"pane":"q2","mode":"autopilot"},"r/m-review":{"pane":"q3","mode":"autopilot"},"r/m-apply":{"pane":"q4","mode":"autopilot"},"r/m-auto":{"pane":"q5","mode":"autopilot"},"r/m-park":{"pane":"q6","mode":"stopped"},"r/m-wake":{"pane":"q10","mode":"autopilot"},"r/m-park-merged":{"pane":"q11","mode":"stopped"},"r/m-ready-gate":{"pane":"q7","mode":"autopilot"},"r/m-pr-run":{"pane":"q8","mode":"autopilot"},"r/m-block":{"pane":"p9","mode":"autopilot"},"r/m-ready-working":{"pane":"p4","mode":"autopilot"},"r/m-ready-stale":{"pane":"q12","mode":"autopilot"},"opsx-workflow/ow-auto":{"pane":"q13","mode":"autopilot"}}' > "$S10/dispatch.json"
 J="$(opsx collect --root "$R10" --state "$S10")"; assert_eq "$?" 0 "progress collect rc: $J"
 pclass() { q "$(card "$J" r "$1")" progress_class; }
 # 五類各一張
@@ -948,4 +1006,7 @@ assert_eq "$(q "$J" progress.nc.milestone) $(q "$J" progress.nc.goal) $(q "$J" p
 assert_eq "$(q "$P" at)" "$(q "$J" generated_at)"
 # 沒有 workplan 的 repo：milestone null、數全部活卡
 assert_eq "$(q "$J" progress.n.milestone) $(q "$J" progress.n.remaining) $(q "$J" progress.n.not_dispatched_planned) $(q "$(card "$J" n solo)" progress_class)" "null 1 [] not_dispatched"
+# opsx-workflow 的決定題（協調者會照建議答）：答掉之前派沒派出都算等你，分區仍是待處理
+assert_eq "$(q "$(card "$J" opsx-workflow ow-auto)" progress_class) $(q "$(card "$J" opsx-workflow ow-free)" progress_class)" "waiting_on_you waiting_on_you"
+assert_eq "$(q "$(card "$J" opsx-workflow ow-auto)" section) $(q "$(card "$J" opsx-workflow ow-free)" section)" "待處理 待處理"
 echo ok
