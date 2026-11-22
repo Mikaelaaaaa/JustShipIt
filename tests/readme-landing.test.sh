@@ -67,7 +67,7 @@ for w in 舊版 新版 設計預覽 實作中 現有版本; do
 done
 feat="$(awk '/^## .*功能$/{f=1;next} /^## /{f=0} f' "$README")"
 printf '%s\n' "$feat" | grep -qF '虛構的示範資料' || fail "功能段沒標明截圖是虛構的示範資料"
-for img in docs/assets/board-web-framed.png docs/assets/card-detail-web-framed.png docs/assets/changes-web-framed.png docs/assets/opsx-tui-demo-framed.png; do
+for img in docs/assets/board-web-framed.png docs/assets/drawer-web-framed.png docs/assets/card-detail-web-framed.png docs/assets/changes-web-framed.png docs/assets/opsx-tui-demo-framed.png; do
   [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
   printf '%s\n' "$feat" | grep -qF "$img" || fail "功能段沒引用 $img"
 done
