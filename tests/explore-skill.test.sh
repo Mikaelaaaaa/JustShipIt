@@ -70,6 +70,17 @@ has '`main change` line' "$PRL"
 # --- R2.1（D9）：有第二張主 change 時 選項 不標 Recommended，交使用者看理由 ---
 has 'without `(Recommended)`' "$PROSE"
 
+# --- R3.1（D9）：板子先拿 建議 當推薦（collect.sh），所以第二張主 change 時連 建議 行也不寫；範本後那段也要分一張／兩張 ---
+has 'leave out the `建議:` line' "$PROSE"
+! grep -qF 'leave that line out of the template' "$SK" || fail "「leave that line out」會被讀成拿掉唯一的 main change 行"
+has 'has no recommendation, so it goes to the user' "$SPLIT"
+
+# --- R3.2：不再拆的條件三處一致（subs/ 或 split_into），不留做不到的「D5 改看子 change」 ---
+has 'or is listed in a parent card'"'"'s `split_into`' "$ENDING"
+has 'or is listed in a parent card'"'"'s `split_into`' "$PROSE"
+! grep -qF 'Judge D5 per sub-change' "$SK" || fail "沒有步驟會對子 change 跑 D5"
+! grep -qF 'judge each sub-change instead' "$SK" || fail "沒有步驟會對子 change 跑 D5"
+
 # --- Scenario：移除 autopilot 不確認的句子 ---
 ! grep -qF 'written without the confirmation step' "$SK" || fail "autopilot 不確認的句子要移除"
 has 'Splitting a big card' "$ENGAGE"

@@ -21,7 +21,12 @@ has 'sub-changes of one main change' "$B5"; has '4c' "$B5"
 has 'ships on its own' "$B5"; has 'must be reviewed separately' "$B5"
 ! grep -qF 'give them separate PRs' "$B5" || fail "5b 不該再預設各開 PR"
 # R1.2：5b 要做得出來（4c 只在 subs/ 已存在時適用），標題不再限定 independent；R1.5 釘整句
-for k in 'openspec new change <main>' 'subs/<sub>/' 'parent: <main>' 'changes[]' 'opsx check <main>' 'both ships on its own and must be reviewed separately'; do has "$k" "$B5"; done
+for k in 'subs/<sub>/' 'parent: <main>' 'changes[]' 'opsx check <main>' 'both ships on its own and must be reviewed separately'; do has "$k" "$B5"; done
+# R3.3：不另建主殼（4d／步驟 5 已給這張卡一個 PR，另建會多一個 PR）；這張卡就是主殼，改寫它既有的 PR 與 tasks.md
+! grep -qF 'openspec new change <main>' "$B5" || fail "5b 不該另建主殼"
+has 'The card you are proposing is the main shell' "$B5"
+has 'replace the `changes[]` of its existing PR' "$B5"
+grep -F 'own feature and PR named after the slug' "$P" | grep -qF 'unless 5b applies' || fail "4d 要註明 5b 適用時不另加 PR"
 ! head -1 "$B5" | grep -qi 'independent' || fail "5b 標題不該再寫 independent"
 
 # --- new-auto-merge：寫 tasks.md 前，每段 ## 併入 要嘛變成 task，要嘛先 opsx split-out ---
