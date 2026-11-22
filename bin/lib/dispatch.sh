@@ -333,7 +333,7 @@ PY
   say "dispatch: $repo/$slug 交回 session ${feature}，送 [${slug}] /opsx-workflow:${first} ${slug}；不開 pane"
 }
 
-# 活著的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
+# 工作中的 pane 已達同時上限時印一行警告，照派：人按的派是明確決定，排隊只管協調者自動派（specs/dispatch-concurrency）。
 # 數法與上限跟協調者共用 coordinate.py
 warn_slots_full() {
   # 這只是警告，不擋派工。數不成的原因也印 stdout：看板派工成功時只顯示 stdout

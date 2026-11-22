@@ -33,10 +33,10 @@ import workplanwrite  # noqa: E402
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
     PROPOSE_STOP = _f.read().strip()
 MAX_DISPATCH = 6
-# 同時活著的 pane 數上限預設值；<state>/max-working 可改
+# 同時工作中的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
-# herdr 回這幾種 agent_status 的 pane 佔派工名額（done 是 agent 還在、做完一段）；找不到（unknown）就是死了
-LIVE_AGENT = ("working", "idle", "blocked", "done")
+# 只有工作中的 pane 佔派工名額；idle、blocked、done 的 pane 在等人或做完一段，不擋派工
+LIVE_AGENT = ("working",)
 REDISPATCH_MINUTES = 10
 # relaunch 失敗後同一個 pane 不再試的時間；跟重派同一個節流，不會每輪對壞掉的 pane 送 Esc、/exit
 RELAUNCH_MINUTES = REDISPATCH_MINUTES
@@ -110,7 +110,7 @@ class Round:
         self.stages = {}
         self.woken_cards = set()
         self.max_working = None
-        # 這輪開始時活著的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
+        # 這輪開始時工作中的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
         self.busy_panes = set()
         self.opened = 0
         self.worktrees = {}
@@ -931,8 +931,8 @@ class Round:
         self.count_reopened(c)
 
     def count_reopened(self, c):
-        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還活著）時 stop 關掉它再開一個，不多佔名額；
-        不在 busy_panes 裡的（agent 死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
+        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還在工作）時 stop 關掉它再開一個，不多佔名額；
+        不在 busy_panes 裡的（agent 閒著或死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
         if c["dispatch"].get("pane") not in self.busy_panes:
             self.opened += 1
 
@@ -1011,7 +1011,7 @@ class Round:
                 parked["answered"] = True
 
     def slots_used(self):
-        """佔掉的派工名額：這輪開始時活著的 pane，加上這輪新開的。"""
+        """佔掉的派工名額：這輪開始時工作中的 pane，加上這輪新開的。"""
         return len(self.busy_panes) + self.opened
 
     def woken_by(self, key, parked, top):
@@ -1242,7 +1242,7 @@ def parse_agents(out):
 
 def live_panes(entries, agents):
     """dispatch.json 的條目與 herdr agent list 裡佔派工名額的 pane 集合。協調者與 opsx dispatch 的警告共用這個數法。
-    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡，
+    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡（工作中），
     agent 的 cwd 或 foreground_cwd 是那個 worktree 或在它底下。比 cwd 是因為 herdr 會重用 pane id，只憑 id 會把別人的 pane 算進來。
     卡有沒有歸檔、是卡還是 session 的條目、repo 有沒有被 collect 掃到都不看；同一個 pane 代管幾張卡都只算一次。"""
     live = {a.get("pane_id"): a for a in agents if a.get("agent_status") in LIVE_AGENT}
@@ -1259,7 +1259,7 @@ def live_panes(entries, agents):
 
 
 def read_max_working(path):
-    """同時活著的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
+    """同時工作中的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
     if not os.path.exists(path):
         return DEFAULT_MAX_WORKING
     with open(path, encoding="utf-8") as f:
