@@ -192,6 +192,15 @@ assert_grep '^priority: P1$' "$C/x/inbox.md"
 sed -i '' 's/^priority: P1$/priority: P0/' "$C/x/inbox.md"
 split x src; assert_eq "$?" 0 "$(cat "$ERR")"
 assert_grep '^priority: P0$' "$C/x/inbox.md"
+assert_grep 'priority 被人改過' "$ERR"
+# kind_of_work 被人改回 planned：不撤，stderr 指名 kind_of_work
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+sed -i '' 's/^kind_of_work: incident$/kind_of_work: planned/' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"
+assert_grep 'kind_of_work 被人改過' "$ERR"
 
 # --- priority、priority_reason、priority_auto 一組撤：(a) 人只改 priority，理由留著、卡仍合格 ---
 reset; card x; card src 'priority: P1' 'priority_reason: 手動'
@@ -259,6 +268,42 @@ opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-ca
 assert_grep '^kind_of_work: incident$' "$C/x/inbox.md"; assert_grep '^priority: P1$' "$C/x/inbox.md"
 split x src; assert_eq "$?" 0 "$(cat "$ERR")"
 cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "只有一段時要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# (d) 兩段事實完全相同：照併入順序先拆 src1 再拆 src2，x 回到併入前
+reset; card x; card src1 'impact: prod_or_main' 'evidence: same.py:1'; card src2 'impact: prod_or_main' 'evidence: same.py:1'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md" "$C/src2/inbox.md"
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+split x src1; assert_eq "$?" 0 "$(cat "$ERR")"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "照併入順序拆完要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# (e) 人用 opsx priority 改成 P2 後拆不相干（planned、沒事實）的段：priority 仍是 P2
+reset; card x; card src1 'priority: P1' 'priority_reason: 手動'; card src2
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+opsx priority x --set P2 --reason 人改 --repo "$E" > /dev/null 2> "$ERR" || fail "opsx priority --set 失敗：$(cat "$ERR")"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P2$' "$C/x/inbox.md"; assert_grep '^priority_reason: 人改$' "$C/x/inbox.md"
+# (f) 人把 x 改回 planned 後拆不相干的段：kind_of_work 仍是 planned
+reset; card x; card src1 'impact: prod_or_main' 'evidence: foo.py:3'; card src2
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+sed -i '' 's/^kind_of_work: incident$/kind_of_work: planned/' "$C/x/inbox.md"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"
+
+# --- 算出的目標不合格（人加的 impact 靠同一條 evidence，撤回後 evidence 空了）：建殼前退出 1、什麼都不改 ---
+reset; card x; card src 'impact: prod_or_main' 'evidence: a.py:1'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+sed -i '' 's/^impact: prod_or_main$/impact: prod_or_main, data/' "$C/x/inbox.md"
+assert_grep '^impact: prod_or_main, data$' "$C/x/inbox.md"
+cp "$C/x/inbox.md" "$FX/keep.md"; before="$(dirs)"
+split x src; assert_eq "$?" 1 "目標不合格要退出 1：$(cat "$ERR")"
+assert_grep '目標 x ' "$ERR"; assert_grep 'evidence' "$ERR"
+assert_eq "$(dirs)" "$before" "目標不合格：沒有新殼"
+cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "目標不合格：x/inbox.md 不該變：$(diff "$FX/keep.md" "$C/x/inbox.md")"
 
 # --- 舊段（縮排、沒有 - carried:）：frontmatter 不動，只刪證據行，stderr 提醒 ---
 reset; card x 'impact: data' 'evidence: 舊證據'
