@@ -112,6 +112,8 @@ bg() { ( source "$OPSX_ROOT/bin/lib/stage.sh"; st_background_running "$T" ); }
 resume_agent A 5 > "$T"; assert_rc 0 bg
 { start_agent A 10; resume_agent A 5; notify A completed 2; } > "$T"; assert_rc 1 bg
 { start_agent A 10; notify A completed 8; resume_agent B 5; } > "$T"; assert_rc 0 bg
+# 結束通知的時間讀不懂（+08:00）：當成沒有時間、算結束（D7）
+{ start_agent A 10; notify A completed 8 | sed 's/"timestamp":"\([^"]*\)\.000Z"/"timestamp":"\1+08:00"/'; } > "$T"; assert_rc 1 bg
 
 # --- 背景放行不重設擋的次數：擋、擋、背景放行、背景結束、再擋，第 3 次擋之後要開 gate ---
 rm -rf "$STOP_STATE"; rm -f "$C/gates.md"; : > "$T"

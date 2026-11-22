@@ -6,7 +6,8 @@
 #    不改檔，用 additionalContext 提醒 agent 合法值；collect 端會把這種 gate 顯示成「type 不明」。
 # 3. open 的 gate 標題是「slug 加其餘文字」就縮成 slug，其餘進 問題:（已有 問題: 就接在它前面）；
 #    第一個詞不是 slug 的不改檔，只提醒。answer 端對舊標題認第一個詞（bin/lib/answer.sh）。
-#    沒有 status 行的 gate 只提醒補 status: open：stop-gate、collect 只認 status: open，漏了這行的 gate 等於不存在。
+#    沒有一行剛好是 status: open 或 status: answered 的 gate 只提醒補 status: open：stop-gate、collect 只認 status: open，
+#    漏了這行或值寫歪（Open、waiting、open 加註記）的 gate 等於不存在。
 # 4. 檔案裡還有 open 的 gate 就叫 opsx coordinate --kick（放背景就回，失敗不管）。
 # 工具已經跑完，這支擋不了什麼：讀不到、寫不回都安靜結束，不能卡住 agent，退出碼永遠 0。
 # OPSX_NOW 只給測試固定時間用。
@@ -82,7 +83,7 @@ new="$(awk -v now="$now" -v syn="$SYN" -v warn="$warn" -v warn_title="$warn_titl
     buf[++n] = $0
     if ($0 ~ /^status:[ \t]*open[ \t]*$/) { st = n; open = 1 }
     if ($0 ~ /^opened_at:/) has = 1
-    if ($0 ~ /^status:/) hs = 1
+    if ($0 ~ /^status:[ \t]*(open|answered)[ \t]*$/) hs = 1
     if ($0 ~ /^type:/ && !tl) tl = n
     if ($0 ~ /^問題:/ && !ql) ql = n
   }
@@ -110,7 +111,7 @@ $(cat "$warn_title")"
 fi
 if [ -s "$warn_status" ]; then
   ctx="${ctx:+$ctx
-}gates.md 的這些 gate 沒有 status 行，Stop hook 和看板都看不到；等人答的 gate 請補一行 status: open：
+}gates.md 的這些 gate 沒有 status: open 或 status: answered 這一行（漏寫，或值不是這兩個），Stop hook 和看板都看不到；等人答的 gate 請寫成剛好一行 status: open：
 $(cat "$warn_status")"
 fi
 [ -z "$ctx" ] || jq -n --arg t "$ctx" '{hookSpecificOutput:{hookEventName:"PostToolUse",additionalContext:$t}}' 2>/dev/null

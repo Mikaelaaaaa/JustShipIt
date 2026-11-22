@@ -274,7 +274,7 @@ said="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
 
 mode="$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)"
 # 人在看板按了停止：不再推它接站。opsx stop 關不掉 pane 時裡面的 claude 還活著，照擋會跟協調者答「卡在接」來回循環；重派時 dispatch 會清掉 stopped
-[ "$mode" = stopped ] && exit 0
+if [ "$mode" = stopped ]; then stop_record "人按了停止"; exit 0; fi
 
 # 啟動參數丟了：這個 claude 寫不了檔，逼它接站只會空轉到開「卡在接」gate。只有判出遺失才放行，認不得照舊擋
 lost_rc=0; lost_why="$(args_lost_status "$(repo_name)" "$slug" "$mode")" || lost_rc=$?

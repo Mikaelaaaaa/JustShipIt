@@ -842,6 +842,11 @@ case "$ctx" in *g2*) fail "gate-status: 有 status 行的 gate 不該被點名�
 assert_eq "$(cmp -s "$G" "$FX/gst-before.md" && echo same)" same "gate-status: 只提醒不改檔"
 printf '## g2\ntype: decision\nstatus: answered\n' > "$G"
 out="$(gts "$G")"; assert_eq "$out" "" "gate-status: 有 status 行的 gate 不提醒"
+# status 值不是剛好 open 或 answered 的也提醒（D6）
+printf '## g3\ntype: decision\nstatus: Open\n\n## g4\ntype: decision\nstatus: open（等授權）\n\n## g5\ntype: decision\nstatus: open\n' > "$G"
+out="$(gts "$G")"; ctx="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out")"
+for want in g3 g4; do case "$ctx" in *"gate $want"*) ;; *) fail "gate-status: status 值不合法的 ${want} 要提醒：$ctx" ;; esac; done
+case "$ctx" in *"gate g5"*) fail "gate-status: status: open 的 g5 不該被點名：$ctx" ;; esac
 # gate 標題只放 slug：open 的「slug 加其餘文字」被縮成 slug，其餘進 問題:；第一個詞不是 slug 只提醒（gate-id-slug）
 printf '## G1 瀏覽器確認精靈畫出來了\ntype: decision\nstatus: open\n\n## g2 測試跑不起來\ntype: decision\nstatus: open\n問題: 需要你在終端機跑\n' > "$G"
 out="$(gts "$G")"; assert_eq "$out" "" "gate-slug: 縮標題不出聲"

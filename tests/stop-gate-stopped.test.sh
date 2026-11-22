@@ -24,6 +24,8 @@ for i in 1 2 3 4 5; do
 done
 assert_no_file "$C/gates.md"
 assert_no_file "$OPSX_STATE_DIR/stop-chain/Acmecorp-AI-eval-core"
+# 看板讀的停住紀錄寫成「人按了停止」（D8）
+assert_eq "$(head -1 "$OPSX_STATE_DIR/stop-said/Acmecorp-AI-eval-core")" "人按了停止" "stopped 放行要寫停住紀錄"
 
 # 反例：autopilot 照擋，原因是 tasks.md 還有沒勾的 task
 mode autopilot
