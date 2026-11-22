@@ -386,6 +386,7 @@ class Round:
                 self.log("?? %s 送不到 session %s，條目已寫，下一輪由 session 重派接手：%s" % (child, feature, (err or out)[:200]))
             else:
                 self.args_checked.add(session_key)
+                self.woke((self.dispatch_file.get(session_key) or {}).get("pane"))
                 if not self.dry:
                     self.confirm_sent(session_key, text)
 
@@ -605,7 +606,10 @@ class Round:
                     verdict = gaterule.decide(w, s["repo"])
                     if verdict[0] == "answer":
                         main = {"repo": s["repo"], "slug": m["slug"], "dispatch": None}
-                        self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"])
+                        if self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"]):
+                            # 答案送進主 change 的 pane；主 change 沒有自己的條目時是 session 的 pane
+                            entry = self.dispatch_file.get("%s/%s" % (s["repo"], m["slug"])) or self.dispatch_file.get("%s/@%s" % (s["repo"], s["feature"]))
+                            self.woke((entry or {}).get("pane"))
                         continue
                     c = {"repo": s["repo"], "slug": "%s/%s" % (m["slug"], sub["slug"])}
                     self.log("?? %s 子 change 的 gate %s 要人看：%s" % (card_key(c), w["gate_id"], one_line(w.get("question") or "")[:100]))
@@ -613,7 +617,7 @@ class Round:
 
     def answer_gate(self, c, top, w, pick, sub=None):
         """照建議答 gaterule 回 answer 的 gate（opsx-workflow 的 decision）。sub 是子 change 名，這時 c 是它的主 change。
-        送不到 agent 就重派；其他失敗記 ?? 並通知人。"""
+        送不到 agent 就重派；其他失敗記 ?? 並通知人。答成功回 True。"""
         target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
         text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
         args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
@@ -623,7 +627,7 @@ class Round:
             if c["dispatch"]:
                 self.args_checked.add(self.pane_chain(c)[-1])   # 答案剛送進 pane，這輪不再看它的啟動參數
                 self.woke(c["dispatch"].get("pane"))
-            return
+            return True
         if c["dispatch"] and "agent_not_found" in out + err:
             self.redispatch(c, top, "answer 送不到")
             return
@@ -1252,7 +1256,8 @@ def parse_agents(out):
 
 def read_stopped(path):
     """<state>/stop-said/<repo>-<slug> 的兩行（Stop hook 最後一次放行的原因與時間）：{reason, at}。
-    跟 collect 的 stopped_of 同一個讀法：沒有檔、不到兩行、時間讀不懂都當沒停住。"""
+    跟 collect 的 stopped_of 同一個讀法：沒有檔、不到兩行、時間讀不懂都當沒停住。時間沒有時區也當沒停住，hook 寫的都帶時區，
+    沒帶的跟現在相減會 TypeError。"""
     try:
         with open(path, encoding="utf-8") as f:
             lines = f.read().split("\n")
@@ -1264,18 +1269,28 @@ def read_stopped(path):
         at = datetime.datetime.fromisoformat(lines[1])
     except ValueError:
         return None
+    if at.tzinfo is None:
+        return None
     return {"reason": lines[0], "at": at}
 
 
 def own_work_keys(entries, state, repo_paths, now):
     """dispatch.json 條目裡 agent 在跑自己背景工作的 key：herdr 回 idle 或 done，但 Stop hook 最後記的停住原因是等背景工作或
     等背景 subagent、在 STALE_WAIT_SECONDS 內，或停在等背景 subagent 而子 change 的 subagent 還在跑。這些 pane 在吃記憶體，照佔名額。
-    repo_paths 找不到的 repo 不看子 change。"""
-    keys = set()
-    for key in entries:
+    repo_paths 找不到的 repo 不看子 change。
+    幾筆條目共用一個 pane（feature session、fan-out 父卡）時只看停住時間最新的那筆：hook 只改 pane 現在那張卡的紀錄，
+    其他成員留著的是舊的。"""
+    newest = {}
+    for key, e in entries.items():
         repo, slug = key.split("/", 1)
         s = read_stopped(os.path.join(state, "stop-said", "%s-%s" % (repo, slug)))
-        if not s or not s["reason"].startswith(STALE_WAIT_REASONS):
+        pane = e.get("pane")
+        if s and pane and (pane not in newest or s["at"] > newest[pane][1]["at"]):
+            newest[pane] = (key, s)
+    keys = set()
+    for key, s in newest.values():
+        repo, slug = key.split("/", 1)
+        if not s["reason"].startswith(STALE_WAIT_REASONS):
             continue
         if 0 <= (now - s["at"]).total_seconds() <= STALE_WAIT_SECONDS:
             keys.add(key)

@@ -341,11 +341,13 @@ warn_slots_full() {
 import datetime, os, pathlib, subprocess, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import coordinate, jsonfile, runtime, sync
 state = sys.argv[1]
+# sources.toml 壞了跟 collect 一樣只看 root 底下的 repo，協調者也是這樣數的
 try:
-    repos, _, _, _ = sync.scan_repos(pathlib.Path(sys.argv[2]), sync.source_paths(pathlib.Path(state)))
+    sources = sync.source_paths(pathlib.Path(state))
 except ValueError as e:
-    print("dispatch: 不數名額：sources.toml 壞了：%s" % e)
-    sys.exit(0)
+    print("dispatch: sources.toml 壞了，只看 %s 底下的 repo：%s" % (sys.argv[2], e))
+    sources = []
+repos, _, _, _ = sync.scan_repos(pathlib.Path(sys.argv[2]), sources)
 p = subprocess.run(runtime.list_agents(), capture_output=True, text=True)
 if p.returncode != 0:
     print("dispatch: 數不出名額：herdr agent list 失敗（rc %d）" % p.returncode)

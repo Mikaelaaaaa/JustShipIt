@@ -1473,12 +1473,26 @@ printf '等背景工作（bash tests/run.sh）\n%s\n' "$(ago 30)" > "$SAID/demo-
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 0 "在跑背景工作的 idle、done pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
 full 2 2
-# 停住原因超過 2 小時、或不是等背景工作，不佔名額
+# 只有窗外那個不佔名額：bg1 移到 130 分鐘前、bg2 留在 30 分鐘前，名額 1，派 q1 不派 q2
 printf '等背景 subagent（reviewer 3 個）\n%s\n' "$(ago 130)" > "$SAID/demo-bg1"
-printf '等你回 gate g1\n%s\n' "$(ago 5)" > "$SAID/demo-bg2"
+cards "[$(held bg1 idle),$(held bg2 idle),{\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes; rm -f "$MEMO"
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch q1 ')" 1 "停住超過 2 小時或在等人的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(dispatched)" "q1" "超過 2 小時的不算、30 分鐘前的照算，名額 1：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+# 在等人的不佔名額：名額 0，q1、q2 都派
+printf '等你回 gate g1\n%s\n' "$(ago 5)" > "$SAID/demo-bg2"; rm -f "$MEMO"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched | tr '\n' ' ')" "q1 q2 " "在等人的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
 assert_not_grep '達上限' "$LOG"
+# 停住時間在未來（時鐘錯）不佔名額
+printf '等背景工作（bash tests/run.sh）\n%s\n' "$(ago -10)" > "$SAID/demo-bg2"; rm -f "$MEMO"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched | tr '\n' ' ')" "q1 q2 " "未來時間的停住紀錄不佔名額：$(cat "$OPSX_FAKE_LOG")"
+# 停住時間沒時區：當沒停住，整輪照跑
+printf '等背景工作（bash tests/run.sh）\n2026-11-22T10:00:00\n' > "$SAID/demo-bg2"; rm -f "$MEMO"
+round || fail "沒時區的停住紀錄不能讓整輪失敗：$(cat "$FX/out")"
+assert_eq "$(dispatched | tr '\n' ' ')" "q1 q2 " "沒時區的停住紀錄不佔名額：$(cat "$OPSX_FAKE_LOG")"
+assert_not_grep 'Traceback' "$FX/out"
 # 停住超過 2 小時、子 change 的 subagent 還在跑：照佔名額
 mkdir -p "$R/openspec/changes/bg1/subs/s1" "$R/openspec/changes/bg2/subs/s1"; rm -f "$MEMO"
 printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "$(ago 1)" > "$R/openspec/changes/bg1/subs/s1/status.json"
@@ -1488,6 +1502,29 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 0 "子 change 有 subagent 在跑的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
 full 2 2
 rm -rf "$SAID" "$R/openspec/changes/bg1" "$R/openspec/changes/bg2"; rm -f "$MEMO"
+# 共用一個 pane 的兩筆條目只看最新的停住紀錄：A 等背景工作 5 分鐘前、B 等人 1 分鐘前，名額 0
+mkdir -p "$SAID"
+cards "[$(held sa idle w1:sh),$(held sb idle w1:sh),{\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes
+printf '等背景工作（bash tests/run.sh）\n%s\n' "$(ago 5)" > "$SAID/demo-sa"
+printf '等你回 gate g1\n%s\n' "$(ago 1)" > "$SAID/demo-sb"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched | tr '\n' ' ')" "q1 q2 " "共用 pane 最新一筆在等人，不佔名額：$(cat "$OPSX_FAKE_LOG")"
+# 反過來：最新一筆是等背景工作，名額 1
+printf '等背景工作（bash tests/run.sh）\n%s\n' "$(ago 1)" > "$SAID/demo-sa"
+printf '等你回 gate g1\n%s\n' "$(ago 5)" > "$SAID/demo-sb"; rm -f "$MEMO"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(dispatched)" "q1" "共用 pane 最新一筆在等背景工作，名額 1：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+rm -rf "$SAID"; rm -f "$MEMO"
+# 照建議答掉子 change 的 gate，session pane 照佔名額：上限 2，1 個 working pane 加 1 個 session pane 停在可代答的子 change gate
+cards "[$(held sw working),{\"slug\":\"q1\"}]"
+jq --arg r "$R" --argjson w "$OWW" '.repo_paths["opsx-workflow"] = $r | .sessions = [{"repo":"opsx-workflow","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":$w}]}]}]' "$OPSX_TEST_COLLECT_JSON" > "$FX/ow-collect.json"; mv "$FX/ow-collect.json" "$OPSX_TEST_COLLECT_JSON"
+panes '[{"key":"opsx-workflow/@f","pane":"w1:sess","status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer om --sub os ')" 1 "子 change 的 gate 照建議答：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "答掉子 change gate 叫醒的 session pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+rm -f "$MEMO"
 # 讀不到 herdr agent list，這輪什麼都不做
 rm -f "$MW" "$MEMO"; mkcard q-p0; incident q-p0 security "tests/auth.test.sh 第 3 案：未登入可讀 /admin"
 cards '[{"slug":"q-p0"}]'; panes
@@ -2570,6 +2607,31 @@ assert_eq "$(ecount '^opsx (stop|dispatch)')" 0 "relaunch 不是重派"
 rm -f "$MEMO"; ra blocked
 OPSX_TEST_PROCESS_INFO="$FX/pi-lost.json" round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(relaunches)" 1 "blocked 的卡也 relaunch：$(cat "$OPSX_FAKE_LOG")"
+# relaunch 成功的 pane 這輪照佔名額：上限 1，q1 不派；relaunch 失敗時 q1 照派
+cat > "$R/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: fq
+    status: active
+    depends-on: []
+    prs:
+      - name: q1
+        branch: feat/q1/u
+        status: pending
+        depends-on: []
+        changes:
+          - name: q1
+            status: pending
+EOF
+printf '1\n' > "$OPSX_STATE_DIR/max-working"; rm -f "$MEMO"
+cards "[$RA,{\"slug\":\"q1\"}]"
+OPSX_TEST_PROCESS_INFO="$FX/pi-lost.json" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(relaunches)" 1 "relaunch 一次：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "relaunch 成功的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+grep -qF '同時在跑 1 個 pane，達上限 1' "$LOG" || fail "要記達上限 1：$(cat "$LOG")"
+rm -f "$MEMO"
+OPSX_TEST_FAIL_relaunch=boom OPSX_TEST_PROCESS_INFO="$FX/pi-lost.json" round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q1 ')" 1 "relaunch 失敗不佔名額，q1 照派：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$OPSX_STATE_DIR/max-working" "$MEMO"; cp "$WP0" "$R/openspec/workplan.yaml"; printf '{"demo/ra":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":null}}' > "$DISP"
 
 # 帶齊參數（caffeinate 排在 claude 前面）：不動、不寫 ??
 ra idle

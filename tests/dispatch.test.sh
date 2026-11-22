@@ -646,7 +646,30 @@ cap_state 8 idle
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-b --agent claude --mode interactive 2>&1)"; rc=$?
 assert_eq "$rc" 0 "背景工作佔滿名額手動派照派: $out"
 echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "在跑背景工作的 idle pane 要佔名額: $out"
+# 停住超過 2 小時、子 change 的 subagent 還在跑：照佔名額，跟協調者一樣找得到卡的 repo
+mkdir -p "$R/openspec/changes/cap-s2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-s2/.openspec.yaml"
+old="$(date -v-130M +%Y-%m-%dT%H:%M:%S%z)"; fresh="$(date -v-1M +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do
+  printf '等背景 subagent（子 change s1）\n%s\n' "${old%??}:${old: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"
+  mkdir -p "$R/openspec/changes/cap$i/subs/s1"
+  printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "${fresh%??}:${fresh: -2}" > "$R/openspec/changes/cap$i/subs/s1/status.json"
+done
+cap_state 8 idle
+# 這個 repo 不在 OPSX_CODE_ROOT 底下，跟 collect 一樣要登記在 sources.toml 才找得到
+printf '[[source]]\npath = "%s"\n' "$R" > "$OPSX_STATE_DIR/sources.toml"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-s2 --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "子 change subagent 佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "子 change 的 subagent 還在跑的 idle pane 要佔名額: $out"
 rm -rf "$OPSX_STATE_DIR/stop-said"
+# sources.toml 寫壞：跟協調者一樣只看 root 底下的 repo 照數，不是整個不數
+mkdir -p "$R/openspec/changes/cap-t"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-t/.openspec.yaml"
+printf 'not [toml\n' > "$OPSX_STATE_DIR/sources.toml"
+cap_state 8
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-t --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "sources.toml 壞了手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "sources.toml 壞了也要數名額: $out"
 # herdr agent list 失敗：印一行數不出名額到 stdout（看板成功時只顯示 stdout），照派
 cap_state 8
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>/dev/null)"; rc=$?
