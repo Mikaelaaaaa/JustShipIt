@@ -1409,8 +1409,7 @@ function renderTop(r){
   $('#coord').innerHTML=data.generated_at?coordHtml(data.unmatched_agents):'';
   $('#coord').title=[$('#coord').textContent,$('#stamp').textContent].filter(Boolean).join(' · ');
   const sb=$('#sync-btn'),ls=data.last_sync;sb.title=syncTitle(ls);sb.classList.toggle('warn',!!(ls&&ls.errors));
-  const er0=data.worktrees_skipped&&data.worktrees_skipped.length?[{source:'collect',message:'跳過 worktree 目錄：'+data.worktrees_skipped.join('、')}]:[];
-  data.errors=(data.errors||[]).filter(e=>e.source!=='collect').concat(er0);
+  data.errors=data.errors||[];
   const er=$('#errors');er.hidden=!data.errors.length;er.innerHTML=data.errors.map(e=>`<span>${esc(e.source)}：${esc(e.message)}</span>`).join('');
 }
 /* 篩選列只在內容變了才重寫；搜尋框打字時焦點與游標放回去 */
