@@ -21,6 +21,12 @@ printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII
 badges="$(grep -o 'img\.shields\.io/[^"]*' "$README")"
 [ "$(printf '%s' "$badges" | grep -c .)" -le 1 ] || fail "README 只能放一個 license badge：$badges"
 [ -z "$badges" ] || printf '%s\n' "$badges" | grep -qF 'img.shields.io/badge/license-MIT' || fail "README 的 badge 不是 license：$badges"
+printf '%s\n' "$top" | grep -qF 'Early preview' || fail "開頭沒有 Early preview 狀態標示"
+! grep -qiE 'production[- ]ready' "$README" || fail "README 不該宣稱 production-ready"
+n="$(printf '%s\n' "$top" | grep -c '^- ')"
+[ "$n" -ge 3 ] && [ "$n" -le 4 ] || fail "開頭的差異清單要 3～4 點，現在 $n 點"
+n="$(awk '/^## .*解決什麼問題$/{f=1;next} /^## /{f=0} f' "$README" | grep -o '。' | wc -l)"
+[ "$n" -le 3 ] || fail "解決什麼問題段要兩三句，現在 $n 句"
 # 參考專案名只存 sha256，名字本身不進公開 repo
 python3 -I -c 'import hashlib,re,sys; bad="db0ee43ab2f9353ebd68b373591d62bc827688c6e56f95e89fcbedc2de7b1133"; sys.exit(any(hashlib.sha256(w.encode()).hexdigest()==bad for w in set(re.findall(r"[a-z0-9]+", open(sys.argv[1], encoding="utf-8").read().lower()))))' "$README" || fail "README 提到參考專案名"
 

@@ -7,13 +7,22 @@
 
 <p align="center"><b>A Claude Code plugin that takes each change from an inbox card to a reviewed pull request, tracks every card on one board, and leaves the merge to you.</b></p>
 
+<p align="center"><strong>Early preview</strong> · 只在 macOS 驗證過 · 1.0 尚未完成</p>
+
 <p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a></p>
+
+跟一般 agent workflow 不一樣的地方：
+
+- **合併永遠是人按的。** agent 把 PR 推到可合併就停，合併核准只有你寫得進去。
+- **先 spec、再測試、再 review，才開 PR。** 每個改動都有 spec 與先寫的測試，review 過了才送出，一般的卡由三位 reviewer 平行審。
+- **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
+- **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
 
 <img src="docs/assets/board-web-framed.png" alt="JustShipIt 網頁看板：總覽、離開期間 banner，下面是依功能分組的欄位" width="100%" />
 
 ## <a id="why"></a>解決什麼問題
 
-同時讓好幾個 Claude Code agent 做事，難的不是寫 code，而是記得每件事做到哪、哪個 agent 停下來在等你。每次都要重講同樣的規矩：先想清楚、先寫測試、不要碰 main。agent 可以自己跑，但合併必須由人決定。JustShipIt 把這些規矩寫進固定流程，把所有卡放在同一個看板上，需要你的時候才找你。
+同時讓好幾個 Claude Code agent 做事，難的是記得每件事做到哪、哪個 agent 在等你。JustShipIt 把「先想清楚、先寫測試、不碰 main」寫進固定流程，所有卡放在同一個看板，需要你時才找你，合併永遠由你決定。
 
 ## <a id="how"></a>怎麼運作
 
