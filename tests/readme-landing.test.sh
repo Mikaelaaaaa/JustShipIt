@@ -63,7 +63,8 @@ grep -qE 'class="brand">.*</svg>(</span>)?JustShipIt</div>' "$BOARD" || fail "�
 
 # --- Requirement：README 把看板當現況寫 ---
 [ -f "$OPSX_ROOT/docs/assets/board-demo.gif" ] || fail "缺 docs/assets/board-demo.gif"
-printf '%s\n' "$top" | grep -qF 'docs/assets/board-demo.gif' || fail "開頭主圖不是 docs/assets/board-demo.gif"
+[ -f "$OPSX_ROOT/docs/assets/board-demo.mp4" ] || fail "缺 docs/assets/board-demo.mp4"
+printf '%s\n' "$top" | grep -qF '<a href="docs/assets/board-demo.mp4"><img src="docs/assets/board-demo.gif"' || fail "開頭主圖不是連到 docs/assets/board-demo.mp4 的 docs/assets/board-demo.gif"
 for w in 舊版 新版 設計預覽 實作中 現有版本; do
   ! grep -qF -- "$w" "$README" || fail "README 含看板版本字眼：$w"
 done

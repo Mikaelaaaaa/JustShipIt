@@ -16,7 +16,7 @@
 - **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
 - **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
 
-<img src="docs/assets/board-demo.gif" alt="JustShipIt 看板操作錄影：開看板，點一張卡從右側滑出抽屜，按允許回 gate，再切到變更、已歸檔、紀錄三頁" width="100%" />
+<a href="docs/assets/board-demo.mp4"><img src="docs/assets/board-demo.gif" alt="JustShipIt 看板操作錄影：開看板，點一張卡從右側滑出抽屜，按允許回 gate，再切到變更、已歸檔、紀錄三頁。點圖看高畫質 mp4" width="100%" /></a>
 
 ## <a id="why"></a>解決什麼問題
 
