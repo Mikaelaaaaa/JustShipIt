@@ -7,8 +7,6 @@
 
 <p align="center"><b>A Claude Code plugin that takes each change from an inbox card to a reviewed pull request, tracks every card on one board, and leaves the merge to you.</b></p>
 
-<p align="center"><strong>Early preview</strong> · 只在 macOS 驗證過 · 1.0 尚未完成</p>
-
 <p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a></p>
 
 跟一般 agent workflow 不一樣的地方：
@@ -80,6 +78,10 @@ flowchart LR
   <tr>
     <td width="50%"><img src="docs/assets/card-detail-web-framed.png" alt="卡片細節頁：gate、操作按鈕、卡目錄的文件清單與內容" /><br /><sub>細節頁：讀卡目錄的每份文件，停止或重新指派這張卡</sub></td>
     <td width="50%"><img src="docs/assets/changes-web-framed.png" alt="變更頁：依 repo 分組列出每個 openspec change 的狀態、階段與等級" /><br /><sub>變更頁：依 repo 看每個 change 的階段與等級</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/archived-web-framed.png" alt="已歸檔頁：依 repo 分組列出做完的卡，每張一行標題與 slug" /><br /><sub>已歸檔：依 repo 查做完的卡</sub></td>
+    <td width="50%"><img src="docs/assets/log-web-framed.png" alt="紀錄頁：依日期分組的時間軸，每列是時間、卡、誰做的、內容與類別標籤，上方可篩你回的、替你做的決定、指派與合併" /><br /><sub>紀錄：你回的、替你做的決定、指派與合併，一條時間軸</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/assets/opsx-tui-demo-framed.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
