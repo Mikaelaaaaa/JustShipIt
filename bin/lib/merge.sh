@@ -37,6 +37,17 @@ print("no\t"+m["state"]+"\t"+",".join(bad))')"
   esac
   local sha; sha="$(printf '%s' "$verdict" | cut -f2)"
   [ -n "$sha" ] || die "merge: glab 沒回 MR 的 head sha，核准綁不到 commit，不核准"
+  # 對重抓到的 head 判斷，看板刷新之後才推的 commit 也擋得到
+  local map_line; map_line="$(OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$d/report.md" "$sha" <<'PY'
+import os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import mapline
+with open(sys.argv[1], encoding="utf-8") as f:
+    report = f.read()
+if not mapline.at_head(report, sys.argv[2]):
+    print(mapline.line_of(report) or "沒有 ## 邏輯表 那一行")
+PY
+)" || die "merge: 讀不了 $d/report.md，判斷不了邏輯表，不核准"
+  [ -z "$map_line" ] || die "merge: $slug 的邏輯表沒對到 MR head ${sha:0:7}（report.md：${map_line}），不核准。重產邏輯表再按合併"
 
   # 寫核准（綁 sha，不刪；見 grant-gate 的 merge_gate）到受保護位置，dispatch.json 只讀：卡一定要在 dispatch.json（要有 agent 去執行），
   # 而且不能是互動模式（互動模式沒有 grant-gate，合併會停在 pane 的權限框，看板上的按鈕永遠轉不完）

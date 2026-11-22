@@ -17,7 +17,7 @@ cards() {
 import json, sys
 top, given, errors = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 base = {"repo": "demo", "kind": "dev", "stage": "apply", "section": "待指派", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None}
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "logic_map_at_head": False}
 out = [{**base, **c, "path": "%s/openspec/changes/%s" % (top, c["slug"])} for c in given]
 print(json.dumps({"repo_paths": {"demo": top}, "cards": out, "errors": errors}, ensure_ascii=False))
 PY
@@ -1613,15 +1613,25 @@ assert_eq "$(notes)" 1 "同一個 pane 再卡住要再通知一次"
 rm -f "$MEMO"
 
 # --- 可以合併照 head sha 通知 ---
-cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"logic_map_at_head":true,"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
 round || fail "rc: $(cat "$FX/out")"; n1="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" > "$FX/merges"
 grep '^notification show \[demo/m\]' "$OPSX_FAKE_LOG" | grep -q '看板' || fail "可以合併要指到看板：$(cat "$OPSX_FAKE_LOG")"
 round || fail "rc: $(cat "$FX/out")"; n2="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" >> "$FX/merges"
-cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"${READY/abc/s2}"'}]'
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"${READY/abc/s2}"',"logic_map_at_head":true}]'
 round || fail "rc: $(cat "$FX/out")"; n3="$(notes)"; grep 'merge' "$OPSX_FAKE_LOG" >> "$FX/merges"
 assert_eq "$((n1 + n2 + n3))" 2 "同一個 sha 一次、新 sha 再一次"
 assert_eq "$(cat "$FX/merges")" "" "沒有任何 merge 指令"
 [ -n "$(memo_get _notified demo/m/ready/abc)" ] && [ -n "$(memo_get _notified demo/m/ready/s2)" ] || fail "_notified 要綁 head sha：$(cat "$MEMO")"
+rm -f "$MEMO"
+
+# --- 邏輯表沒對到 head 不發可以合併；之後同一個 head 補上表，照樣發一次（board-mergeable-needs-map） ---
+cards '[{"slug":"m","section":"進行中","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"logic_map_at_head":false}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '可以合併')" 0 "邏輯表沒對到 head 不發可以合併：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(memo_get _notified demo/m/ready/abc)" "" "沒發就不記：$(cat "$MEMO")"
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"logic_map_at_head":true}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '可以合併')" 1 "同一個 head 補上邏輯表後發一次：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # --- MR 卡住：agent 不在 working 時推，同一件事只推一次，回到不卡住清鍵，查不到不清（agent-20261117-1122）---
@@ -1630,7 +1640,7 @@ mrj() { # <state> <stuck 的 JSON 值，absent 表示沒有這個欄位> [error 
   printf '{"url":"https://gitlab.example.com/a/b/-/merge_requests/9","state":"%s","head_sha":"%s","conditions":{"no_conflicts":true},"merged_at":null,"error":%s%s}' "$1" "${4:-abc}" "${3:-null}" "$s"
 }
 stk() { # <agent_status 的 JSON 值> <mr JSON> [dispatch JSON]：協調者在、輸入框空，跑一輪
-  cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"${3:-$D}"',"agent_status":'"$1"',"mr":'"$2"'}]'
+  cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"${3:-$D}"',"agent_status":'"$1"',"mr":'"$2"',"logic_map_at_head":true}]'
   OPSX_TEST_COORDINATOR_UP=1 round || fail "rc: $(cat "$FX/out")"
 }
 SESS_D='{"mode":"autopilot","agent":"claude","pane":"w1:p9","feature":"g","drive_pid":null}'

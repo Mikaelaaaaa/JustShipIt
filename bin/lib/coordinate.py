@@ -1396,7 +1396,7 @@ def one_round(state, dry):
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:
                 r.bad_dispatch(c, e)
-        if c["mr"] and c["mr"]["state"] == "ready":
+        if c["mr"] and c["mr"]["state"] == "ready" and c["logic_map_at_head"]:
             # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
