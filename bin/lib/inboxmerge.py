@@ -637,9 +637,14 @@ def drop(card_dir: str, reason: str, argv: list) -> int:
     with safefile.CardLock(card_dir):
         if os.path.exists(inbox):
             with open(inbox, encoding="utf-8", newline="") as f:
-                ids = sorted(merged_ids(f.read()))
+                text = f.read()
+            ids = sorted(merged_ids(text))
             if ids:
                 raise ValueError("還有併入的項目（%s），先用 opsx split-out 拆出來再捨棄" % " ".join(ids))
+            # 讀不懂的併入段 merged_ids 可能數不到（例如 id 行含 \r），一樣算還有併入項目
+            bad = [str(got) for _, got in sections(text) if isinstance(got, ValueError)]
+            if bad:
+                raise ValueError("還有讀不懂的併入段，先修好再捨棄：%s" % "；".join(bad))
         with safefile.open_append(os.path.join(card_dir, ".openspec.yaml")) as f:
             f.write("outcome: declined\n")
         with safefile.open_append(inbox) as f:

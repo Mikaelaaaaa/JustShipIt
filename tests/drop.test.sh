@@ -76,6 +76,18 @@ err="$(opsx drop "$M" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
 case "$err" in *agent-20261106-1600*split-out*|*split-out*agent-20261106-1600*) ;; *) fail "stderr 要列出 id 並提示 split-out：$err" ;; esac
 assert_eq "$(snap)" "$before"; assert_dir "$CH/$M"
 
+# --- 併入段的 id 行含 \r：讀不懂也不能當成沒有併入段而歸檔（card-auto-merge「讀併入段不轉換行」）---
+export OPSX_TEST_NOW="2026-11-06 15:30"
+M2="$(opsx new --repo "$A" -- 併入段有 CR)"
+printf '\n## 併入：2026-11-06T16:01:00+08:00 agent:foo\n\n- id: a\rb\n- kind_of_work: planned\n- type: bug\n\n別人的問題\n' >> "$CH/$M2/inbox.md"
+before="$(snap)"
+err="$(opsx drop "$M2" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "併入段 id 行含 \\r 的卡不能捨棄"
+case "$err" in *'\r'*) ;; *) fail "stderr 要指出 \\r：$err" ;; esac
+assert_eq "$(snap)" "$before"; assert_dir "$CH/$M2"
+rm -rf "$CH/$M2"
+export OPSX_TEST_NOW="2026-11-06 16:00"   # 後面的案例沿用上面那段的時間
+
 # --- drop-card-lock：另一個行程持卡鎖時，drop 的無鎖預檢已過；它放鎖前寫進一段併入，drop 取得鎖後要重查並拒絕 ---
 PYBIN="$(cat "$OPSX_STATE_DIR/python")"; LIBDIR="$OPSX_ROOT/bin/lib"
 hold_lock() { # hold_lock <卡目錄> <動作>：持卡鎖，等 $FX/go 出現後做動作（merge 併入一段 / move 搬走目錄）再放鎖
