@@ -37,8 +37,21 @@ for (const [st, c] of Object.entries(cards)) {
   }
 }
 
+// Scenario 沒有接腳：任一狀態都沒有接腳的 rect，機身沒有外框線（specs/board-pages「精靈外觀」）
+for (const [st, c] of Object.entries({...cards, unsure: {waiting: null, agent_status: null, dispatch: {agent: 'claude'}}})) {
+  const svg = bot(c, 30);
+  assert.strictEqual((svg.match(/<rect x="\d+" y="(4|54)" width="4" height="6"/g) || []).length, 0, `${st}：沒有接腳`);
+  assert.ok(/<rect x="8" y="10" width="48" height="44" rx="6" fill="var\(--pet-(claude|codex)-body\)"\/>/.test(svg), `${st}：機身淺藍填色、沒有 stroke：${svg}`);
+}
+// Scenario ask 有 ring
 const ask = bot(cards.ask, 30);
-assert.strictEqual((ask.match(/<rect x="\d+" y="(4|54)" width="4" height="6"/g) || []).length, 6, 'ask 有 6 根接腳');
 assert.strictEqual((ask.match(/<rect x="(17|35)" y="21" width="12" height="20"/g) || []).length, 2, 'ask 有兩個 ask 眼睛');
 assert.ok(ask.includes('class="ring"'), 'ask 有外圈');
+assert.ok(/^<svg class="bot bot-ask /.test(ask), 'ask 的第一個 class 是 bot，有 bot-ask');
+// claude 與 codex 用不同的填色 class
+assert.ok(bot({waiting: null, dispatch: {agent: 'codex'}, agent_status: 'working'}, 30).includes('bot-codex'), 'codex 有 bot-codex');
+assert.ok(bot(cards.work, 30).includes('bot-claude'), '預設 claude 有 bot-claude');
+// Scenario 不等人的卡不畫 ask
+for (const st of ['working', 'idle', null, 'unknown'])
+  assert.ok(!/bot-(ask|wait)\b/.test(bot({waiting: null, agent_status: st, dispatch: {agent: 'claude'}}, 30)), `waiting null（${st}）不是 ask 也不是 wait`);
 JS

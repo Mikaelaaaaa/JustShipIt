@@ -115,7 +115,7 @@ c. **If an artifact requires user input** (unclear context):
    - Use **AskUserQuestion tool** to clarify
    - Then continue with creation
 
-d. **In autopilot** (the router line carries `autopilot：`), never use AskUserQuestion. Unclear context that is a product choice, or a decision that is hard to undo, becomes a gate in `gates.md` in grill's format (`../grill/SKILL.md`, "In autopilot"), and you stop there. Anything else, make the call, say it in design.md's prose (not as a D), and log it in decisions.tsv. A change missing from the workplan gets its own feature and PR named after the slug, instead of a question about which PR group it belongs to.
+d. **In autopilot** (the router line carries `autopilot：`), never use AskUserQuestion. Unclear context that is a product choice, or a decision that is hard to undo, becomes a gate in `gates.md` in grill's format (`../grill/SKILL.md`, "In autopilot"), and you stop there. Anything else, make the call, say it in design.md's prose (not as a D), and log it in decisions.tsv. A change missing from the workplan gets its own feature and PR named after the slug (when 5b applies, that PR is the main change's PR and its sub-changes go into its `changes[]`), instead of a question about which PR group it belongs to.
 
 ### 4c. Sub-change shells
 
@@ -136,9 +136,16 @@ If `openspec/workplan.yaml` exists, check whether this change is already listed:
 
 If no workplan exists, create it with this one feature / PR / change; the commit gate turns on once the file exists.
 
-### 5b. Several independent changes from one discussion
+### 5b. Several changes from one discussion
 
-When this proposal produced more than one change and they do not depend on each other, give them separate PRs whose `depends-on` names only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
+When this proposal produced more than one change, make them sub-changes of one main change by default, in one PR:
+
+1. The card you are proposing is the main shell (`<main>`); do not create another one, since 4d and step 5 already gave this card its PR.
+2. Each change goes under `openspec/changes/<main>/subs/<sub>/` with `inbox.md` (frontmatter `parent: <main>`, `depends-on: [<sibling>]`) and `.openspec.yaml` (`schema: opsx`, `kind:`, `parent: <main>`), the same as `../explore/SKILL.md` "Splitting a big card" steps 1–2.
+3. In `openspec/workplan.yaml`, add the sub-changes to its existing PR's `changes[]` with their sibling `depends-on`, and remove only this card's own entry; other changes in that PR stay.
+4. Write the sub shells per 4c and rewrite `<main>`'s tasks.md in 4c's one-item-per-sub-change form, then run `opsx check <main>`.
+
+Give a change its own PR only when it both ships on its own and must be reviewed separately, and write why it cannot be a sub-change in its proposal.md (copy the reason from the split gate's `main change` line when explore wrote one). Separate PRs name in `depends-on` only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
 
 ### 6. Show final status
 

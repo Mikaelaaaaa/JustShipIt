@@ -33,10 +33,10 @@ import workplanwrite  # noqa: E402
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
     PROPOSE_STOP = _f.read().strip()
 MAX_DISPATCH = 6
-# 同時活著的 pane 數上限預設值；<state>/max-working 可改
+# 同時工作中的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
-# herdr 回這幾種 agent_status 的 pane 佔派工名額（done 是 agent 還在、做完一段）；找不到（unknown）就是死了
-LIVE_AGENT = ("working", "idle", "blocked", "done")
+# 只有工作中的 pane 佔派工名額；idle、blocked、done 的 pane 在等人或做完一段，不擋派工
+LIVE_AGENT = ("working",)
 REDISPATCH_MINUTES = 10
 # relaunch 失敗後同一個 pane 不再試的時間；跟重派同一個節流，不會每輪對壞掉的 pane 送 Esc、/exit
 RELAUNCH_MINUTES = REDISPATCH_MINUTES
@@ -110,7 +110,7 @@ class Round:
         self.stages = {}
         self.woken_cards = set()
         self.max_working = None
-        # 這輪開始時活著的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
+        # 這輪開始時工作中的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
         self.busy_panes = set()
         self.opened = 0
         self.worktrees = {}
@@ -386,6 +386,7 @@ class Round:
                 self.log("?? %s 送不到 session %s，條目已寫，下一輪由 session 重派接手：%s" % (child, feature, (err or out)[:200]))
             else:
                 self.args_checked.add(session_key)
+                self.woke((self.dispatch_file.get(session_key) or {}).get("pane"))
                 if not self.dry:
                     self.confirm_sent(session_key, text)
 
@@ -605,7 +606,10 @@ class Round:
                     verdict = gaterule.decide(w, s["repo"])
                     if verdict[0] == "answer":
                         main = {"repo": s["repo"], "slug": m["slug"], "dispatch": None}
-                        self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"])
+                        if self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"]):
+                            # 答案送進主 change 的 pane；主 change 沒有自己的條目時是 session 的 pane
+                            entry = self.dispatch_file.get("%s/%s" % (s["repo"], m["slug"])) or self.dispatch_file.get("%s/@%s" % (s["repo"], s["feature"]))
+                            self.woke((entry or {}).get("pane"))
                         continue
                     c = {"repo": s["repo"], "slug": "%s/%s" % (m["slug"], sub["slug"])}
                     self.log("?? %s 子 change 的 gate %s 要人看：%s" % (card_key(c), w["gate_id"], one_line(w.get("question") or "")[:100]))
@@ -613,7 +617,7 @@ class Round:
 
     def answer_gate(self, c, top, w, pick, sub=None):
         """照建議答 gaterule 回 answer 的 gate（opsx-workflow 的 decision）。sub 是子 change 名，這時 c 是它的主 change。
-        送不到 agent 就重派；其他失敗記 ?? 並通知人。"""
+        送不到 agent 就重派；其他失敗記 ?? 並通知人。答成功回 True。"""
         target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
         text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
         args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
@@ -622,7 +626,8 @@ class Round:
             self.log("ok   %s gate %s 照建議答：%s" % (card_key(target), w["gate_id"], one_line(pick)[:100]))
             if c["dispatch"]:
                 self.args_checked.add(self.pane_chain(c)[-1])   # 答案剛送進 pane，這輪不再看它的啟動參數
-            return
+                self.woke(c["dispatch"].get("pane"))
+            return True
         if c["dispatch"] and "agent_not_found" in out + err:
             self.redispatch(c, top, "answer 送不到")
             return
@@ -720,6 +725,7 @@ class Round:
                 self.log("?? %s 的 pane %s 停在 Automatic continue stopped，送「繼續」失敗：%s" % (key, pane, (err or out)[:200]))
                 continue
             continued[pane] = self.now.isoformat(timespec="seconds")
+            self.woke(pane)
             self.log("ok   %s 的 pane %s 停在 Automatic continue stopped，送了「繼續」" % (key, pane))
             if not self.dry:
                 self.confirm_sent(key, "繼續")
@@ -757,6 +763,7 @@ class Round:
             if self.dry:
                 continue
             if result == "entered":
+                self.woke(pane)
                 jsonfile.update(path, functools.partial(submit.forget, sent=matched))
             elif result == "stuck":
                 self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是 opsx 送的那句，到 pane 看一下" % ("、".join(matched), pane))
@@ -931,8 +938,8 @@ class Round:
         self.count_reopened(c)
 
     def count_reopened(self, c):
-        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還活著）時 stop 關掉它再開一個，不多佔名額；
-        不在 busy_panes 裡的（agent 死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
+        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還在工作）時 stop 關掉它再開一個，不多佔名額；
+        不在 busy_panes 裡的（agent 閒著或死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
         if c["dispatch"].get("pane") not in self.busy_panes:
             self.opened += 1
 
@@ -985,7 +992,9 @@ class Round:
         rc, out, err = self.act(["opsx", "relaunch", c["slug"], "--repo", top])
         at = self.now.isoformat(timespec="seconds")
         self.memo["_relaunched"][key] = {"at": at, "ok": rc == 0}
-        if rc != 0:
+        if rc == 0:
+            self.woke(pane)
+        else:
             self.log("?? %s opsx relaunch 失敗，%d 分鐘內不再試：%s" % (key, RELAUNCH_MINUTES, (err or out).replace("\n", " ")[:200]))
             self.notify(c, "relaunch", at, "relaunch 失敗", "pane %s 留著沒關，到 pane 看；%d 分鐘後 coordinator 再試" % (pane, RELAUNCH_MINUTES),
                         scope=key)
@@ -1010,8 +1019,13 @@ class Round:
                 self.log("-- %s 等的 gate %s 被人答掉，記成已答，照派卡規則重派" % (key, parked["gate"]))
                 parked["answered"] = True
 
+    def woke(self, pane):
+        """這輪叫醒了一個 pane（答 gate、送繼續、補按 Enter、relaunch）：它接著會工作，照佔名額，同一個 pane 只算一次。"""
+        if pane:
+            self.busy_panes.add(pane)
+
     def slots_used(self):
-        """佔掉的派工名額：這輪開始時活著的 pane，加上這輪新開的。"""
+        """佔掉的派工名額：這輪開始時工作中的 pane，加上這輪新開的。"""
         return len(self.busy_panes) + self.opened
 
     def woken_by(self, key, parked, top):
@@ -1240,16 +1254,66 @@ def parse_agents(out):
     return agents
 
 
-def live_panes(entries, agents):
+def read_stopped(path):
+    """<state>/stop-said/<repo>-<slug> 的兩行（Stop hook 最後一次放行的原因與時間）：{reason, at}。
+    跟 collect 的 stopped_of 同一個讀法：沒有檔、不到兩行、時間讀不懂都當沒停住。時間沒有時區也當沒停住，hook 寫的都帶時區，
+    沒帶的跟現在相減會 TypeError。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().split("\n")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if len(lines) < 2 or not lines[0] or not lines[1]:
+        return None
+    try:
+        at = datetime.datetime.fromisoformat(lines[1])
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    return {"reason": lines[0], "at": at}
+
+
+def own_work_keys(entries, state, repo_paths, now):
+    """dispatch.json 條目裡 agent 在跑自己背景工作的 key：herdr 回 idle 或 done，但 Stop hook 最後記的停住原因是等背景工作或
+    等背景 subagent、在 STALE_WAIT_SECONDS 內，或停在等背景 subagent 而子 change 的 subagent 還在跑。這些 pane 在吃記憶體，照佔名額。
+    repo_paths 找不到的 repo 不看子 change。
+    幾筆條目共用一個 pane（feature session、fan-out 父卡）時只看停住時間最新的那筆：hook 只改 pane 現在那張卡的紀錄，
+    其他成員留著的是舊的。"""
+    newest = {}
+    for key, e in entries.items():
+        repo, slug = key.split("/", 1)
+        s = read_stopped(os.path.join(state, "stop-said", "%s-%s" % (repo, slug)))
+        pane = e.get("pane")
+        if s and pane and (pane not in newest or s["at"] > newest[pane][1]["at"]):
+            newest[pane] = (key, s)
+    keys = set()
+    for key, s in newest.values():
+        repo, slug = key.split("/", 1)
+        if not s["reason"].startswith(STALE_WAIT_REASONS):
+            continue
+        if 0 <= (now - s["at"]).total_seconds() <= STALE_WAIT_SECONDS:
+            keys.add(key)
+        elif (s["reason"].startswith("等背景 subagent") and repo in repo_paths
+              and subagent_running(os.path.join(repo_paths[repo], "openspec", "changes", slug), now)):
+            keys.add(key)
+    return keys
+
+
+def live_panes(entries, agents, own_work):
     """dispatch.json 的條目與 herdr agent list 裡佔派工名額的 pane 集合。協調者與 opsx dispatch 的警告共用這個數法。
-    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡，
+    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡（工作中），
+    或是 idle、done 而條目的 key 在 own_work 裡（own_work_keys：在跑自己的背景工作），
     agent 的 cwd 或 foreground_cwd 是那個 worktree 或在它底下。比 cwd 是因為 herdr 會重用 pane id，只憑 id 會把別人的 pane 算進來。
     卡有沒有歸檔、是卡還是 session 的條目、repo 有沒有被 collect 掃到都不看；同一個 pane 代管幾張卡都只算一次。"""
-    live = {a.get("pane_id"): a for a in agents if a.get("agent_status") in LIVE_AGENT}
+    by_pane = {a.get("pane_id"): a for a in agents}
     busy = set()
-    for e in entries.values():
-        a = live.get(e["pane"]) if e.get("pane") else None
+    for key, e in entries.items():
+        a = by_pane.get(e["pane"]) if e.get("pane") else None
         if not a or not e.get("worktree") or not chain.session_alive(e):
+            continue
+        status = a.get("agent_status")
+        if status not in LIVE_AGENT and not (status in ("idle", "done") and key in own_work):
             continue
         root = os.path.realpath(e["worktree"])
         cwds = [os.path.realpath(a[k]) for k in ("cwd", "foreground_cwd") if a.get(k)]
@@ -1259,7 +1323,7 @@ def live_panes(entries, agents):
 
 
 def read_max_working(path):
-    """同時活著的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
+    """同時工作中的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
     if not os.path.exists(path):
         return DEFAULT_MAX_WORKING
     with open(path, encoding="utf-8") as f:
@@ -1584,7 +1648,7 @@ def one_round(state, dry):
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
-    r.busy_panes = live_panes(r.dispatch_file, r.agents)
+    r.busy_panes = live_panes(r.dispatch_file, r.agents, own_work_keys(r.dispatch_file, r.state, repo_paths, r.now))
 
     merged = [c for c in cards if is_merged(c)]
     orphans = []
