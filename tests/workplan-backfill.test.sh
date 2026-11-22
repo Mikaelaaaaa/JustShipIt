@@ -82,8 +82,15 @@ card "$R" cz "source: agent:c1" "priority: P0" "priority_reason: 使用者：急
 card "$R" k2 "source: agent:gone2"
 printf '2026-11-01T10:00:00+08:00\t系統\t已決定\t從 q 拆出（id k2-old）\n' > "$R/openspec/changes/k2/decisions.tsv"
 # 父卡已拆：照 split_into 找第一個在 workplan 的主 change（m9 不在、p 在 F）
-card "$R" spar "split_into: m9, p"
+card "$R" spar "split_into: m9, p  # 2026-11-20 拆"
 card "$R" sc "source: agent:spar"
+# 父卡拆成的 B2、C2 都還是散卡：split_into 只認 workplan，子卡沒有父卡；B2 也不會把自己當父卡
+card "$R" sp2 "split_into: B2, C2"
+card "$R" B2 "source: agent:sp2"
+card "$R" C2 "source: agent:sp2"
+card "$R" sc2 "source: agent:sp2"
+# 空清單加行尾註解算沒拆
+card "$R" sic "split_into: []  # 沒拆"
 card "$R" sp "split_into: m1x"
 card "$R" si "split_into: []"
 mkdir -p "$R/openspec/changes/legacy"; printf -- '- [x] 1.1 x\n' > "$R/openspec/changes/legacy/tasks.md"
@@ -113,7 +120,10 @@ assert_eq "$(action "$FX/pre" z0)" "自成 feature" "P0 不掛進父 feature"
 assert_eq "$(action "$FX/pre" p)" "" "已在 workplan 的卡不出現"
 assert_eq "$(action "$FX/pre" cz)" "自成 feature（milestone m0）" "散父卡帶 milestone，P0 子卡沿用"
 assert_eq "$(action "$FX/pre" k2)" "掛進 feature G" "source 的父卡不存在時改看 split-out"
-assert_eq "$(action "$FX/pre" sc)" "掛進 feature F" "父卡已拆時照 split_into 找"
+assert_eq "$(action "$FX/pre" sc)" "掛進 feature F" "父卡已拆時照 split_into 找（行尾註解要去掉）"
+assert_eq "$(action "$FX/pre" sc2)" "自成 feature" "split_into 都不在 workplan 時沒有父卡"
+assert_eq "$(reason "$FX/pre" B2)" "父卡 sp2 不在 workplan" "不把自己當父卡"
+assert_eq "$(action "$FX/pre" sic)" "自成 feature" "split_into: [] 加註解算沒拆"
 grep -qx "$RN	spar	略過	已拆" "$FX/pre" || fail "已拆的父卡本身要略過：$(cat "$FX/pre")"
 
 # --- 略過不能掛或不該掛的卡 ---
@@ -157,11 +167,16 @@ B="$(mk_repo Bq)"; BN="$(basename "$B")"; WPR="$B"
 mkdir -p "$B/openspec/changes"; printf 'features:\n  - name: F\n    status: active\n    prs:\n      - name: p\n        branch: feat/p/x\n        status: pending\n' > "$B/openspec/workplan.yaml"
 git -C "$B" config user.name "Mikaela Lin"
 card "$B" b1; card "$B" b2; card "$B" b3; card "$B" b4; card "$B" b5; card "$B" b6
+# b6 因為兩條 branch 被略過，它的子卡 b7 也列為失敗、不寫
+card "$B" b7 "source: agent:b6"
 mkdir -p "$OPSX_STATE_DIR"
 printf '{"%s/b1": {"branch": "feat/b1/mikaela", "mode": "stopped"}, "%s/b4": {"branch": "feat/b4/mikaela", "mode": "stopped"}}\n' "$BN" "$BN" > "$OPSX_STATE_DIR/dispatch.json"
 git -C "$B" branch fix/b2/mikaela; git -C "$B" branch fix/b4/x; git -C "$B" branch feat/b5-2/mikaela
 git -C "$B" branch feat/b6/mikaela; git -C "$B" branch feat/b6/mikaela-lin
-opsx backfill --repo "$B" --write > "$FX/b" 2> "$FX/b.err" || fail "branch 測試 rc：$(cat "$FX/b.err")"
+opsx backfill --repo "$B" --write > "$FX/b" 2> "$FX/b.err" && fail "兩條 branch 的卡要讓 exit 非零"
+grep -q "b6" "$FX/b.err" || fail "stderr 要列出 b6：$(cat "$FX/b.err")"
+grep -q "b7.*父卡 b6" "$FX/b.err" || fail "b6 的子卡也列為失敗：$(cat "$FX/b.err")"
+assert_eq "$(wp 'pr("b7")')" None "b6 的子卡不寫"
 assert_eq "$(wp 'pr("b1")["branch"]')" "feat/b1/mikaela" "dispatch.json 的紀錄"
 assert_eq "$(wp 'pr("b2")["branch"]')" "fix/b2/mikaela" "本地唯一一條"
 assert_eq "$(wp 'pr("b3")["branch"]')" "feat/b3/mikaela-lin" "都沒有就照建卡規則算"
@@ -218,6 +233,12 @@ W="$(mk_repo code/Wa)"; N="$(mk_repo code/Nb)"
 mkdir -p "$W/openspec/changes" "$N/openspec/changes"; printf 'features: []\n' > "$W/openspec/workplan.yaml"
 git -C "$W" config user.name "Mikaela Lin"
 card "$W" w1; card "$N" n1
+# sources.toml 寫壞：有 repo 沒被掃，算成失敗、exit 非零，其他 repo 照常（D15）
+printf '[[source]\n' > "$OPSX_STATE_DIR/sources.toml"
+opsx backfill > "$FX/src" 2> "$FX/src.err" && fail "sources.toml 壞掉要 exit 非零"
+grep -q "sources.toml" "$FX/src.err" || fail "stderr 要列出 sources.toml：$(cat "$FX/src.err")"
+assert_eq "$(action "$FX/src" w1)" "自成 feature" "其他 repo 照常"
+rm -f "$OPSX_STATE_DIR/sources.toml"
 # workplan 不是 UTF-8 的 repo：記一筆失敗，其他 repo 照常
 Z="$(mk_repo code/Zc)"; mkdir -p "$Z/openspec/changes"; printf 'features:\n  - name: \377\n' > "$Z/openspec/workplan.yaml"; card "$Z" z1
 opsx backfill > "$FX/all" 2> "$FX/all.err" && fail "有 repo 讀不了 workplan 要 exit 非零"

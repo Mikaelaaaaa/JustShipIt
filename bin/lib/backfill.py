@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import chain  # noqa: E402
 import jsonfile  # noqa: E402
 import priority  # noqa: E402
 import sync  # noqa: E402
@@ -20,8 +21,6 @@ import workplanwrite  # noqa: E402
 
 # split-out.sh 寫進新卡 decisions.tsv 說明欄的固定格式
 SPLIT_FROM = re.compile(r"^從 (\S+) 拆出（id ")
-# stage.sh 的 st_split_into 當成「沒拆」的值
-NOT_SPLIT = {"", "[]", '""', "''", "~", "null"}
 
 
 def branch_user(top: str) -> str:
@@ -40,26 +39,16 @@ def split_parent(card: str) -> str:
     return ""
 
 
-def split_targets(fm: dict) -> list:
-    """frontmatter 的 split_into 拆成名字清單；寫成 `a, b` 或 `[a, b]` 都認，沒拆回空清單。"""
-    v = (fm.get("split_into") or "").strip()
-    if v in NOT_SPLIT:
-        return []
-    names = [x.strip().strip("\"'") for x in v.strip("[]").split(",")]
-    return [x for x in names if x]
-
-
-def parent_of(fm: dict, card: str, changes: str, known: set) -> str:
+def parent_of(fm: dict, card: str, top: str, known: set, in_plan: set) -> str:
     """先看 source: agent:<卡>，找不到再看 decisions.tsv 的「從 <卡> 拆出」（D3）。
-    候選是 known（workplan 的 PR／change／feature 名與本批散卡）裡的名字就用它；候選已拆時用它 split_into 裡第一個在 known 的（D14）。
-    都不在 known 就回第一個候選，placement 會當成沒有父卡、原因欄寫「不在 workplan」。"""
+    候選是 known（in_plan 加上本批散卡）裡的名字就用它；候選已拆時用它 split_into 裡第一個在 in_plan（workplan 的 PR／change／feature 名）的（D14）。
+    都找不到就回第一個候選，placement 會當成沒有父卡、原因欄寫「不在 workplan」。"""
     src = fm.get("source") or ""
     cands = [c for c in [src[len("agent:"):].split("--")[0] if src.startswith("agent:") else "", split_parent(card)] if c]
     for c in cands:
         if c in known:
             return c
-        pfm, _ = priority.frontmatter(priority.read_text(os.path.join(changes, c, "inbox.md")))
-        hit = next((t for t in split_targets(pfm) if t in known), None)
+        hit = next((t for t in chain.split_into(top, c) if t in in_plan), None)
         if hit:
             return hit
     return cands[0] if cands else ""
@@ -115,12 +104,12 @@ def run_repo(name: str, top: str, write: bool, dispatch: dict, out: list, failed
             out.append((name, s, "略過", "沒有 inbox.md"))
             continue
         fm, _ = priority.frontmatter(priority.read_text(inbox))
-        if split_targets(fm):
+        if chain.split_into(top, s):
             out.append((name, s, "略過", "已拆"))
             continue
         cards[s] = (fm, d)
-    known = set(own) | {f.get("name") for f in features} | set(cards)
-    parents = {s: parent_of(fm, d, changes, known) for s, (fm, d) in cards.items()}
+    in_plan = set(own) | {f.get("name") for f in features}
+    parents = {s: parent_of(fm, d, top, in_plan | set(cards), in_plan) for s, (fm, d) in cards.items()}
     user = branch_user(top)
     bad = set()
     for s in order(parents):
@@ -138,6 +127,8 @@ def run_repo(name: str, top: str, write: bool, dispatch: dict, out: list, failed
         branch, skip = known_branch(top, name, s, dispatch)
         if skip:
             out.append((name, s, "略過", skip))
+            failed.append("%s/%s: %s" % (name, s, skip))
+            bad.add(s)
             continue
         into, milestone = workplanwrite.placement(features, got["level"], parent, "")
         # 預覽也要擋下 --write 時 attach 會拒絕的卡，預覽與寫入才印同樣的結果
@@ -175,22 +166,20 @@ def run_repo(name: str, top: str, write: bool, dispatch: dict, out: list, failed
 
 
 def main(code_root: str, state: str, write: str, top: str) -> int:
+    out, failed = [], []
     if top:
         repos = {os.path.basename(top): top}
     else:
+        # repo 清單讀錯時那些 repo 沒被掃，算成失敗（D15）
         try:
             sources = sync.source_paths(pathlib.Path(state))
         except ValueError as e:
-            print("backfill: %s" % sync.sources_message(e), file=sys.stderr)
+            failed.append(sync.sources_message(e))
             sources = []
         found, conflicts, _, skipped = sync.scan_repos(pathlib.Path(code_root).resolve(), sources)
         repos = {n: str(p) for n, p in sorted(found.items())}
-        for n, ps in conflicts.items():
-            print("backfill: %s" % sync.conflict_message(n, ps), file=sys.stderr)
-        for message in skipped.values():
-            print("backfill: %s" % message, file=sys.stderr)
+        failed += [sync.conflict_message(n, ps) for n, ps in conflicts.items()] + list(skipped.values())
     dispatch = jsonfile.load(os.path.join(state, "dispatch.json"))
-    out, failed = [], []
     for name, path in repos.items():
         run_repo(name, path, bool(write), dispatch, out, failed)
     for row in out:
