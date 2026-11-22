@@ -56,7 +56,7 @@ EOF
 # x4：MR 全綠、已派出
 D=$(mkcard a x4); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
 printf '{"phase":"pr","step":"5","total":"5","label":"可以合併","tests":"green","at":"2026-11-05T10:00:00+08:00"}' > "$D/status.json"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/a/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/a/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/x4/logic-map.md · aaa1111\n' > "$D/report.md"
 # x5：archive；另外塞 3 張更舊的，cap 設 2 時只留最新 2 張
 D="$ROOT/a/openspec/changes/archive/2026-11-01-x5"; mkdir -p "$D"; printf 'schema: opsx\nkind: chore\n' > "$D/.openspec.yaml"; printf '## 一句話\n\n舊的\n' > "$D/inbox.md"
 for i in 1 2 3; do D2="$ROOT/a/openspec/changes/archive/2026-10-0$i-old$i"; mkdir -p "$D2"; printf 'schema: opsx\n' > "$D2/.openspec.yaml"; touch -t "2026100${i}0000" "$D2"; done; touch "$D"
@@ -87,7 +87,7 @@ cat > "$OPSX_STATE_DIR/dispatch.json" <<'EOF'
 EOF
 # glab：iid 7 全綠、8 pipeline 紅（fake glab 依 iid 讀不同檔）
 export OPSX_TEST_GLAB_JSON="$FX/mr.json" OPSX_TEST_GLAB_JSON_BY_IID="$FX/mr-"
-printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa111","head_pipeline":{"status":"success"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}' > "$FX/mr-7.json"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa1111000000000000000000000000000000000","head_pipeline":{"status":"success"},"unresolved_discussions_count":0,"created_at":"2026-11-05T01:10:00.000Z","merged_at":null}' > "$FX/mr-7.json"
 printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"bbb222","head_pipeline":{"status":"failed"},"unresolved_discussions_count":0}' > "$FX/mr-8.json"
 # herdr：x4 working、y1 blocked、foo 沒對到卡
 export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
@@ -147,7 +147,7 @@ assert_eq "$(q "$C" waiting.options)" '["記憶體", "檔案", "redis"]'; assert
 # 可以合併
 C="$(card "$J" a x4)"; assert_eq "$(q "$C" waiting.type)" 可以合併; assert_eq "$(q "$C" section)" 待處理
 assert_eq "$(q "$C" mr.conditions)" '{"no_conflicts": true, "not_draft": true, "opened": true, "pipeline": true, "threads": true}'
-assert_eq "$(q "$C" mr.head_sha)" aaa111; assert_eq "$(q "$C" dispatch.pane)" p4; assert_eq "$(q "$C" dispatch.mode)" autopilot
+assert_eq "$(q "$C" mr.head_sha)" aaa1111000000000000000000000000000000000; assert_eq "$(q "$C" logic_map_at_head)" true; assert_eq "$(q "$C" dispatch.pane)" p4; assert_eq "$(q "$C" dispatch.mode)" autopilot
 assert_eq "$(q "$C" agent_status)" working; assert_eq "$(q "$C" status.phase)" pr; assert_eq "$(q "$C" dispatch.grants)" '["push"]'
 # 最後輸出不在卡上：抽屜向 /api/output 取，collect 的卡沒有 last_output 鍵
 assert_eq "$(printf '%s' "$J" | python3 -I -c 'import json,sys;print(sorted(c["slug"] for c in json.load(sys.stdin)["cards"] if "last_output" in c))')" "[]"
@@ -201,7 +201,7 @@ printf '' > "$FX/mr-7.json"
 J4="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0
 assert_eq "$(q "$(card "$J4" a x4)" mr.state)" none; assert_eq "$(q "$(card "$J4" a x4)" section)" 進行中
 assert_eq "$(q "$J4" errors.0.source)" glab; q "$J4" errors.0.message | grep -q 'a/x4' || fail "glab error 要指名卡: $(q "$J4" errors)"
-printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa111","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-7.json"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"aaa1111000000000000000000000000000000000","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-7.json"
 # herdr 有設但沒有 agent：都是 unknown，不報錯
 printf '{"id":"cli:agent:list","result":{"agents":[],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
 J5="$(opsx collect --root "$ROOT")"; assert_eq "$(q "$(card "$J5" a x4)" agent_status)" unknown; assert_eq "$(q "$J5" errors)" '[]'
@@ -738,7 +738,7 @@ pc10() { # <repo> <slug> [frontmatter 行…]：建殼，印目錄
 printf 'schema: opsx\n' > "$R10/r/openspec/changes/archive/2026-11-01-arch-x/.openspec.yaml"
 # m-merge：MR 五條件綠
 D=$(pc10 r m-merge); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-merge/logic-map.md · aaa1111\n' > "$D/report.md"
 # m-gate：派出，needs: run 的 gate（純函式說留給人）
 D=$(pc10 r m-gate); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 printf '## g1\ntype: decision\nstatus: open\nneeds: run\n問題: 跑 x？\n建議: bash x.sh\n' > "$D/gates.md"
@@ -763,7 +763,7 @@ D=$(pc10 r m-park-merged); printf '## 1\n\n- [ ] 1.1 a\n' > "$D/tasks.md"
 printf '## g1\ntype: decision\nstatus: open\nwaits-on: done-x\n問題: 等 done-x\n建議: 等 done-x 合併後繼續\n' > "$D/gates.md"
 # m-ready-gate：派出、MR 全綠、另有 open 的 gate：照 D3 看 mr.state，算可合併
 D=$(pc10 r m-ready-gate); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"
-printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n' > "$D/report.md"
+printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/7\n\n## 邏輯表\nopenspec/changes/m-ready-gate/logic-map.md · aaa1111\n' > "$D/report.md"
 printf '## g1\ntype: decision\nstatus: open\n問題: 哪個？\n建議: 用 A\n' > "$D/gates.md"
 # m-pr-run：派出、stage pr、needs: run 的 gate：等你排在測試中之前
 D=$(pc10 r m-pr-run); printf '## 1\n\n- [x] 1.1 a\n' > "$D/tasks.md"; printf '# report\n' > "$D/report.md"
@@ -862,4 +862,66 @@ assert_eq "$(q "$J" progress.nc.milestone) $(q "$J" progress.nc.goal) $(q "$J" p
 assert_eq "$(q "$P" at)" "$(q "$J" generated_at)"
 # 沒有 workplan 的 repo：milestone null、數全部活卡
 assert_eq "$(q "$J" progress.n.milestone) $(q "$J" progress.n.remaining) $(q "$J" progress.n.not_dispatched_planned) $(q "$(card "$J" n solo)" progress_class)" "null 1 [] not_dispatched"
+
+# ---------- 邏輯表對到 MR head（board-mergeable-needs-map，specs/board-mergeable-map） ----------
+# 純函式：spec 的一般與邊界場景每列一筆，head 是 abc1234 加 33 個字元
+H="abc1234000000000000000000000000000000000"
+assert_eq "$(python3 -I - "$OPSX_ROOT/bin/lib" "$H" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import mapline
+head = sys.argv[2]
+rows = [
+    ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc1234\n", head),
+    ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · 9999999\n", head),
+    ("# r\n\n## 邏輯表\n產表失敗：fetch 失敗\n", head),
+    ("# r\n\n## MR\nhttps://x/-/merge_requests/1\n", head),
+    (None, head),
+    ("# r\n\n## 邏輯表\n\n## 其他\nopenspec/changes/m/logic-map.md · abc1234\n", head),
+    ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc12\n", head),
+    ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc1234\n", None),
+    ("# r\n\n## 邏輯表\n免表：abc1234 · codex\n", head),
+]
+print(" ".join(str(mapline.at_head(r, h)).lower() for r, h in rows))
+PY
+)" "true false false false false false false false false" "邏輯表判斷的九列"
+
+R11="$FX/code11"; S11="$FX/state11"; mkdir -p "$R11/lm/.git" "$S11"
+lm() { # <slug> <report.md 內容>：派出、tasks 全勾的卡
+  local d="$R11/lm/openspec/changes/$1"; mkdir -p "$d"
+  printf 'schema: opsx\ncreated: 2026-11-18\nkind: dev\n' > "$d/.openspec.yaml"
+  printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-18\nrelated:\n---\n\n## 一句話\n\n%s\n' "$1" > "$d/inbox.md"
+  printf '## 1\n\n- [x] 1.1 a\n' > "$d/tasks.md"
+  printf '%b' "$2" > "$d/report.md"
+}
+MR7='# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/lm/-/merge_requests/7\n'
+lm lm-ok "$MR7\n## 邏輯表\nopenspec/changes/lm-ok/logic-map.md · aaa1111\n"
+lm lm-other "$MR7\n## 邏輯表\nopenspec/changes/lm-other/logic-map.md · 9999999\n"
+lm lm-fail "$MR7\n## 邏輯表\n產表失敗：fetch 失敗\n"
+lm lm-nosec "$MR7"
+lm lm-empty "$MR7\n## 邏輯表\n\n"
+lm lm-short "$MR7\n## 邏輯表\nopenspec/changes/lm-short/logic-map.md · aaa11\n"
+lm lm-exempt "$MR7\n## 邏輯表\n免表：aaa1111 · codex\n"
+lm lm-nohead '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/lm/-/merge_requests/12\n\n## 邏輯表\nopenspec/changes/lm-nohead/logic-map.md · aaa1111\n'
+lm lm-nomr '# report\n\n## 邏輯表\nopenspec/changes/lm-nomr/logic-map.md · aaa1111\n'
+lm lm-bad "$MR7\n## 邏輯表\nopenspec/changes/lm-bad/logic-map.md · aaa1111\n\xff\n"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$FX/mr-12.json"
+printf '{"lm/lm-ok":{"pane":"l1","mode":"autopilot"},"lm/lm-other":{"pane":"l2","mode":"autopilot"},"lm/lm-fail":{"pane":"l3","mode":"autopilot"},"lm/lm-nosec":{"pane":"l4","mode":"autopilot"},"lm/lm-empty":{"pane":"l5","mode":"autopilot"},"lm/lm-short":{"pane":"l6","mode":"autopilot"},"lm/lm-exempt":{"pane":"l7","mode":"autopilot"},"lm/lm-nohead":{"pane":"l8","mode":"autopilot"},"lm/lm-nomr":{"pane":"l9","mode":"autopilot"},"lm/lm-bad":{"pane":"l10","mode":"autopilot"}}' > "$S11/dispatch.json"
+J="$(opsx collect --root "$R11" --state "$S11")"; assert_eq "$?" 0 "logic map collect rc: $J"
+row() { local c; c="$(card "$J" lm "$1")"; printf '%s %s %s' "$(q "$c" logic_map_at_head)" "$(q "$c" waiting.type 2>/dev/null || printf 無)" "$(q "$c" progress_class)"; }
+assert_eq "$(q "$(card "$J" lm lm-nohead)" mr.state) $(q "$(card "$J" lm lm-nohead)" mr.head_sha)" "ready null" "fixture：五條件全綠但沒有 head sha"
+assert_eq "$(row lm-ok)" "true 可以合併 mergeable"
+assert_eq "$(row lm-other)" "false 無 testing" "sha 沒對到 head"
+assert_eq "$(row lm-fail)" "false 無 testing" "產表失敗"
+assert_eq "$(row lm-nosec)" "false 無 testing" "沒有 ## 邏輯表"
+assert_eq "$(row lm-empty)" "false 無 testing" "## 邏輯表 下面是空的"
+assert_eq "$(row lm-short)" "false 無 testing" "少於 7 碼"
+assert_eq "$(row lm-exempt)" "false 無 testing" "不認免表行"
+assert_eq "$(row lm-nohead)" "false 無 testing" "沒有 head sha"
+assert_eq "$(q "$(card "$J" lm lm-ok)" section) $(q "$(card "$J" lm lm-other)" section)" "待處理 進行中" "沒對到的卡留在進行中"
+# 沒有 MR 的卡：report.md 有邏輯表行也是 false
+assert_eq "$(q "$(card "$J" lm lm-nomr)" mr) $(q "$(card "$J" lm lm-nomr)" logic_map_at_head)" "null false"
+# report.md 讀不了：這張卡算沒對到，記一筆 errors，其他卡照常
+assert_eq "$(row lm-bad)" "false 無 testing" "report.md 讀不了"
+printf '%s' "$J" | python3 -I -c 'import json,sys;sys.exit(0 if any("lm/lm-bad" in e["message"] and e["source"].endswith("report.md") for e in json.load(sys.stdin)["errors"]) else 1)' || fail "report.md 讀不了要記 errors：$(q "$J" errors)"
 echo ok

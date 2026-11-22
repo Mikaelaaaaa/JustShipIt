@@ -13,6 +13,7 @@
 #        notes[{at, text}]（inbox.md ## 派工指示，舊的在前）,
 #        merged[{id, when, source, text, kind_of_work, type 或 area, evidence?}]（inbox.md 的 ## 併入： 段，依檔案順序；已歸檔的卡是 []）,
 #        logic_map（卡目錄 logic-map.md 的全文，已歸檔的卡也讀；沒有檔時 null，讀不了時 null 並記一筆 errors）,
+#        logic_map_at_head（report.md 的 ## 邏輯表 那一行對到 mr.head_sha，bin/lib/mapline.py；沒有 MR 時 false，report.md 讀不了時 false 並記一筆 errors）,
 #        stopped{reason, at}（<state>/stop-said/<repo>-<slug> 的兩行，Stop hook 最後一次放行的原因與時間；沒有、不到兩行、讀不了、已歸檔時 null）,
 #        session（收進 session 的主 change 才有："<repo>/<feature>"）,
 #        progress_class ∈ mergeable | waiting_on_you | testing | developing | not_dispatched（不在進度範圍內為 null）}
@@ -99,6 +100,7 @@ import chain
 import gaterule
 import gatetype
 import grantactions
+import mapline
 
 sys.path.insert(0, os.path.join(os.environ["OPSX_ROOT"], "bin", "lib"))
 import inboxmerge
@@ -254,6 +256,15 @@ def logic_map_of(path, key):
         errors.append({"source": path, "message": "%s 的 logic-map.md 讀不了：%s" % (key, e)})
         return None
 
+def map_at_head_of(d, key, mr):
+    if not mr: return False
+    path = os.path.join(d, "report.md")
+    try:
+        return mapline.at_head(read(path, None), mr["head_sha"])
+    except (UnicodeDecodeError, OSError) as e:
+        errors.append({"source": path, "message": "%s 的 report.md 讀不了：%s" % (key, e)})
+        return False
+
 # 停住紀錄是 Stop hook 放行時寫的（hooks/openspec-stop-gate.sh）：第一行原因、第二行時間。舊格式只有一行，讀不了也只是看板少一行
 def stopped_of(path):
     try:
@@ -300,7 +311,7 @@ def waiting_of(card, gates, agent_status):
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
     mr = card["mr"]
-    if mr and mr.get("state") == "ready":
+    if mr and mr.get("state") == "ready" and card["logic_map_at_head"]:
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": mr["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
     if agent_status == "blocked":
@@ -333,6 +344,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         if hit: matched_panes.add(str(hit[0].get("pane_id")))
     gates_path = os.path.join(d, "gates.md")
     gates = parse_gates(read(gates_path)) if not c["archived"] else []
+    c["logic_map_at_head"] = map_at_head_of(d, key, c["mr"])
     waiting = None if c["archived"] else waiting_of(c, gates_in_force(gates, d), agent_status)
     if c["archived"] or c["stage"] == "split" or (c["stage"] == "archive" and no_mr_ != "true"): section = "已完成"
     elif waiting: section = "待處理"
@@ -352,6 +364,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
+        "logic_map_at_head": c["logic_map_at_head"],
         "stopped": None if c["archived"] else stopped_of(os.path.join(state, "stop-said", "%s-%s" % (c["repo"], c["slug"]))),
     })
 
@@ -443,8 +456,8 @@ ARCHIVED_NAME = re.compile(r"^\d{4}-\d{2}-\d{2}-(.+)$")
 def progress_class(c, top, prs):
     """由上往下取第一個符合的；不看協調者在不在跑、不看 agent_status。dispatch 為 None 包含 stopped。"""
     w = c["waiting"]
-    # 看 mr.state 不看 waiting：有 open gate 時 waiting 是那個 gate，協調者仍照 mr.state 發「可以合併」
-    if c["mr"] and c["mr"].get("state") == "ready": return "mergeable"
+    # 看 mr.state 與 logic_map_at_head，不看 waiting：有 open gate 時 waiting 是那個 gate，協調者仍照這兩個發「可以合併」
+    if c["mr"] and c["mr"].get("state") == "ready" and c["logic_map_at_head"]: return "mergeable"
     if w:
         # gate 一律由人答。停 pane 等別張卡的，等的卡合進 main 之後協調者會通知人回，那時才算等你
         verdict = gaterule.decide(w)
