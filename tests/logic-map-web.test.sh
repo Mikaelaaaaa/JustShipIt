@@ -65,5 +65,13 @@ const mrCard = at => ({mr: {url: 'https://x/-/merge_requests/1', state: 'ready',
 assert.ok(mrSection(mrCard(true), COND).includes('data-act="merge"'), '邏輯表對到 head：有合併鈕');
 const off = mrSection(mrCard(false), COND);
 assert.ok(!off.includes('data-act="merge"') && off.includes('卡在 ready'), '邏輯表沒對到 head：沒有合併鈕，顯示卡在 …：' + off);
+const red = mrSection({mr: {...mrCard(true).mr, state: 'pipeline:failed'}, logic_map_at_head: true}, COND);
+assert.ok(!red.includes('data-act="merge"') && red.includes('卡在 pipeline:failed'), '邏輯表對到 head 但 MR 不是 ready：沒有合併鈕：' + red);
+
+// 看板原型的樣本快照：等待類型是可以合併的卡，抽屜合併請求段也有合併鈕
+const sample = JSON.parse(fs.readFileSync(require('node:path').join(process.argv[2], '..', '..', 'tests', 'fixtures', 'collect-sample.json'), 'utf8'));
+const ready = sample.cards.filter(c => c.waiting && c.waiting.type === '可以合併');
+assert.ok(ready.length > 0, '樣本要有可以合併的卡');
+for (const c of ready) assert.ok(mrSection(c, COND).includes('data-act="merge"'), `樣本 ${c.slug} 的合併請求段要有合併鈕`);
 JS
 echo ok
