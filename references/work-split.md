@@ -62,7 +62,7 @@ features:
 
 explore 每次都把這三條的判斷寫進 explore.md。不以預估行數判斷。
 
-這三條只決定要不要拆，不決定拆成幾張主 change。拆出的預設是一張主 change 加子 change：一支 PR，子 change 依序 stack，各自有 tasks 與 commit。風險不同的部分分成不同子 change，不另開 PR。只有同時能獨立上線、又必須分開審的部分才另開主 change，拆法 gate 裡那張主 change 那行寫上 `（不當子 change：<原因>）`。
+這三條只決定要不要拆，不決定拆成幾張主 change。拆出的預設是一張主 change 加子 change：一支 PR，子 change 依序 stack，各自有 tasks 與 commit。風險不同的部分分成不同子 change，不另開 PR。只有同時能獨立上線、又必須分開審的部分才另開主 change，拆法 gate 裡那張主 change 那行寫上 `（不當子 change：<原因>）`，選項不標 Recommended，交使用者看理由。已經有 subs/ 的主 change 不再拆：它承接了整張原卡，D5 改看每個子 change。
 
 ## 確認一次
 

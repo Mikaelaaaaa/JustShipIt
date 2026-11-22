@@ -24,7 +24,7 @@ done
 
 # --- Scenario（me-20261122-1148 specs/work-split）：什麼時候拆 段寫明 D5 只決定要不要拆，預設一張主 change 加子 change ---
 WHEN="$FX/when"; awk '/^## 什麼時候拆/{f=1;next} /^## /{f=0} f' "$DOC" > "$WHEN"
-for k in '只決定要不要拆' '一張主 change 加子 change' '能獨立上線' '必須分開審' '不當子 change'; do
+for k in '只決定要不要拆' '一張主 change 加子 change' '同時能獨立上線、又必須分開審' '不當子 change' '已經有 subs/ 的主 change 不再拆'; do
   grep -qF -- "$k" "$WHEN" || fail "什麼時候拆 段沒有 $k"
 done
 

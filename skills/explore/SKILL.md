@@ -92,7 +92,7 @@ When an idea is clear enough to act on, break it into a two-level hierarchy: **P
 
 ### PR level — optimized for the reviewer
 
-One PR by default. Parts that differ in risk, concern or reviewer become separate commits (sub-changes) in the same PR, not separate PRs. Open a second PR only when that part both ships on its own (it can merge and go live without the rest) and must be reviewed separately, and write down why it cannot be a sub-change.
+One PR by default. Parts that differ in risk, concern or reviewer become separate commits (sub-changes) in the same PR, not separate PRs. Open a second PR only when that part both ships on its own and must be reviewed separately (it can merge and go live without the rest, and someone must review it apart from the rest). Write why it cannot be a sub-change on its `main change` line in the split gate ("Splitting a big card").
 
 ### Commit level — optimized for the AI
 
@@ -112,30 +112,27 @@ features:
   - name: eval-service
     status: active           # active | complete
     prs:
-      - name: eval-infra
-        branch: feat/eval-infra
+      - name: eval-scorer
+        branch: feat/eval-scorer
         status: pending      # pending | in-progress | merged
         depends-on: []
-        description: "Schema and interface definitions — low risk, merge first"
+        description: "Pluggable scorers on a BullMQ queue; one commit per change"
         changes:
           - name: add-scorer-interface
             status: pending  # pending | in-progress | done | skipped | on-hold
+            depends-on: []
             description: "Type definitions + pluggable scorer interface"
           - name: add-queue-schema
             status: pending
+            depends-on: []
             description: "DB migration + BullMQ queue setup"
-
-      - name: eval-core
-        branch: feat/eval-core
-        status: pending
-        depends-on: [eval-infra]
-        description: "Core implementation — main logic, careful review"
-        changes:
           - name: implement-scorer-plugins
             status: pending
+            depends-on: [add-scorer-interface]
             description: "Pluggable scorer pattern implementation"
           - name: implement-bullmq-worker
             status: pending
+            depends-on: [add-queue-schema, implement-scorer-plugins]
             description: "Queue consumer and worker"
 
   - name: notification-refactor
@@ -152,7 +149,7 @@ features:
             description: "Queue infrastructure and worker scaffold"
 ```
 
-Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-infra`), or individual changes.
+Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-scorer`), or individual changes.
 
 A PR whose changes touch only `openspec/` (not in git, so nothing to push) gets `mr: none` next to its `status`. Once review is done and its branch has no commits beyond `<primary remote>/main`, the next stage is `/opsx-workflow:archive` instead of `/opsx-workflow:pr`. Leave it off any PR that changes tracked files.
 
@@ -174,7 +171,9 @@ A project's first big explore splits its milestones with the user, each one sent
 
 Four layers, defined in `references/work-split.md`: a dispatch sends out work; a **session** (workplan `features[]`) is one pane working a group of similar main changes in order; a **main change** (`prs[]`) is one branch and one PR; a **sub-change** (`prs[].changes[]`) is one commit, done by a subagent.
 
-D5 decides only whether to split. The default result is one main change with sub-changes: one PR, the sub-changes stacked in order, each with its own tasks and commit. A second main change is allowed only when that part both ships on its own and must be reviewed separately; different risk alone is not enough. Every extra main change carries its reason on its `main change` line in the gate below, as `（不當子 change：<why>）`.
+D5 decides only whether to split. The default result is one main change with sub-changes: one PR, the sub-changes stacked in order, each with its own tasks and commit. A second main change is allowed only when that part both ships on its own and must be reviewed separately; different risk alone is not enough. Every main change after the first carries its reason on its `main change` line in the gate below, as `（不當子 change：<why>）`; with one main change, leave that line out of the template. When the split has a second main change, write the 選項 line without `(Recommended)`: the coordinator then hands the gate to the user, who checks the reasons. With one main change, keep `(Recommended)`.
+
+A main change that already has `subs/`, or is listed in a parent card's `split_into`, does not split again: it already holds the whole original card, so D5 would hold for it again. Judge D5 per sub-change instead.
 
 When the D5 check in explore.md says split (at intake, or after exploring), write the split as one gate in `openspec/changes/<slug>/gates.md`:
 
@@ -188,7 +187,7 @@ status: open
   - session <feature> (milestone: <name or none>, depends-on: [<PR names>])
     - main change <pr> · <branch> (depends-on: [<pr>])
       - sub-change <name> (depends-on: [<sibling sub-change>])
-    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<why it ships on its own and must be reviewed separately>; only when there is a second main change）
+    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<原因>）
 選項: 照這個拆法 (Recommended) | 改拆法 | 不拆
 建議: <why this grouping: similar topics share a session, one main change unless a part ships on its own and must be reviewed separately>
 風險: <what a wrong split costs>
@@ -275,7 +274,7 @@ When the change has a shell, go through these nine in order. Each condition is a
 
 When the change has a shell (`openspec/changes/<slug>/`), end by writing `explore.md` in the schema's template:
 
-- **已知**: facts from the code, each with a file path or the command you ran. Anything a prototype answered goes here with what was run and what it showed. Always include the **D5 check**, one line per criterion with your judgment: ① it spans more than one subsystem; ② it mixes different risk (data migration, permissions, external API next to ordinary logic); ③ one shell would hold more than 6 tasks. If any one holds, the card is split ("Splitting a big card"). Do not judge by estimated line count.
+- **已知**: facts from the code, each with a file path or the command you ran. Anything a prototype answered goes here with what was run and what it showed. Always include the **D5 check**, one line per criterion with your judgment: ① it spans more than one subsystem; ② it mixes different risk (data migration, permissions, external API next to ordinary logic); ③ one shell would hold more than 6 tasks. If any one holds, the card is split ("Splitting a big card"). A main change that already has `subs/` does not split again; judge each sub-change instead. Do not judge by estimated line count.
 - **待決**: only questions the user must answer (product choice, preference, risk appetite). Each with 2–4 concrete options, the recommended one marked `(Recommended)`. A question `grep` or a ten-line script could answer does not belong here.
 - **不做**: directions ruled out, with the reason.
 - **步驟**: one line for each of the nine steps, shaped `- <n> <step name>：<where its output went>` when you did it, or `- <n> <step name>：skip：<which condition did not hold>` when you did not. Steps 2 to 7 name the 已知 block that holds their output, step 8 writes `待決`, and steps 1 and 9 have no block of their own and always run, so they write `done`. For example `- 1 讀卡：done`, `- 8 待決：待決`, `- 9 unslop：done`. A `skip：` with no reason counts as a missing line. `opsx check <slug>` reads this section, the Stop hook blocks the card in explore while a line is missing, and review compares a skipped 影響範圍 with the real diff.

@@ -20,6 +20,9 @@ B5="$FX/5b"; sec "$P" "### 5b." > "$B5"; [ -s "$B5" ] || fail "propose 少 5b �
 has 'sub-changes of one main change' "$B5"; has '4c' "$B5"
 has 'ships on its own' "$B5"; has 'must be reviewed separately' "$B5"
 ! grep -qF 'give them separate PRs' "$B5" || fail "5b 不該再預設各開 PR"
+# R1.2：5b 要做得出來（4c 只在 subs/ 已存在時適用），標題不再限定 independent；R1.5 釘整句
+for k in 'openspec new change <main>' 'subs/<sub>/' 'parent: <main>' 'changes[]' 'opsx check <main>' 'both ships on its own and must be reviewed separately'; do has "$k" "$B5"; done
+! head -1 "$B5" | grep -qi 'independent' || fail "5b 標題不該再寫 independent"
 
 # --- new-auto-merge：寫 tasks.md 前，每段 ## 併入 要嘛變成 task，要嘛先 opsx split-out ---
 has '## 併入' "$P"; has 'opsx split-out' "$P"

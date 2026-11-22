@@ -136,9 +136,16 @@ If `openspec/workplan.yaml` exists, check whether this change is already listed:
 
 If no workplan exists, create it with this one feature / PR / change; the commit gate turns on once the file exists.
 
-### 5b. Several independent changes from one discussion
+### 5b. Several changes from one discussion
 
-When this proposal produced more than one change, make them sub-changes of one main change by default: one PR, shells per 4c. Give a change its own PR only when it both ships on its own and must be reviewed separately, and write why it cannot be a sub-change in its proposal.md. Separate PRs name in `depends-on` only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
+When this proposal produced more than one change, make them sub-changes of one main change by default, in one PR:
+
+1. `openspec new change <main> --schema opsx` for the main shell, unless the card you are proposing already is that shell.
+2. Each change goes under `openspec/changes/<main>/subs/<sub>/` with `inbox.md` (frontmatter `parent: <main>`, `depends-on: [<sibling>]`) and `.openspec.yaml` (`schema: opsx`, `kind:`, `parent: <main>`), the same as `../explore/SKILL.md` "Splitting a big card" steps 1–2.
+3. In `openspec/workplan.yaml`, one PR for `<main>` with the sub-changes as its `changes[]` and their sibling `depends-on`.
+4. Write the shells per 4c, then run `opsx check <main>`.
+
+Give a change its own PR only when it both ships on its own and must be reviewed separately, and write why it cannot be a sub-change in its proposal.md (copy the reason from the split gate's `main change` line when explore wrote one). Separate PRs name in `depends-on` only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
 
 ### 6. Show final status
 

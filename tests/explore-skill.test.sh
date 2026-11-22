@@ -48,6 +48,28 @@ PRL="$FX/pr-level"; awk '/^### PR level/{on=1;next} on && /^#{2,3} /{exit} on' "
 has 'ships on its own' "$PRL"; has 'must be reviewed separately' "$PRL"
 for k in 'Different risk' 'Different concern' 'Different reviewer'; do ! grep -qF -- "$k" "$PRL" || fail "PR level 段還有 $k"; done
 
+# --- R1.5：兩條同時成立要釘整句，且要在範本外的說明文字（範本本身不算） ---
+PROSE="$FX/split-prose"; awk '/^```/{exit} {print}' "$SPLIT" > "$PROSE"
+has 'both ships on its own and must be reviewed separately' "$PROSE"
+has 'different risk alone is not enough' "$PROSE"
+has 'both ships on its own and must be reviewed separately' "$PRL"
+! grep -qF 'or must be reviewed separately' "$SK" || fail "條件是「且」，不能寫成 or"
+
+# --- R1.1：已經有 subs/ 的主 change 不再拆（不然整張原卡的範圍會在主 change 再觸發 D5） ---
+has 'already has `subs/`' "$ENDING"; has 'does not split again' "$ENDING"
+has 'already has `subs/`' "$PROSE"
+
+# --- R1.3：workplan 範例不再按風險拆兩個 PR ---
+! grep -qF 'low risk, merge first' "$SK" || fail "workplan 範例不該再按風險拆 PR"
+! grep -qF 'eval-core' "$SK" || fail "workplan 範例應是一個 PR"
+
+# --- R1.4：範本佔位不夾指示；PR level 寫明理由寫在哪 ---
+! grep -qF 'only when there is a second main change' "$SGATE" || fail "範本佔位不能夾給 agent 的指示"
+has '`main change` line' "$PRL"
+
+# --- R2.1（D9）：有第二張主 change 時 選項 不標 Recommended，交使用者看理由 ---
+has 'without `(Recommended)`' "$PROSE"
+
 # --- Scenario：移除 autopilot 不確認的句子 ---
 ! grep -qF 'written without the confirmation step' "$SK" || fail "autopilot 不確認的句子要移除"
 has 'Splitting a big card' "$ENGAGE"
