@@ -312,4 +312,15 @@ before="$(snap)"
 err="$(opsx merge-card carry-src6 --into carry-dst6 --repo "$A" 2>&1)" && fail "impact 沒有 evidence 要退出非零"
 case "$err" in *evidence*) ;; *) fail "stderr 要指名 evidence：$err" ;; esac
 assert_eq "$(snap)" "$before"
+
+# --- 併進時來源撞名，兩張卡都不動（specs/slug-archive-unique）：今天已有來源的同名歸檔 ---
+# openspec archive 取真實的今天，假 date 管不到，所以今天用 python 取
+TODAY="$(python3 -I -c 'import datetime; print(datetime.date.today())')"
+mk_card arch-src planned "" ""; mk_card arch-dst planned "" ""
+mkdir -p "$CH/archive/$TODAY-arch-src"
+before="$(snap)"
+err="$(opsx merge-card arch-src --into arch-dst --repo "$A" 2>&1)" && fail "來源今天已有同名歸檔，merge-card 要退出非零"
+case "$err" in *"archive/$TODAY-arch-src"*) ;; *) fail "stderr 要指出撞名的歸檔路徑：$err" ;; esac
+assert_eq "$(snap)" "$before" "撞名時兩張卡都不能動"
+assert_dir "$CH/arch-src"
 echo ok

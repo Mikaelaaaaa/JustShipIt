@@ -146,4 +146,23 @@ wait "$NEW"; rc=$?
 [ $rc -ne 0 ] || fail "卡已歸檔，opsx new 不能併進去：$(cat "$FX/new.out")"
 assert_grep '併不進' "$FX/new.err"
 assert_not_grep '晚到的併入' "$CH/archive/2026-11-11-$T/inbox.md"
+
+# --- 今天已有同名歸檔時拒絕捨棄（specs/slug-archive-unique）：什麼都不寫，卡留在 changes/ ---
+# openspec archive 取真實的今天，假 date 管不到，所以今天用 python 取
+TODAY="$(python3 -I -c 'import datetime; print(datetime.date.today())')"
+export OPSX_TEST_NOW="2026-11-06 17:00"
+Z="$(opsx new --repo "$A" -- 今天歸檔撞名)"
+mkdir -p "$CH/archive/$TODAY-$Z"
+before="$(snap)"
+err="$(opsx drop "$Z" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "今天已有同名歸檔，drop 要拒絕"
+case "$err" in *"archive/$TODAY-$Z"*) ;; *) fail "stderr 要指出撞名的歸檔路徑：$err" ;; esac
+assert_eq "$(snap)" "$before" "撞名時卡的檔案都不能動"; assert_dir "$CH/$Z"
+
+# --- 別天的同名歸檔不擋捨棄 ---
+export OPSX_TEST_NOW="2026-11-06 17:01"
+O="$(opsx new --repo "$A" -- 別天歸檔過)"
+mkdir -p "$CH/archive/2020-01-01-$O"
+assert_rc 0 opsx drop "$O" --repo "$A" -- 不要了
+assert_dir "$CH/archive/$TODAY-$O"; assert_no_file "$CH/$O"
 echo ok

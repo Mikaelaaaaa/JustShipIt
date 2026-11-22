@@ -145,14 +145,15 @@ cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "帶附件：x/inbox.md 不該變"
 assert_eq "$(dirs)" "x " "帶附件：沒有新殼"
 
 # --- merge-card 寫入再 split-out 讀回：新殼 frontmatter 之後的內容跟來源一模一樣 ---
+# src 已隨 merge-card 歸檔成 archive/<今天>-src，拆回來的殼是 src-2，之後捨棄才不會撞名（specs/slug-archive-unique）
 reset; card x; card src
 printf '\n## 派工指示\n\n- 2026-11-20T10:00:00+08:00 先跑 lint\n' >> "$C/src/inbox.md"
 body() { awk 'n >= 2; /^---$/ { n++ }' "$1"; }
 body "$C/src/inbox.md" > "$FX/src-body.md"
 opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
 split x src; assert_eq "$?" 0 "往返拆回要退出 0：$(cat "$ERR")"
-assert_eq "$(cat "$OUT")" src
-body "$C/src/inbox.md" > "$FX/back-body.md"
+assert_eq "$(cat "$OUT")" src-2
+body "$C/src-2/inbox.md" > "$FX/back-body.md"
 cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
 # --- 只刪那一段 ---
@@ -321,4 +322,13 @@ want = (sys.argv[3], "fix/%s/mika" % sys.argv[3], [sys.argv[3]])
 assert [(p["name"], p["branch"], [c["name"] for c in p["changes"]]) for p in f["prs"]][1:] == [want], f
 PY
 rm "$E/openspec/workplan.yaml"
+
+# --- 拆出的 id 跟歸檔卡同名（specs/slug-archive-unique）：換成 <id>-2，記「拆出 <id> 成 <id>-2」---
+reset; card x
+merge --kind-of-work planned -- 跟歸檔同名
+mkdir -p "$C/archive/2026-11-17-$ID"
+split x "$ID"; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" "$ID-2" "跟歸檔同名的 id 要拆成 -2"
+assert_file "$C/$ID-2/inbox.md"; assert_no_file "$C/$ID/inbox.md"
+assert_eq "$(tail -1 "$C/x/decisions.tsv" | cut -f4)" "拆出 $ID 成 $ID-2"
 echo ok
