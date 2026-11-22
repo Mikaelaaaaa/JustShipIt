@@ -58,7 +58,7 @@ for f in "$README" "$SETUP"; do
 done
 ! grep -qF 'opsx 看板' "$README" || fail "README 還把看板叫 opsx 看板"
 grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShipIt"
-grep -qF '</svg>JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
+grep -qE 'class="brand">.*</svg>(</span>)?JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
 # --- Requirement：README 把看板當現況寫 ---
 printf '%s\n' "$top" | grep -qF 'docs/assets/board-web-framed.png' || fail "開頭主圖不是 docs/assets/board-web-framed.png"

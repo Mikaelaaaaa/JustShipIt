@@ -29,19 +29,22 @@ const body = name => { const i = html.indexOf(`function ${name}(`); return html.
 assert.ok(body('rowRunning').includes('holdBadge(c)'), 'rowRunning 要畫 hold');
 assert.ok(body('rowReady').includes('paneStage(c)'), 'rowReady 要畫 pane 在哪一站');
 
-// 面板順序：待處理、進行中、等待中、待指派；沒有等待中的卡時顯示空字
-const home = body('renderHome');
-const at = t => { const i = home.indexOf(t); assert.ok(i >= 0, `renderHome 要有 ${t}`); return i; };
-const order = [at("panel('待處理'"), at("panel('進行中'"), at("panel('等待中'"), at("`待指派 · ")];
-assert.deepStrictEqual([...order].sort((a, b) => a - b), order, '面板依序是 待處理、進行中、等待中、待指派');
-assert.ok(home.includes("H('等待中')"), '等待中面板取 section 是等待中的卡');
-assert.ok(home.includes('沒有在等的工作'), '沒有等待中的卡時顯示 沒有在等的工作');
+// 看板欄的順序：待處理、進行中、等待中、待指派、收件匣、已完成（specs/board-pages「看板欄」）；等待中欄畫 rowRunning
+const secSrc = html.slice(html.indexOf('const SECTIONS='), html.indexOf('];', html.indexOf('const SECTIONS=')) + 2);
+const SECTIONS = new Function(secSrc + 'return SECTIONS;')();
+assert.deepStrictEqual(SECTIONS.map(s => s.name), ['待處理', '進行中', '等待中', '待指派', '收件匣', '已完成'], '六欄的順序');
+assert.ok(html.includes("'等待中':rowRunning"), '等待中欄的卡用 rowRunning 畫（帶 hold）');
+const board = body('pageBoard');
+assert.ok(board.includes("cards.filter(c=>c.section===s.name)"), '每欄取 section 相同的卡');
+assert.ok(board.includes('沒有卡'), '欄裡沒有卡時顯示空字');
 
 // report 待你決定的列：標籤、問題、開啟 pane，沒有合併與照建議
 assert.ok(/WAIT_BADGE=\{[^}]*'report 待你決定'/.test(html), 'WAIT_BADGE 要有 report 待你決定');
 const WAIT_BADGE = new Function(html.slice(html.indexOf('const WAIT_BADGE='), html.indexOf(';', html.indexOf('const WAIT_BADGE=')) + 1) + 'return WAIT_BADGE;')();
-const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui',
-  body('rowAttn') + ';return rowAttn;')(esc, WAIT_BADGE, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null});
+const joinDot = new Function(body('joinDot') + ';return joinDot;')();
+const nw = new Function(html.slice(html.indexOf('const nw='), html.indexOf('\n', html.indexOf('const nw='))) + ';return nw;')();
+const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', 'joinDot', 'nw',
+  body('rowAttn') + ';return rowAttn;')(esc, WAIT_BADGE, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, joinDot, nw);
 const row = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: 'abc'},
   waiting: {type: 'report 待你決定', question: 'report.md 有留給人決定的項目', options: ['開啟 pane']}});
 assert.ok(row.includes('report 待你決定') && row.includes('report.md 有留給人決定的項目'), '列上要有標籤與問題：' + row);
@@ -51,8 +54,8 @@ assert.ok(!row.includes('data-act="stop"'), '不能有停止按鈕：' + row);
 assert.ok(!row.includes('照建議'), '不能有照建議');
 
 // 待指派列：已派出的卡給開啟 pane、不給指派；沒派出的照舊給指派
-const rowReady = new Function('esc', 'KIND', 'pendBadge', 'priorityBadge', 'since', 'stoppedLine', 'key', 'ui', 'paneStage',
-  body('rowReady') + ';return rowReady;')(esc, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, paneStage);
+const rowReady = new Function('esc', 'KIND', 'pendBadge', 'priorityBadge', 'since', 'stoppedLine', 'key', 'ui', 'paneStage', 'bot', 'joinDot', 'nw',
+  body('rowReady') + ';return rowReady;')(esc, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, paneStage, () => '', joinDot, nw);
 const live = rowReady({slug: 'g', title: 'g', repo: 'r', kind: 'dev', stage: 'grill', dispatch: {pane: 'p1'}});
 assert.ok(live.includes('pane 在 grill') && live.includes('data-act="pane"'), '已派出的卡有 pane 在 grill 與開啟 pane：' + live);
 assert.ok(!live.includes('data-act="dispatch"'), '已派出的卡不給指派：' + live);

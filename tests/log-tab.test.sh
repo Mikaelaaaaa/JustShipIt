@@ -15,21 +15,26 @@ if (a < 0 || b < 0) throw new Error('index.html 找不到切片標記：' + [a <
 const slice = src.slice(a, b);
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function load(tl) {
-  // 跟 index.html 的 ui 字面值一樣沒有 logLimit：初始值要由切片自己設
-  const ui = { scope: 'all', ws: null, repo: null, logFilter: 'all' };
-  const f = new Function('ui', 'tl', 'tlErr', 'esc', 'inScope',
-    slice + ';return {renderLog, setView, logMore, setLogFilter, setScope, LOG_PAGE};');
-  return { ui, ...f(ui, tl, '', esc, () => true) };
+function load(tl, evPass) {
+  // 跟 index.html 的 ui 字面值一樣沒有 logLimit：初始值要由切片自己設；事件類別篩選是篩選條件的 ev
+  const ui = {};
+  const F = { ev: 'all' };
+  const f = new Function('ui', 'F', 'tl', 'tlErr', 'esc', 'evPass',
+    slice + ';return {renderLog, setView, logMore, setLogFilter, syncLogLimit, LOG_PAGE};');
+  return { ui, F, ...f(ui, F, tl, '', esc, evPass || (() => true)) };
 }
-// 切片外的接線：#view 只經 setView 寫；render() 用 setView；兩個範圍選單都走 setScope
+// 切片外的接線：#view 只經 setView 寫；render() 與 renderContent() 都用 setView，並先把 hash 的篩選條件交給 syncLogLimit
 {
   assert.ok(!/\$\('#view'\)\.innerHTML\s*=/.test(src), "index.html 不該直接寫 $('#view').innerHTML");
-  const r = src.indexOf('function render(){');
-  assert.ok(r >= 0, 'index.html 找不到 function render(){');
-  assert.ok(src.slice(r, src.indexOf('\n}', r)).includes("setView($('#view'),"), 'render() 要經 setView 寫 #view');
-  assert.strictEqual((src.match(/setScope\(/g) || []).length, 3, '範圍選單兩個 handler 都要呼叫 setScope（加上定義共 3 處）');
-  assert.ok(!/ui\.scope\s*=\s*'/.test(src.slice(b)), '範圍只能經 setScope 改');
+  for (const name of ['function render(){', 'function renderContent(){']) {
+    const r = src.indexOf(name);
+    assert.ok(r >= 0, 'index.html 找不到 ' + name);
+    const body = src.slice(r, src.indexOf('\n}', r));
+    assert.ok(body.includes("setView($('#view'),"), name + ' 要經 setView 寫 #view');
+    assert.ok(body.indexOf('syncLogLimit(query)') >= 0 && body.indexOf('syncLogLimit(query)') < body.indexOf("setView($('#view'),"), name + ' 要在畫之前 syncLogLimit');
+  }
+  // 範圍、repo、時間等條件都在紀錄頁的篩選裡：renderLog 每一列都過 evPass
+  assert.ok(src.includes('const evPass=e=>inTime(F,e.ts,Date.now())&&matchF(F,facetOfEvent(e),data.scopes);'), 'evPass 套時間與篩選條件');
 }
 // n 列，由新到舊，每天 10 列；偶數列是「你」回的
 function events(n) {
@@ -83,13 +88,41 @@ for (const n of [150, 200]) {
   assert.strictEqual(t.ui.logLimit, 200);
   assert.strictEqual(rows(t.renderLog()), 200);
 }
-// 換範圍回到 200
+// 換範圍（或任何篩選條件，hash 的 ? 之後變了）回到 200；條件沒變時不重設
 {
   const t = load({ events: events(450), errors: [] });
-  t.logMore(); t.setScope('ws', 'develop', 'a');
-  assert.deepStrictEqual([t.ui.scope, t.ui.ws, t.ui.repo, t.ui.logLimit], ['ws', 'develop', 'a', 200]);
-  t.logMore(); t.setScope('all', 'develop', null);
-  assert.strictEqual(t.ui.logLimit, 200);
+  t.syncLogLimit('');
+  t.logMore(); t.syncLogLimit('');
+  assert.strictEqual(t.ui.logLimit, 400, '條件沒變不重設');
+  t.syncLogLimit('sc=ws%3Adevelop');
+  assert.strictEqual(t.ui.logLimit, 200, '換範圍回到 200');
+  t.logMore(); t.syncLogLimit('sc=ws%3Adevelop&t=today');
+  assert.strictEqual(t.ui.logLimit, 200, '換時間回到 200');
+}
+// 篩選條件（evPass）套用之後才算 200 列：同步事件被範圍條件擋掉
+{
+  const ev = [...events(3), { ts: '2026-11-06T23:30:00+08:00', source: 'sync', who: '系統', tag: '同步', text: 'sync-row', evidence: 'gitlab' }];
+  const all = load({ events: ev, errors: [] }).renderLog();
+  assert.ok(all.includes('sync-row'), '沒有範圍條件時同步事件出現');
+  const scoped = load({ events: ev, errors: [] }, e => !!e.repo).renderLog();
+  assert.strictEqual(rows(scoped), 3);
+  assert.ok(!scoped.includes('sync-row'), '範圍條件擋掉沒有 repo 的同步事件');
+}
+// Scenario 篩替你做的決定、舊列
+{
+  const ev = [
+    { ts: '2026-11-06T15:00:00+08:00', repo: 'a', slug: 'x', who: 'claude', tag: '替你決定', text: 'pick-b', evidence: '', source: 'decisions' },
+    { ts: '2026-11-06T14:00:00+08:00', repo: 'a', slug: 'x', who: '', tag: '其他', text: 'legacy-row', evidence: '', source: 'decisions' },
+  ];
+  const t = load({ events: ev, errors: [] });
+  t.setLogFilter('agent');
+  assert.strictEqual(t.F.ev, 'agent');
+  const h = t.renderLog();
+  assert.ok(h.includes('pick-b') && !h.includes('legacy-row'), '只剩替你決定');
+  t.setLogFilter('all');
+  const old = t.renderLog().split('<div class="ev">').find(x => x.includes('legacy-row'));
+  assert.ok(old.includes('>—<') && old.includes('>其他<') && old.includes('舊格式的列'), '舊列：誰是 —、標籤其他、照原文：' + old);
+  assert.ok(h.includes('data-act="ev-open" data-key="a/x"'), '卡可點，開細節頁');
 }
 // 按日分組（既有 Scenario）：11/06 三筆在前，11/05 兩筆在後
 {

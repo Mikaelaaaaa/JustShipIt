@@ -92,7 +92,7 @@ printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"bbb222","he
 # herdr：x4 working、y1 blocked、foo 沒對到卡
 export OPSX_TEST_HERDR_AGENTS="$FX/agents.json"
 # 真格式（tests/fakes/herdr-samples/agent-list.json）：result.agents[].pane_id，沒有 agent 名字
-printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"p4","tab_id":"t1","workspace_id":"develop","agent_status":"working","cwd":"/x","terminal_title_stripped":"x4"},{"agent":"claude","pane_id":"p9","agent_status":"blocked","cwd":"/y","terminal_title_stripped":"y1"},{"agent":"claude","pane_id":"p7","workspace_id":"w9","agent_status":"idle","cwd":"/Users/me","terminal_title_stripped":"foo"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
+printf '{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","pane_id":"p4","tab_id":"t1","workspace_id":"develop","agent_status":"working","cwd":"/x","terminal_title_stripped":"x4"},{"agent":"claude","pane_id":"p9","agent_status":"blocked","cwd":"/y","terminal_title_stripped":"y1"},{"agent":"claude","pane_id":"p7","workspace_id":"w9","agent_status":"idle","cwd":"/Users/me","terminal_title_stripped":"foo"},{"agent":"claude","name":"opsx-coordinator","pane_id":"p8","workspace_id":"w9","agent_status":"idle","cwd":"/Users/me","terminal_title_stripped":"Opsx coordinator session duties"}],"type":"agent_list"}}' > "$OPSX_TEST_HERDR_AGENTS"
 
 # ---------- 在 herdr 內 ----------
 export HERDR_ENV=1
@@ -161,7 +161,8 @@ C="$(card "$J" b y1)"; assert_eq "$(q "$C" waiting.type)" 終端機等待輸入
 assert_eq "$(q "$C" waiting.options)" '["開啟 pane", "停止", "重新指派"]'; assert_eq "$(q "$C" section)" 待處理
 
 # 沒對到卡的 agent
-assert_eq "$(q "$J" unmatched_agents)" '[{"agent_status": "idle", "cwd": "/Users/me", "name": "foo", "orphan": false, "pane": "p7", "workspace": "w9"}]'
+# herdr 名是 opsx-coordinator 的是協調者 session：coordinator 為 true，看板放固定位置，不跟其他沒對到卡的 agent 混在一起
+assert_eq "$(q "$J" unmatched_agents)" '[{"agent_status": "idle", "coordinator": false, "cwd": "/Users/me", "name": "foo", "orphan": false, "pane": "p7", "workspace": "w9"}, {"agent_status": "idle", "coordinator": true, "cwd": "/Users/me", "name": "Opsx coordinator session duties", "orphan": false, "pane": "p8", "workspace": "w9"}]'
 # 真樣本也讀得懂（兩個 agent 都沒對到卡）
 J2="$(OPSX_TEST_HERDR_AGENTS= opsx collect --root "$ROOT")"; assert_eq "$(q "$J2" unmatched_agents.0.pane)" "w1:p2"; assert_eq "$(q "$J2" unmatched_agents.1.name)" "Worktree cleanup"
 assert_eq "$(q "$J" unfiled)" '[]' "沒有 unfiled/ 時是空陣列"

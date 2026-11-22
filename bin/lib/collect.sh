@@ -112,6 +112,7 @@ PY
 import datetime, glob, json, os, re, sys, tomllib
 sys.path.insert(0, os.environ["OPSX_C_LIB"])
 import chain
+import coordq
 import gaterule
 import gatetype
 import grantactions
@@ -649,7 +650,7 @@ for a in (agents or []):
 orphan_panes = {str(o["pane"]) for o in orphans}
 unmatched = [{"name": a.get("terminal_title_stripped") or a.get("agent") or "", "pane": a.get("pane_id"),
               "agent_status": a.get("agent_status"), "cwd": a.get("cwd"), "workspace": a.get("workspace_id"),
-              "orphan": str(a.get("pane_id")) in orphan_panes}
+              "orphan": str(a.get("pane_id")) in orphan_panes, "coordinator": a.get("name") == coordq.COORDINATOR}
              for a in (agents or []) if str(a.get("pane_id")) not in matched_panes]
 reported = {e["source"] for e in errors}
 errors.extend({"source": p, "message": m} for p, m in unreadable.items() if p not in reported)
