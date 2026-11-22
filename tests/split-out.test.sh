@@ -32,6 +32,7 @@ merge --kind-of-work planned --evidence "bin/x.sh 紅" -- 鉤子漏擋
 assert_grep "^- id: $ID\$" "$C/x/inbox.md"
 split x "$ID"; assert_eq "$?" 0 "拆出要退出 0：$(cat "$ERR")"
 assert_eq "$(cat "$OUT")" "$ID" "stdout 是新 slug"
+assert_not_grep 'frontmatter' "$ERR"; assert_not_grep '併進' "$ERR"   # 一行形狀沒有 carry、沒有證據行，不提醒
 assert_eq "$(dirs)" "$ID x "
 printf -- '---\ntype: bug\nsource: agent:foo\nfound: 2026-11-11\nrelated:\nkind_of_work: planned\nevidence: bin/x.sh 紅\n---\n\n## 一句話\n\n鉤子漏擋\n\n## 證據\n\n' > "$FX/want.md"
 cmp -s "$C/$ID/inbox.md" "$FX/want.md" || fail "新殼 inbox.md 形狀不對：$(diff "$FX/want.md" "$C/$ID/inbox.md")"
@@ -155,6 +156,47 @@ assert_eq "$(cat "$OUT")" src
 body "$C/src/inbox.md" > "$FX/back-body.md"
 cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
+# --- 帶 frontmatter 的縮排段原樣拆回：新殼跟來源併入前的 inbox.md 一字不差 ---
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3' 'priority: P1' 'priority_reason: 照建議：降為 P1'
+sed -i '' 's/^found: 2026-11-10$/found: 2026-11-17/; s/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+cp "$C/src/inbox.md" "$FX/src-orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^  ---$' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "帶 frontmatter 的縮排段要拆得出：$(cat "$ERR")"
+cmp -s "$C/src/inbox.md" "$FX/src-orig.md" || fail "新殼要跟來源原本的 inbox.md 一字不差：$(diff "$FX/src-orig.md" "$C/src/inbox.md")"
+
+# --- 拆回時照 - carried: 撤回 carry，刪掉 - 併進 證據行：x 回到併入前 ---
+REPO="$(basename "$E")"
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^kind_of_work: incident$' "$C/x/inbox.md"; assert_grep '^impact: prod_or_main$' "$C/x/inbox.md"
+assert_grep "^- 併進：$REPO/src · " "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "撤回 carry 要退出 0：$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"; assert_not_grep '^impact:' "$C/x/inbox.md"
+assert_not_grep 'foo.py:3' "$C/x/inbox.md"; assert_not_grep "^- 併進：$REPO/src · " "$C/x/inbox.md"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "撤回後 x/inbox.md 要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+
+# --- 人改過的值不撤：carry 寫了 P1，人改成 P0，拆回後仍是 P0 ---
+reset; card x 'priority: P2' 'priority_reason: 原理由'; card src 'priority: P1' 'priority_reason: 手動'
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^priority: P1$' "$C/x/inbox.md"
+sed -i '' 's/^priority: P1$/priority: P0/' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P0$' "$C/x/inbox.md"
+
+# --- 舊段（縮排、沒有 - carried:）：frontmatter 不動，只刪證據行，stderr 提醒 ---
+reset; card x 'impact: data' 'evidence: 舊證據'
+printf -- '- 併進：%s/old · source: me\n' "$REPO" >> "$C/x/inbox.md"
+indented old '  ## 一句話
+
+  舊的縮排段'
+split x old; assert_eq "$?" 0 "舊段要拆得出：$(cat "$ERR")"
+assert_grep '^impact: data$' "$C/x/inbox.md"
+assert_not_grep "^- 併進：$REPO/old · " "$C/x/inbox.md"
+assert_grep 'old.*frontmatter' "$ERR"
+
 # --- 只刪那一段 ---
 reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
 merge --kind-of-work planned -- 第一段
@@ -171,6 +213,16 @@ assert_grep '^第一段$' "$C/$ID/inbox.md"
 split x "$ID-2"; assert_eq "$?" 0 "$(cat "$ERR")"
 assert_eq "$(cat "$OUT")" "$ID-2"
 cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "拆完兩段要回到原樣：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+
+# --- Unicode 行界字元不影響刪段：第一段一句話含 U+2028，拆出後第二段與其餘位元組不變 ---
+reset; card x
+sec2='## 併入：2026-11-11T10:41:00+08:00 agent:foo\n\n- id: ls2\n- kind_of_work: planned\n- type: bug\n\n第二段\n'
+cp "$C/x/inbox.md" "$FX/want.md"; printf "\\n$sec2" >> "$FX/want.md"
+printf '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: ls1\n- kind_of_work: planned\n- type: bug\n\nfoo\342\200\250bar\n' >> "$C/x/inbox.md"
+printf "\\n$sec2" >> "$C/x/inbox.md"
+split x ls1; assert_eq "$?" 0 "一句話含 U+2028 要拆得出：$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/want.md" || fail "只該刪含 U+2028 的那段：$(diff "$FX/want.md" "$C/x/inbox.md")"
+assert_grep $'^foo\342\200\250bar$' "$C/ls1/inbox.md"
 
 # --- 併入後 note 在檔尾長出 ## 派工指示：拆出併入段，派工指示一字不變 ---
 reset; card x
