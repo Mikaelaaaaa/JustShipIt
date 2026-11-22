@@ -13,7 +13,19 @@ import re
 # 建議或選項裡有這些字，代表要人動手
 HUMAN_WORDS = ("你", "使用者", "沙盒外", "自己跑", "本人", "人工", "跑指令", "跑腳本", "錄", "貼路徑")
 HUMAN_QUESTION = ("只有你能做", "誰來跑")
+# 協調者會照抄建議去跑，git merge origin/main 這類指令也不能交給它，所以代跑檢查刻意用寬的字詞比對
 MERGE_WORDS = ("合併", "merge")
+# 只認 MR 語境的合併：合併兩個 helper、git merge origin/main、合併卡片都不算。中文前後不能用 \b，因為 Python 把中文當成 \w
+MR_MERGE = re.compile(
+    r"mr-merge|merge[ _-]request|(merge|合併) ?api(?![a-z])"
+    r"|(合併|merge) ?((mr|pr)s?|![0-9]+)(?![a-z0-9])|(?<![a-z])((mr|pr)s?|![0-9]+) ?(合併|merge)"
+    r"|合進 ?main(?![a-z])|merge (into|to) main(?![a-z])|按合併",
+    re.IGNORECASE)
+# 白名單沒寫到的說法改看兩個訊號：同時有合併字眼與 MR 錨點才算。origin/main 是本地同步，不算錨點
+MERGE_WORD = re.compile(r"合併|merge", re.IGNORECASE)
+MR_ANCHOR = re.compile(
+    r"(?<![a-z])(mr|pr)s?(?![a-z])|merge[ _-]request|pull[ _-]request|[!#][0-9]+|(?<!origin/)(?<![a-z])(main|master)(?![a-z])",
+    re.IGNORECASE)
 # explore 寫的拆法確認 gate 的 id
 SPLIT_GATE = "split"
 # 這個 repo 的 decision 由協調者照建議答
@@ -21,6 +33,10 @@ ANSWER_REPO = "opsx-workflow"
 # drive、Stop hook 卡住與協調者等背景工作太久時寫的 gate 標題（drive-<站>-<n>、卡在接 /<站> [#<n>]、stale-wait-<時間>）：
 # 建議欄是給人看的提示，不是答案
 STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?|stale-wait-[0-9]+")
+
+
+def is_mr_merge(text):
+    return bool(MR_MERGE.search(text) or (MERGE_WORD.search(text) and MR_ANCHOR.search(text)))
 
 
 def decide(w, repo):
@@ -39,7 +55,7 @@ def decide(w, repo):
         return ("human", "run")
     if w["type"] == "等待授權":
         # 合併永遠由人按：action 不一定剛好寫成 merge（mr-merge、external 打合併 API），題目也要看
-        if any(k in merge_text for k in MERGE_WORDS):
+        if (w.get("action") or "").lower() == "merge" or is_mr_merge(merge_text):
             return ("human", "merge-grant")
         return ("human", "approval")
     if w["type"] == "終端機等待輸入":
@@ -53,7 +69,7 @@ def decide(w, repo):
     # gate 明寫 waits-on 才算等別張卡。要排在合併類規則前，不然會被它吃掉
     if w.get("waits_on"):
         return ("park", w["waits_on"])
-    if any(k in (q + " " + (pick or "")).lower() for k in MERGE_WORDS):
+    if is_mr_merge(q + " " + (pick or "")):
         return ("human", "merge")
     if not pick:
         return ("human", "no-pick")
