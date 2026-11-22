@@ -9,7 +9,7 @@
     $OPSX_PY -I inboxmerge.py remove <卡目錄> <id>
         刪掉那一段，其餘位元組不動。找不到退出 2。
     $OPSX_PY -I inboxmerge.py ids <卡目錄>
-        一行印一個這張卡現有的併入 id（opsx drop 用來拒絕還有併入項目的卡）。
+        一行印一個這張卡現有的併入 id（opsx drop 用來拒絕還有併入項目的卡）。有讀不懂的併入段時不印、退出 1。
     $OPSX_PY -I inboxmerge.py split-out <卡目錄> <id> <repo 根>
         同一個卡鎖內讀那一段、算好拆掉後的目標全文（照 `- carried:` 撤回目標 frontmatter、用其餘帶 frontmatter 的段照 carry 規則補回這次撤掉的部分
         並記進它們的 `- carried:`、刪「- 併進」證據行、刪那一段）、用 common.sh 的 new_shell 建殼、一次寫回目標；印新殼 slug。
@@ -631,6 +631,14 @@ def carry(target_dir: str, source_inbox: str, source_slug: str, mid: str | None)
         safefile.write_atomic(inbox, with_carried(new, mid, record_of(t, s, updates, fm)))
 
 
+def refuse_unreadable(text: str) -> None:
+    """讀不懂的併入段一樣是別人的併入項目（merged_ids 可能數不到，例如 id 行含 \\r），而且 split-out 拆不出，所以先叫人修好；
+    排在數 id 之前，免得訊息叫人先跑一次注定失敗的 split-out。"""
+    bad = [str(got) for _, got in sections(text) if isinstance(got, ValueError)]
+    if bad:
+        raise ValueError("還有讀不懂的併入段，先修好再捨棄：%s" % "；".join(bad))
+
+
 def drop(card_dir: str, reason: str, argv: list) -> int:
     """在卡鎖內重查併入段、寫 outcome 與捨棄理由、跑 argv（歸檔），到 argv 結束才放鎖。argv 失敗回 3。"""
     inbox = os.path.join(card_dir, "inbox.md")
@@ -638,13 +646,10 @@ def drop(card_dir: str, reason: str, argv: list) -> int:
         if os.path.exists(inbox):
             with open(inbox, encoding="utf-8", newline="") as f:
                 text = f.read()
+            refuse_unreadable(text)
             ids = sorted(merged_ids(text))
             if ids:
                 raise ValueError("還有併入的項目（%s），先用 opsx split-out 拆出來再捨棄" % " ".join(ids))
-            # 讀不懂的併入段 merged_ids 可能數不到（例如 id 行含 \r），一樣算還有併入項目
-            bad = [str(got) for _, got in sections(text) if isinstance(got, ValueError)]
-            if bad:
-                raise ValueError("還有讀不懂的併入段，先修好再捨棄：%s" % "；".join(bad))
         with safefile.open_append(os.path.join(card_dir, ".openspec.yaml")) as f:
             f.write("outcome: declined\n")
         with safefile.open_append(inbox) as f:
@@ -682,8 +687,10 @@ def main() -> None:
             sys.stdout.write(card(*args[1:]))
         elif cmd == "ids":
             with open(os.path.join(args[1], "inbox.md"), encoding="utf-8", newline="") as f:
-                for mid in sorted(merged_ids(f.read())):
-                    print(mid)
+                text = f.read()
+            refuse_unreadable(text)
+            for mid in sorted(merged_ids(text)):
+                print(mid)
         else:
             remove(*args[1:])
     except FileNotFoundError as e:
