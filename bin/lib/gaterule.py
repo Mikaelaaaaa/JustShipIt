@@ -17,14 +17,14 @@ HUMAN_QUESTION = ("只有你能做", "誰來跑")
 MERGE_WORDS = ("合併", "merge")
 # 只認 MR 語境的合併：合併兩個 helper、git merge origin/main、合併卡片都不算。中文前後不能用 \b，因為 Python 把中文當成 \w
 MR_MERGE = re.compile(
-    r"mr-merge|merge request|(merge|合併) ?api(?![a-z])"
-    r"|(合併|merge) ?(mr|pr|![0-9]+)(?![a-z0-9])|(?<![a-z])(mr|pr|![0-9]+) ?(合併|merge)"
+    r"mr-merge|merge[ _-]request|(merge|合併) ?api(?![a-z])"
+    r"|(合併|merge) ?((mr|pr)s?|![0-9]+)(?![a-z0-9])|(?<![a-z])((mr|pr)s?|![0-9]+) ?(合併|merge)"
     r"|合進 ?main(?![a-z])|merge (into|to) main(?![a-z])|按合併",
     re.IGNORECASE)
 # 白名單沒寫到的說法改看兩個訊號：同時有合併字眼與 MR 錨點才算。origin/main 是本地同步，不算錨點
 MERGE_WORD = re.compile(r"合併|merge", re.IGNORECASE)
 MR_ANCHOR = re.compile(
-    r"(?<![a-z])(mr|pr)(?![a-z])|merge request|pull request|[!#][0-9]+|(?<!origin/)(?<![a-z])(main|master)(?![a-z])",
+    r"(?<![a-z])(mr|pr)s?(?![a-z])|merge[ _-]request|pull[ _-]request|[!#][0-9]+|(?<!origin/)(?<![a-z])(main|master)(?![a-z])",
     re.IGNORECASE)
 # explore 寫的拆法確認 gate 的 id
 SPLIT_GATE = "split"
@@ -55,7 +55,7 @@ def decide(w, repo):
         return ("human", "run")
     if w["type"] == "等待授權":
         # 合併永遠由人按：action 不一定剛好寫成 merge（mr-merge、external 打合併 API），題目也要看
-        if w.get("action") == "merge" or is_mr_merge(merge_text):
+        if (w.get("action") or "").lower() == "merge" or is_mr_merge(merge_text):
             return ("human", "merge-grant")
         return ("human", "approval")
     if w["type"] == "終端機等待輸入":

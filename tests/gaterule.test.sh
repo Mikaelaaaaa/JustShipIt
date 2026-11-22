@@ -36,6 +36,8 @@ assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": 
 assert_eq "$(decide '{"type": "等待授權", "action": "edit", "question": "要不要合併兩個設定檔"}')" "('human', 'approval')" "授權題講的不是 MR 合併"
 assert_eq "$(decide '{"type": "等待授權", "action": "merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "hook 第三級的 action 名 merge"
 assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "要合併這個 MR 嗎"}')" "('human', 'merge-grant')" "授權題的雙訊號"
+assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "glab api PUT merge_requests/12/merge"}')" "('human', 'merge-grant')" "forge API 路徑的 merge_requests"
+assert_eq "$(decide '{"type": "等待授權", "action": "Merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "action merge 不分大小寫"
 # 原本會代答的 gate 都留給人（Scenario Outline，正例）
 assert_eq "$(decide '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "長期授權清單內的授權題"
 assert_eq "$(decide '{"type": "等待授權", "action": "deploy", "question": "要部署嗎"}')" "('human', 'approval')" "清單外的 action"
@@ -83,6 +85,7 @@ assert_eq "$(decide_in opsx-workflow '{"question": "PR #12 要 merge 嗎", "reco
 assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge the MR"}')" "('human', 'merge')" "雙訊號：merge the MR"
 assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge pull request 12"}')" "('human', 'merge')" "雙訊號：pull request"
 assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge into master"}')" "('human', 'merge')" "雙訊號：master"
+assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge the PRs"}')" "('human', 'merge')" "雙訊號：複數 PRs"
 # 不是 MR 合併的合併字不擋（Scenario Outline，反例）
 assert_eq "$(decide_in opsx-workflow '{"question": "要不要把兩個 helper 合併？", "recommended": "合併成一個 helper"}')" "('answer', '合併成一個 helper')" "程式碼合併照建議答"
 assert_eq "$(decide_in opsx-workflow '{"question": "照這個拆法建殼？", "recommended": "相近的主題合併到同一個 session"}')" "('answer', '相近的主題合併到同一個 session')" "session 分組照建議答"
