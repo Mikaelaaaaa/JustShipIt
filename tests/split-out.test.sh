@@ -50,6 +50,16 @@ assert_grep '^kind_of_work: planned$' "$C/$ID/inbox.md"; assert_grep '^bin/x.sh 
 assert_not_grep '^impact:' "$C/$ID/inbox.md"; assert_not_grep '^evidence:' "$C/$ID/inbox.md"; assert_not_grep '^area:' "$C/$ID/inbox.md"
 assert_grep '^## 證據$' "$C/$ID/inbox.md"
 
+# --- 32 字的卡名併入兩次：第二段 id 是 <名>-2（34 字），拆出來的殼要截回 32 字以內 ---
+reset; card x
+L32=keyboard-covers-chat-input-box-1
+(cd "$W" && opsx new --name "$L32" --kind-of-work planned --repo "$E" --evidence bin/x.sh -- 第一段) > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
+(cd "$W" && opsx new --name "$L32" --kind-of-work planned --repo "$E" --evidence bin/x.sh -- 第二段) > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
+assert_grep "^- id: $L32-2\$" "$C/x/inbox.md"
+split x "$L32-2"; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" keyboard-covers-chat-input-box-2 "截中段、保留最後一段"
+assert_grep '^第二段$' "$C/keyboard-covers-chat-input-box-2/inbox.md"
+
 # --- 拆出舊格式的段（只有 - area:）：type 寫待定，不寫 area ---
 reset; card x
 printf '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: %s\n- kind_of_work: planned\n- area: hooks\n\n舊段\n' "$ID" >> "$C/x/inbox.md"
@@ -151,8 +161,9 @@ body() { awk 'n >= 2; /^---$/ { n++ }' "$1"; }
 body "$C/src/inbox.md" > "$FX/src-body.md"
 opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
 split x src; assert_eq "$?" 0 "往返拆回要退出 0：$(cat "$ERR")"
-assert_eq "$(cat "$OUT")" src
-body "$C/src/inbox.md" > "$FX/back-body.md"
+# merge-card 把來源歸檔成 archive/<日期>-src，歸檔過的名字算占用，所以拆回來是 src-2
+assert_eq "$(cat "$OUT")" src-2
+body "$C/src-2/inbox.md" > "$FX/back-body.md"
 cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
 # --- 只刪那一段 ---

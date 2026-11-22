@@ -56,6 +56,12 @@ assert_eq "$(opsx new --name kb-export2 --repo "$A" -- x)" kb-export2
 assert_eq "$(opsx new --name a --repo "$A" -- x)" a "最短 1 字"
 assert_eq "$(opsx new --name aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --repo "$A" -- x)" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "最長 32 字"
 assert_file "$A/openspec/changes/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/inbox.md"
+# 32 字的名字在待分類撞名：加號後仍不超過 32 字（跟 new_shell 同一條截法），opsx file 收得下
+L32=keyboard-covers-chat-input-box-1
+assert_eq "$(opsx new --name "$L32" -- 第一張)" "$L32"
+u2="$(opsx new --name "$L32" -- 第二張)"
+assert_eq "$u2" keyboard-covers-chat-input-b-1-2 "截中段、保留最後一段再加 -2"
+assert_eq "$(opsx file "$u2" --repo "$A")" "$u2"
 
 # --- 空的、多行的一句話：退出非零，什麼都不寫 ---
 before="$(snap)"; ub="$(ls "$OPSX_STATE_DIR/unfiled")"
@@ -468,6 +474,13 @@ s="$(wnew --name session-agent --type 功能 --source agent:fa --kind-of-work pl
 assert_eq "$(where "$WP" "$s")" "fa	1.0	feat/$s/mika" "source 是 feature 名時掛進那個 feature"
 s="$(wnew --name session-complete --type 功能 --source agent:fc --kind-of-work planned -- complete feature 的 session)"
 assert_eq "$(where "$WP" "$s")" "$s	1.0	feat/$s/mika" "feature 名指到 complete 的 feature 時自成 feature、沿用它的 milestone"
+# 卡名已被 workplan 的 PR、歸檔的卡或 */<名>/* 分支用掉：照撞名加 -2，PR 名和 branch 名才會跟卡名相同
+s="$(wnew --name pc --type 功能 -- 跟已合併的 PR 同名)"; assert_eq "$s" pc-2 "$(cat "$FX/wp.err")"
+assert_eq "$(where "$WP" pc-2 | cut -f3)" "feat/pc-2/mika" "workplan 多一個 pending 的 PR pc-2"
+mkdir -p "$WP/openspec/changes/archive/2026-11-01-old-card"
+assert_eq "$(wnew --name old-card --type 功能 -- 跟歸檔的卡同名)" old-card-2
+git -C "$WP" branch -q feat/old-branch/mika
+assert_eq "$(wnew --name old-branch --type 功能 -- 跟分支同名)" old-branch-2
 WN="$(mk_opsx_repo wn)"; wp_fixture "$WN" ""
 s="$(opsx new --name no-milestone --type 功能 --repo "$WN" -- 沒設目前階段)"
 assert_eq "$(where "$WN" "$s")" "$s	-	feat/$s/mika" "沒有 current_milestone 就不寫 milestone"

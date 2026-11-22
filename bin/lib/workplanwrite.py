@@ -8,6 +8,7 @@
     workplanwrite.add_pr(top, <feature 名>, {"name": ..., "branch": ..., "changes": [{...}]})
     workplanwrite.add_change(top, <PR 名>, {"name": ..., "status": "pending"})
     $OPSX_PY -I workplanwrite.py attach <top> <卡> <父卡或空字串> <分支尾巴的名字> <kind 或空字串>   新卡掛進 workplan（common.sh 的 new_shell、dispatch 呼叫）
+    $OPSX_PY -I workplanwrite.py names <top>   印 workplan 裡每個 PR 與 change 的名字，一行一個（new_shell 判斷 slug 被占用）；沒有 workplan 不印
 item 的值是字串、字串清單、或 mapping 清單（巢狀項目）；照 dict 順序寫出，第一個鍵要是 name。
 """
 from __future__ import annotations
@@ -285,6 +286,12 @@ def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 3 and sys.argv[1] == "names":
+        path = os.path.join(sys.argv[2], "openspec", "workplan.yaml")
+        if os.path.exists(path):
+            for n in priority.owners(chain.load_workplan(path).get("features") or []):
+                print(n)
+        sys.exit(0)
     if len(sys.argv) != 7 or sys.argv[1] != "attach":
         sys.exit("用法：workplanwrite.py attach <top> <卡 slug> <父卡 slug 或空字串> <分支尾巴的名字> <kind 或空字串>")
     try:

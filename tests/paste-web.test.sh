@@ -42,7 +42,8 @@ assert.deepStrictEqual(splitBySize([]), [[], []]);
 
 // 輸入區的元件與鍵盤規則：textarea、附檔按鈕（隱藏的多選 file input）、拖放綁在 newbar
 assert.match(html, /<textarea id="new-text"/, 'newbar 是多行文字框');
-assert.match(html, /<input id="new-name"[^>]* required/, 'newbar 有必填的卡名欄');
+assert.match(html, /<input id="new-name"/, 'newbar 有卡名欄');
+assert.doesNotMatch(html, /<input id="new-name"[^>]*(maxlength|required)/, '卡名的長度與必填由 submitNew 檢查，輸入框不截字');
 assert.match(html, /<input type="file" id="new-file" multiple hidden>/, '隱藏的多選 file input');
 assert.match(html, /data-act="new-attach"/, '附檔按鈕');
 assert.match(html, /\$\('#newbar'\)\.addEventListener\('drop'/, '拖放綁在 newbar');
@@ -59,7 +60,7 @@ const START = 'let toastT;', END = '/* 先 explore';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0 || e < s) throw new Error(`index.html 找不到 ${START} … ${END}`);
 
-class Box { constructor() { this.hidden = true; this.value = ''; this.textContent = ''; this.innerHTML = ''; this.classList = {toggle() {}, add() {}, remove() {}}; } focus() {} }
+class Box { constructor() { this.hidden = true; this.value = ''; this.textContent = ''; this.innerHTML = ''; this.classList = {toggle() {}, add() {}, remove() {}}; } focus() { globalThis.focused = this; } }
 const els = {};
 const $ = sel => (els[sel] ||= new Box());
 const toasts = [], posts = [];
@@ -84,11 +85,19 @@ const flush = () => new Promise(r => setImmediate(r));
 (async () => {
 
 // 卡名空的：不送、提示要填卡名、輸入留著
-m.openNew(); $('#new-text').value = '沒卡名';
+m.openNew(); assert.strictEqual(globalThis.focused, $('#new-name'), '打開時游標在卡名欄');
+$('#new-text').value = '沒卡名';
 m.submitNew(); await flush();
 assert.strictEqual(posts.length, 0, '卡名空的不送');
 assert.ok(toasts.some(t => t.includes('卡名')), '提示要填卡名');
 assert.strictEqual($('#new-text').value, '沒卡名', '沒送時文字留著');
+// 卡名不合 kebab-case 或超過 32 字：不送、提示規則
+for (const bad of ['Chat Keyboard', 'kb_export2', 'a--b', 'chat-', 'a'.repeat(33)]) {
+  toasts.length = 0; $('#new-name').value = bad;
+  m.submitNew(); await flush();
+  assert.strictEqual(posts.length, 0, `${bad} 不送`);
+  assert.ok(toasts.some(t => t.includes('kebab-case') && t.includes('32')), `${bad} 提示 kebab-case 與 32 字`);
+}
 $('#new-name').value = '  chat-keyboard ';
 m.submitNew(); await flush(); await flush();
 assert.deepStrictEqual(posts.pop(), {path: 'new', body: {name: 'chat-keyboard', text: '沒卡名'}}, 'body 帶去掉空白的卡名');

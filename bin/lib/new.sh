@@ -180,7 +180,7 @@ opsx_new() {
       elif [ ! -e "$dir/$s.md" ]; then
         die "new: 建不了 $dir/$s.md"
       fi
-      n=$((n+1)); s="$slug-$n"
+      n=$((n+1)); s="$(slug_candidate "$slug" "$n")"
     done
     cat "$body" > "$dir/$s.md" || { rm -f "$dir/$s.md"; die "new: 寫不進 $dir/$s.md"; }
     dest="$dir/$s/attachments"

@@ -589,6 +589,20 @@ class MainLoopTest(unittest.TestCase):
         argvs = drive(FakeFeed(WDATA), FakeScr(["+", *"chat-keyboard", "\n", *"聊天視窗被鍵盤蓋住", "\n"]))
         self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--name", "chat-keyboard", "--", "聊天視窗被鍵盤蓋住"]])
 
+    def test_bad_card_name_keeps_name_box_and_says_the_rule(self):
+        notes = []
+        with mock.patch.object(tui, "draw", lambda *a: notes.append(a[4])):
+            argvs = drive(FakeFeed(WDATA), FakeScr(["+", "B", "\n", "\x7f", "b", "\n", "x", "\n"]))
+        self.assertTrue(any("kebab-case" in n and "32" in n for n in notes), notes)
+        self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--name", "b", "--", "x"]],
+                         "不合規則時留在卡名框（文字留著，退格改掉再送），不開第二個框")
+
+    def test_card_name_rule(self):
+        for ok in ("a", "chat-keyboard", "kb-export2", "a" * 32):
+            self.assertTrue(tm.card_name_ok(ok), ok)
+        for bad in ("Chat Keyboard", "kb_export2", "a--b", "chat-", "-chat", "1chat", "a" * 33):
+            self.assertFalse(tm.card_name_ok(bad), bad)
+
     def test_empty_card_name_or_text_cancels(self):
         self.assertEqual(drive(FakeFeed(WDATA), FakeScr(["+", "\n"])), [], "卡名空的就取消")
         self.assertEqual(drive(FakeFeed(WDATA), FakeScr(["+", "a", "\n", "\n"])), [], "一句話空的也取消")

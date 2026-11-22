@@ -262,7 +262,7 @@ main{flex:1;min-width:0;padding-left:max(16px,env(safe-area-inset-left,0px));pad
   </div>
   <main>
     <div id="errors" class="errors" hidden></div>
-    <div id="newbar" class="newbar" hidden><input id="new-name" class="new-name" maxlength="32" required aria-label="卡名" placeholder="卡名（必填，例 chat-keyboard）"><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
+    <div id="newbar" class="newbar" hidden><input id="new-name" class="new-name" aria-label="卡名" placeholder="卡名（必填，例 chat-keyboard）"><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
     <div id="repo-grants" class="repo-grants" hidden></div>
     <div id="view"><div class="empty">載入中…</div></div>
   </main>
@@ -917,6 +917,7 @@ function focusAgent(agent){
 const newRepo=()=>ui.scope==='ws'&&ui.repo?(data.repo_paths||{})[ui.repo]||null:null;
 const MAX_ATTACH=10*1024*1024;
 const ONE_LINER_MAX=200;  /* 同 herdr-board/server.py 的 ONE_LINER_MAX */
+const CARD_NAME_RE=/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;  /* 同 bin/lib/new.sh 的 name_re */
 /* 沒有檔、只有一行且不超過 ONE_LINER_MAX 字，走 /api/new（source: me，跟以前一樣）；多行、過長的一行或有檔走 /api/paste，由 server 拆出一句話並把全文存成 paste.md（/api/new 的 body 只有 64 KB）。
    name 是卡名，server 轉成 opsx new --name，也會是 PR 名和 branch 名 */
 function newRequest(text,files,repo,name){
@@ -930,7 +931,7 @@ function splitBySize(files){return [files.filter(f=>f.size<=MAX_ATTACH),files.fi
 let newFiles=[];  /* {name, size, data(base64)}，加進清單時就讀好 */
 /* newGen 在 closeNew 時加一，關掉之後才讀完的檔對不上就丟掉；newReading 是還在讀的批數，讀完前不准送出 */
 let newGen=0,newReading=0;
-function openNew(){$('#newbar').hidden=false;$('#new-where').textContent=newRepo()?'建在 '+ui.repo:'進待分類（範圍選到單一 repo 才直接建殼）';$('#new-text').focus();}
+function openNew(){$('#newbar').hidden=false;$('#new-where').textContent=newRepo()?'建在 '+ui.repo:'進待分類（範圍選到單一 repo 才直接建殼）';$('#new-name').focus();}
 function closeNew(){$('#newbar').hidden=true;$('#new-name').value='';$('#new-text').value='';newFiles=[];newGen++;renderNewFiles();}
 function renderNewFiles(){$('#new-files').innerHTML=newFiles.map((f,i)=>`<li><span class="mono">${esc(f.name)}</span><button class="ghost sm" data-act="new-unattach" data-i="${i}" aria-label="移除 ${esc(f.name)}">×</button></li>`).join('');}
 function readBase64(file){
@@ -957,6 +958,7 @@ function submitNew(){
   const text=$('#new-text').value,name=$('#new-name').value.trim(),sent=newFiles.slice(),gen=newGen;
   const req=newRequest(text,sent,newRepo(),name);if(!req)return;
   if(!name){toast('先填卡名：它會是卡名、PR 名和 branch 名',true);$('#new-name').focus();return;}
+  if(!CARD_NAME_RE.test(name)||name.length>32){toast('卡名要是 kebab-case（小寫英文開頭，小寫英數以單一 - 連接），最多 32 字：'+name,true);$('#new-name').focus();return;}
   const where=req.body.repo?' --repo '+req.body.repo:'';
   const label=req.path==='new'?`opsx new --name ${name}${where} -- ${req.body.text}`:`opsx new --name ${name}${where}${req.body.files.map(f=>' --attach '+f.name).join('')}（貼上）`;
   act(label,async()=>{

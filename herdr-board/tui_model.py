@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import curses
 import pathlib
+import re
 import sys
 import unicodedata
 from datetime import datetime
@@ -203,6 +204,14 @@ def open_argv(root: str, row: dict | None) -> list[str] | None:
     else:
         return None
     return ["bash", "%s/herdr-board/scripts/open-board.sh" % root, key]
+
+
+CARD_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*\Z")   # 同 bin/lib/new.sh 的 name_re
+CARD_NAME_RULE = "卡名要是 kebab-case（小寫英文開頭，小寫英數以單一 - 連接），最多 32 字"
+
+
+def card_name_ok(name: str) -> bool:
+    return len(name) <= 32 and CARD_NAME_RE.match(name) is not None
 
 
 def new_argv(root: str, data: dict, scope: str | None, name: str, text: str) -> list[str]:
