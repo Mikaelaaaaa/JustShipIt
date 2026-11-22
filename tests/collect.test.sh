@@ -881,10 +881,11 @@ rows = [
     ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc12\n", head),
     ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc1234\n", None),
     ("# r\n\n## 邏輯表\n免表：abc1234 · codex\n", head),
+    ("# r\n\n## 邏輯表\nopenspec/changes/m/logic-map.md · abc1234 （舊）\n", head),
 ]
 print(" ".join(str(mapline.at_head(r, h)).lower() for r, h in rows))
 PY
-)" "true false false false false false false false false" "邏輯表判斷的九列"
+)" "true false false false false false false false false false" "邏輯表判斷的九列，加 sha 後面多了字"
 
 R11="$FX/code11"; S11="$FX/state11"; mkdir -p "$R11/lm/.git" "$S11"
 lm() { # <slug> <report.md 內容>：派出、tasks 全勾的卡

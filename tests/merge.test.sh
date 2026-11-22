@@ -50,6 +50,13 @@ map_refused() { # <report.md 的 ## 邏輯表 段> <MR head sha> <訊息要含�
 map_refused '\n## 邏輯表\n產表失敗：fetch 失敗\n' abc1234 '產表失敗：fetch 失敗' "產表失敗"
 map_refused '\n## 邏輯表\nopenspec/changes/x/logic-map.md · abc1234\n' def5678 'openspec/changes/x/logic-map.md · abc1234' "看板刷新後又推了新 commit"
 map_refused '' abc1234 '沒有 ## 邏輯表' "沒有邏輯表段"
+# report.md 讀不了：一樣拒絕，不能因為判斷失敗而放行
+printf "$REPORT"'\n## 邏輯表\nopenspec/changes/x/logic-map.md · abc1234\n\xff\n' > "$C/report.md"
+printf '{"state":"opened","draft":false,"has_conflicts":false,"sha":"abc1234","head_pipeline":{"status":"success"},"unresolved_discussions_count":0}' > "$OPSX_TEST_GLAB_JSON"
+out="$(opsx merge x 2>&1)"; [ $? -ne 0 ] || fail "report.md 讀不了要退出非零：$out"
+echo "$out" | grep -q '讀不了' || fail "要說 report.md 讀不了: $out"
+assert_no_file "$PD/authz.json"
+cmp -s "$C/decisions.tsv" "$FX/before.tsv" || fail "report.md 讀不了：decisions 不該變"; assert_eq "$(grep -c '^agent prompt' "$OPSX_FAKE_LOG" || true)" 0
 printf "$REPORT"'\n## 邏輯表\nopenspec/changes/x/logic-map.md · abc1234\n' > "$C/report.md"
 
 # --- 快取裡是舊的全綠，merge 也要重抓（TTL 不作數）---
