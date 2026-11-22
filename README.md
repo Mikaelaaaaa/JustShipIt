@@ -7,13 +7,22 @@
 
 <p align="center"><b>A Claude Code plugin that takes each change from an inbox card to a reviewed pull request, tracks every card on one board, and leaves the merge to you.</b></p>
 
+<p align="center"><strong>Early preview</strong> · 只在 macOS 驗證過 · 1.0 尚未完成</p>
+
 <p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a></p>
 
-<img src="docs/assets/board-web-framed.png" alt="JustShipIt 網頁看板：總覽、離開期間 banner，下面是依功能分組的欄位" width="100%" />
+跟一般 agent workflow 不一樣的地方：
+
+- **合併永遠是人按的。** agent 把 PR 推到可合併就停，合併核准只有你寫得進去。
+- **先 spec、再測試、再 review，才開 PR。** 每個改動都有 spec 與先寫的測試，review 過了才送出，一般的卡由三位 reviewer 平行審。
+- **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
+- **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
+
+<img src="docs/assets/board-web-framed.png" alt="JustShipIt 看板：頂端導覽與搜尋、總覽，下面是依階段排的欄，欄內依功能分組" width="100%" />
 
 ## <a id="why"></a>解決什麼問題
 
-同時讓好幾個 Claude Code agent 做事，難的不是寫 code，而是記得每件事做到哪、哪個 agent 停下來在等你。每次都要重講同樣的規矩：先想清楚、先寫測試、不要碰 main。agent 可以自己跑，但合併必須由人決定。JustShipIt 把這些規矩寫進固定流程，把所有卡放在同一個看板上，需要你的時候才找你。
+同時讓好幾個 Claude Code agent 做事，難的是記得每件事做到哪、哪個 agent 在等你。JustShipIt 把「先想清楚、先寫測試、不碰 main」寫進固定流程，所有卡放在同一個看板，需要你時才找你，合併永遠由你決定。
 
 ## <a id="how"></a>怎麼運作
 
@@ -55,21 +64,26 @@ flowchart LR
 
 看板的資料全由 `opsx collect` 從卡的檔案、狀態目錄、herdr 與 MR 狀態算出來，自己不存狀態。
 
+- 頂端是導覽（看板、變更、已歸檔、紀錄）、搜尋與一個篩選按鈕。
 - 總覽先看等你處理的卡、各階段分布、agent 與 MR、各 repo 進度。
-- 欄內的卡依功能分組，可收合；一個篩選按鈕加 chips 過濾。
-- 你離開期間有變動的卡，回來時用 banner 列出。
-- 卡片細節頁直接讀卡目錄的文件，gate 在頁面上按選項就能回；另有變更頁與已歸檔頁。
-- 已合併的卡可以按封存，背後跑 `openspec archive`。
+- 欄內的卡依功能分組，可收合。
+- 點一張卡從右側滑出抽屜，gate 在抽屜裡按選項就能回。
+- 卡片細節頁讀卡目錄裡的文件，也能停止、重新指派或改等級。
+- 已合併的卡可以封存，背後跑 `openspec archive`。
 - herdr 右側 pane 是同一份清單的終端機版本。
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/card-detail-web-framed.png" alt="卡片細節頁：等你決定的 gate 與選項按鈕，下方是卡目錄的文件清單與內容" /><br /><sub>卡片細節頁：gate 直接按選項回，旁邊讀卡目錄的文件</sub></td>
-    <td width="50%"><img src="docs/assets/changes-web-framed.png" alt="變更頁：依 repo 分組列出每個 openspec change 與目前狀態" /><br /><sub>變更頁：每個 openspec change 依 repo 分組</sub></td>
+    <td width="50%"><img src="docs/assets/board-web-framed.png" alt="看板：頂端導覽與搜尋、總覽，下面是依階段排的欄，欄內依功能分組" /><br /><sub>看板：一眼看到哪些卡在等你、每一欄做到哪</sub></td>
+    <td width="50%"><img src="docs/assets/drawer-web-framed.png" alt="抽屜：點卡片後從右側滑出，上方是等你允許的 gate 與選項按鈕，下方是進度與卡片資訊" /><br /><sub>抽屜：不離開看板就能回 gate、看進度</sub></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/board-web-framed.png" alt="網頁看板：離開期間 banner、總覽視覺化，下面是依功能分組的欄位" /><br /><sub>網頁看板：總覽、離開期間 banner、欄內依功能分組</sub></td>
+    <td width="50%"><img src="docs/assets/card-detail-web-framed.png" alt="卡片細節頁：gate、操作按鈕、卡目錄的文件清單與內容" /><br /><sub>細節頁：讀卡目錄的每份文件，停止或重新指派這張卡</sub></td>
+    <td width="50%"><img src="docs/assets/changes-web-framed.png" alt="變更頁：依 repo 分組列出每個 openspec change 的狀態、階段與等級" /><br /><sub>變更頁：依 repo 看每個 change 的階段與等級</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/assets/opsx-tui-demo-framed.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
+    <td width="50%"></td>
   </tr>
 </table>
 
