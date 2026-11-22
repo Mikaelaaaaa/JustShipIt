@@ -55,7 +55,7 @@ for bad in ghost started bare; do
   card a "$P1"
   out="$(opsx dedup a "$bad" --repo "$A" 2>&1)"; rc=$?
   [ "$rc" -ne 0 ] || fail "$bad 要退出非 0：$out"
-  printf '%s' "$out" | grep -q -- "$bad" || fail "stderr 要點名 $bad：$out"
+  printf '%s' "$out" | grep -q -- "$bad" || fail "stderr 要點名 ${bad}：$out"
   assert_not_grep '^dedup_checked:' "$CH/a/inbox.md"
 done
 assert_not_grep '^dedup_checked:' "$CH/started/inbox.md"
