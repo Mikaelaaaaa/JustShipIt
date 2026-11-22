@@ -39,23 +39,27 @@ st_subagent_running() { # <主殼目錄>
   done
   return 1
 }
-# session 還有沒結束的背景工作（Monitor、背景 Bash、背景 subagent）：transcript 裡啟動過、且沒有終態通知的 task-id。
-# 啟動取 toolUseResult 的 taskId / backgroundTaskId / 非同步 agentId，結束取 queue-operation 裡 <task-notification> 的 completed|failed|killed|stopped。
+# session 還有沒結束的背景工作（Monitor、背景 Bash、背景 subagent）：transcript 裡啟動過、且最後一次啟動之後沒有終態通知的 task-id。
+# 啟動取 toolUseResult 的 taskId / backgroundTaskId / 非同步 agentId / SendMessage 續跑的 resumedAgentId，結束取 queue-operation 裡 <task-notification> 的 completed|failed|killed|stopped。
+# 續跑沿用同一個 task-id，續跑前那次的終態通知不算結束續跑後的工作，所以要比時間（帶毫秒）；沒有 timestamp 的通知照舊當結束。
 # 讀不到 transcript 就是沒有背景工作可言，回 1。解析不了的行（截斷的半行、沒有 timestamp 的行）略過，不拖垮其他行。
 # shortcut: 只讀 transcript 最後 8 MB、啟動超過 120 分鐘沒有終態通知就不算在跑；hook 只有 10 秒，整份讀 180 MB 會超時，persistent Monitor 也不會結束。有心跳之後改看心跳
 st_background_running() { # <transcript> [now epoch]
   [ -f "${1:-}" ] || return 1
   tail -c 8000000 "$1" | jq -n -R -e --argjson now "${2:-$(date +%s)}" '
+    def epoch: try (capture("^(?<b>[^.]+?)(\\.(?<f>[0-9]+))?Z$") | (.b + "Z" | fromdateiso8601) + ("0." + (.f // "0") | tonumber)) catch null;
     [ inputs | fromjson? | select(type == "object") ] as $L
     | [ $L[] | select(.toolUseResult | type == "object") | select(.timestamp | type == "string") | . as $l | .toolUseResult
-        | (.taskId // .backgroundTaskId // (if .status == "async_launched" then .agentId else null end))
+        | (.taskId // .backgroundTaskId // .resumedAgentId // (if .status == "async_launched" then .agentId else null end))
         | select(. != null)
-        | {id: ., at: (try ($l.timestamp | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)}
+        | {id: ., at: ($l.timestamp | epoch)}
         | select(.at != null) ] as $started
-    | [ $L[] | select(.type == "queue-operation") | .content | strings | select(contains("<task-notification>"))
+    | [ $L[] | select(.type == "queue-operation") | . as $l | .content | strings | select(contains("<task-notification>"))
         | select(capture("<status>(?<s>[^<]+)</status>").s | test("^(completed|failed|killed|stopped)$"))
-        | capture("<task-id>(?<i>[^<]+)</task-id>").i ] as $ended
-    | any($started[]; (.id as $i | ($ended | index($i)) == null) and ($now - .at) >= 0 and ($now - .at) <= 7200)
+        | {id: capture("<task-id>(?<i>[^<]+)</task-id>").i, at: ($l.timestamp | if type == "string" then epoch else null end)} ] as $ended
+    | any($started | group_by(.id) | map(max_by(.at))[]; . as $s
+        | ($now - $s.at) >= 0 and ($now - $s.at) <= 7200
+        and ([ $ended[] | select(.id == $s.id and (.at == null or .at >= $s.at)) ] | length) == 0)
   ' >/dev/null 2>&1
 }
 st_tasks_open() { [ -f "$1/tasks.md" ] || { printf 0; return; }; grep -cE '^\s*- \[ \]' "$1/tasks.md" || true; }

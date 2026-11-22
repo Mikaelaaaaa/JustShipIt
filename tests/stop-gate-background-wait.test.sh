@@ -23,7 +23,9 @@ ago() { python3 -I -c 'import datetime, sys; print((datetime.datetime.now(dateti
 start_monitor() { printf '{"type":"user","timestamp":"%s","toolUseResult":{"taskId":"%s","timeoutMs":900000,"persistent":false}}\n' "$(ago "${2:-5}")" "$1"; }
 start_bash() { printf '{"type":"user","timestamp":"%s","toolUseResult":{"stdout":"","stderr":"","interrupted":false,"backgroundTaskId":"%s"}}\n' "$(ago "${2:-5}")" "$1"; }
 start_agent() { printf '{"type":"user","timestamp":"%s","toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"%s","description":"x"}}\n' "$(ago "${2:-5}")" "$1"; }
-notify() { printf '{"type":"queue-operation","operation":"enqueue","timestamp":"%s","content":"<task-notification>\\n<task-id>%s</task-id>\\n<tool-use-id>toolu_x</tool-use-id>\\n<status>%s</status>\\n<summary>x</summary>\\n</task-notification>"}\n' "$(ago 1)" "$1" "$2"; }
+notify() { printf '{"type":"queue-operation","operation":"enqueue","timestamp":"%s","content":"<task-notification>\\n<task-id>%s</task-id>\\n<tool-use-id>toolu_x</tool-use-id>\\n<status>%s</status>\\n<summary>x</summary>\\n</task-notification>"}\n' "$(ago "${3:-1}")" "$1" "$2"; }
+# SendMessage 續跑既有 subagent 的回傳（真實 transcript 的形狀）
+resume_agent() { printf '{"type":"user","timestamp":"%s","toolUseResult":{"success":true,"message":"Resuming agent %s","resumedAgentId":"%s","revivedAgentId":"%s"}}\n' "$(ago "${2:-5}")" "$1" "$1" "$1"; }
 stuck_gates() { [ -f "$C/gates.md" ] || { echo 0; return; }; grep -c '^## 卡在接 /apply' "$C/gates.md" || true; }
 
 # --- 正例：三種背景工作各自還在跑，連停三次都放行，不計次、不開 gate ---
@@ -101,6 +103,15 @@ running() { ( source "$OPSX_ROOT/bin/lib/stage.sh"; st_background_running "$T" "
 assert_rc 0 running "$((E + 7200))"
 assert_rc 1 running "$((E + 7201))"
 assert_rc 1 running "$((E - 1))"
+
+# 續跑的 subagent 算在跑：結束只認最後一次啟動之後的終態通知（spec stop-gate-background-wait 的 Examples）
+bg() { ( source "$OPSX_ROOT/bin/lib/stage.sh"; st_background_running "$T" ); }
+{ start_agent A 10; notify A completed 8; resume_agent A 5; } > "$T"; assert_rc 0 bg
+{ start_agent A 10; notify A completed 8; resume_agent A 5; notify A completed 2; } > "$T"; assert_rc 1 bg
+{ start_agent A 10; notify A failed 8; resume_agent A 5; } > "$T"; assert_rc 0 bg
+resume_agent A 5 > "$T"; assert_rc 0 bg
+{ start_agent A 10; resume_agent A 5; notify A completed 2; } > "$T"; assert_rc 1 bg
+{ start_agent A 10; notify A completed 8; resume_agent B 5; } > "$T"; assert_rc 0 bg
 
 # --- 背景放行不重設擋的次數：擋、擋、背景放行、背景結束、再擋，第 3 次擋之後要開 gate ---
 rm -rf "$STOP_STATE"; rm -f "$C/gates.md"; : > "$T"
