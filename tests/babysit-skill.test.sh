@@ -78,6 +78,10 @@ assert_fixed 'unless the line under `## 邏輯表` starts with `skip：`' "$STEP
 
 # --- D11 步 1 停在 gate 後跟 pr 5c 同條件；答完那行仍不對就重述並停 ---
 for k in 'until the gate is answered and the line under `## 邏輯表` names the current head or starts with `skip：`' \
-  'When the gate is answered and the line still does neither, say so and stop again'; do
+  'After the answer, run step 1b again first; when that run ends and the line still does neither, say so and stop again' \
+  'or starts with `skip：`, spawn nothing'; do
   grep -qF -- "$k" "$FX/entry" || fail "入口停 gate 缺 $k"
 done
+! grep -qF 'When the gate is answered and the line still does neither' "$FX/entry" || fail "入口還是答案一進來就停"
+# R3.2 步 8 同一句
+assert_fixed 'After the answer, run step 1b again first; when that run ends and the line still does neither, say so and stop again' "$STEP"

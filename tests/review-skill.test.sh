@@ -155,7 +155,8 @@ assert_fixed 'Never fall back to the `<remote>/main` already on disk' "$MAP"
 assert_fixed '`logic-map-failed-<n>`' "$MAP"
 # R1.3 最大號加 1，跟 hooks/openspec-stop-gate.sh write_auto_gate 一樣；較早的 gate 被刪時不重名
 assert_not_fixed 'one more than the number of' "$MAP"
-assert_fixed 'one more than the largest number among the `## logic-map-failed-<n>` gates already in gates.md (0 when there are none)' "$MAP"
+assert_fixed 'one more than the largest number among the `## logic-map-failed-<n>` gates already in gates.md, so the first gate is `logic-map-failed-1`' "$MAP"
+assert_not_fixed '0 when there are none' "$MAP"
 # R1.4 失敗 Outline「subagent 回報成功，但輸出檔不存在」列；FETCH_HEAD 比對釘整句方向
 assert_fixed 'or `<map path>` does not exist afterwards' "$MAP"
 assert_fixed 'When the file is newer, the user fetched into this worktree: skip the fetch of sub-step 1' "$MAP"
@@ -195,8 +196,13 @@ grep -F -- '- fetch gate:' "$MAP" > "$FX/ans-fetch"
 for k in 'git rev-parse --git-path FETCH_HEAD' '`opened_at`' 'skip the fetch of sub-step 1' 'write another fetch gate' 'FETCH_HEAD 不存在'; do
   grep -qF -- "$k" "$FX/ans-fetch" || fail "fetch gate 答完的接續缺 $k"
 done
-grep -F -- '- 重跑產表:' "$MAP" | grep -qF 'start again from sub-step 1' || fail "重跑產表要從子步 1 重來"
-grep -F -- '- 派一個 claude pane 重產:' "$MAP" | grep -qF 'opsx log' || fail "派 claude pane 要 opsx log 後停"
+# R3.1 重跑與改派的 claude pane 都從 mr: none 預檢重來，不跳過 D4；只有沒有 Agent 工具的 session 記 log 後停
+grep -F -- '- 重跑產表:' "$MAP" | grep -qF 'start again from the `mr: none` check before sub-step 1' || fail "重跑產表要從 mr: none 預檢重來"
+grep -F -- '- 派一個 claude pane 重產:' "$MAP" > "$FX/ans-claude"
+for k in 'A session that has the Agent tool starts again from the `mr: none` check before sub-step 1' \
+  'Only a session without the Agent tool runs `opsx log'; do
+  grep -qF -- "$k" "$FX/ans-claude" || fail "派 claude pane 缺 $k"
+done
 grep -F -- '- 這張不要表，直接放行:' "$MAP" > "$FX/ans-skip"
 for k in 'skip：使用者放行（logic-map-failed-<n>）' "go on to the caller's next step"; do
   grep -qF -- "$k" "$FX/ans-skip" || fail "放行缺 $k"
