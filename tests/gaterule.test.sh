@@ -62,7 +62,7 @@ assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "照�
 # opsx repo 裡留給人的題不變（Scenario Outline，反例）
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 卡住的 gate"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "stale-wait-20261120101500", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 協調者自己的 stale-wait gate"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-pick')" "opsx 沒有建議、只有選項"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-rec')" "opsx 沒有建議、只有選項"
 assert_eq "$(decide_in opsx-workflow '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "opsx needs run"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "opsx 授權題"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "opsx 合併授權"
@@ -95,7 +95,7 @@ assert_eq "$(decide_in opsx-workflow '{"question": "衝突怎麼處理？", "rec
 # 其他 repo 的決定題留給人（邊界：名字只是開頭相同）
 assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommended": "用 A"}')" "('human', 'decision')" "opsx-workflow-fork 不算"
 # 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-pick')" "兩張主 change 的 split gate 交人"
+assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '

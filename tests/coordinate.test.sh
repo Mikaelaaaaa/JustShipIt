@@ -2989,6 +2989,14 @@ owsweep opsx-workflow gr '"type":"等待決定","needs":"run","waits_on":null,"q
 owsweep opsx-workflow gh '"type":"等待決定","needs":null,"waits_on":null,"question":"這段怎麼驗","recommended":"你在 sandbox 外跑","options":["你在 sandbox 外跑"]'
 owsweep opsx-workflow stale-wait-20261120101500 "$OWQ"
 owsweep opsx-workflow g2 '"type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":["B","C"]'
+# 留給人的通知寫明缺的是什麼：有選項沒建議（正例）
+grep '??' "$LOG" | grep 'gate g2' | grep '有選項沒有建議，要你選' | grep -q 'B、C' || fail "有選項沒建議的 ?? 行要寫有選項並帶出選項：$(cat "$LOG")"
+assert_eq "$(count '^notification show \[opsx-workflow/oa\] gate g2 有選項沒有建議，要你選')" 1 "有選項沒建議的通知標題：$(cat "$OPSX_FAKE_LOG")"
+grep -q '沒有選項也沒有建議' "$LOG" && fail "有選項的題不能說沒有選項：$(cat "$LOG")"
+# 沒選項沒建議（反例）
+owsweep opsx-workflow g4 '"type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":[]'
+grep '??' "$LOG" | grep 'gate g4' | grep -q '沒有選項也沒有建議' || fail "沒選項沒建議的 ?? 行照舊：$(cat "$LOG")"
+grep -q '有選項沒有建議' "$LOG" && fail "沒選項的題不能說有選項：$(cat "$LOG")"
 # waits-on 的卡已歸檔：不答、不停 pane、通知一次
 mkdir -p "$OW/openspec/changes/archive/2026-11-11-wa"
 owsweep opsx-workflow gw '"type":"等待決定","needs":null,"waits_on":"wa","question":"等 wa 合進 main 之後再做","recommended":"B","options":["B"]'

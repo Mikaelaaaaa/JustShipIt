@@ -76,5 +76,5 @@ def decide(w, repo):
     if any(k in pick for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
     if repo == ANSWER_REPO:
-        return ("answer", pick) if w.get("recommended") else ("human", "no-pick")
+        return ("answer", pick) if w.get("recommended") else ("human", "no-rec")
     return ("human", "decision")
