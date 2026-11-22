@@ -1093,6 +1093,10 @@ class Round:
             if not AGENT_NAME.match(c["slug"]):
                 self.log("-- %s 不是合法的 agent 名，跳過" % key)
                 continue
+            # opsx release 放掉、reap 還沒收的 pane 還在同一棵 worktree 上，先派會開出第二個 pane
+            if entry and entry.get("released_at") and not (entry.get("pane_closed_at") or entry.get("reaped_at")):
+                self.log("-- %s 放掉了，等 reap 收 pane 才派" % key)
+                continue
             # 排在等級與額度之前：已經有 pane 在做的卡不該吃掉這輪的額度
             holder = self.branch_holder(top, c["slug"])
             if holder:

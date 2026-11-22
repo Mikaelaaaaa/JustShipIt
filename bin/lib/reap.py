@@ -77,11 +77,11 @@ def collect(opsx, root):
 
 
 def protected_panes(cards, dispatch):
-    """還有活卡的 pane。活卡：沒歸檔、不是 split、dispatch.json 不是 stopped。代管卡（via）的活也算協調它的那個 pane。"""
+    """還有活卡的 pane。活卡：沒歸檔、不是 split、dispatch.json 不是 stopped 也沒被 opsx release 放掉。代管卡（via）的活也算協調它的那個 pane。"""
     live = {"%s/%s" % (c["repo"], c["slug"]) for c in cards if not c["archived"] and c["stage"] != "split"}
     panes = set()
     for key, e in dispatch.items():
-        if key not in live or e.get("mode") == "stopped":
+        if key not in live or e.get("mode") == "stopped" or e.get("released_at"):
             continue
         panes.add(str(e.get("pane")))
         if e.get("via"):

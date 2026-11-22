@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop：branch 對到的卡，agent 要停時依 stage_name 看下一站。要擋就 block 並說原因：
-#   有等人答的 open gate（會擋的 gate 扣掉「卡在接」）時每一站都放行。其餘：
+#   有等人答的 open gate（會擋的 gate 扣掉「卡在接」）時每一站都放行；dispatch 條目有 released_at（opsx release 放掉）時也放行。其餘：
 #   有 tasks.md 且沒有會擋的 open gate 時主殼或子殼 spec 不合 Gherkin 寫法；apply 站 tasks.md 仍有 - [ ]、status.json tests 不是 green、有 commit 但 review 沒跑
 #   （report.md 有「確認: <sha>」且 HEAD 等於該 sha 時不算）、report.md 的「待修（範圍內）」還有項目；
 #   explore 站（explore.md 已存在、卡建立日期晚於 2026-11-10）## 步驟 不齊；
@@ -270,6 +270,11 @@ esac
 
 state="$OPSX_STATE_DIR/stop-chain/$(repo_name)-$slug"
 said="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
+
+# 協調者補的卡 propose 完跑了 opsx release：這個 pane 等 reap 收，apply 由 coordinate 另開 pane 派，不逼它接站
+if [ -n "$(jq -r --arg k "$(repo_name)/$slug" '.[$k].released_at // empty' "$OPSX_STATE_DIR/dispatch.json" 2>/dev/null)" ]; then
+  rm -f "$state"; stop_record "propose 完放掉，等 reap 收 pane"; exit 0
+fi
 
 # 啟動參數丟了：這個 claude 寫不了檔，逼它接站只會空轉到開「卡在接」gate。只有判出遺失才放行，認不得照舊擋
 lost_rc=0; lost_why="$(args_lost_status "$(repo_name)" "$slug" "$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)")" || lost_rc=$?

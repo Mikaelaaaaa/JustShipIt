@@ -374,8 +374,10 @@ def session_members(top: str, repo: str, feature: str, dispatch: dict) -> list:
 
 
 def session_alive(entry: dict) -> bool:
-    """session 條目還代表一個活的 pane：沒停、pane 沒被 opsx stop 關掉、沒被 reap 收掉（reap 只記 reaped_at，不改 mode）。"""
-    return entry.get("mode") != "stopped" and not entry.get("pane_closed_at") and not entry.get("reaped_at")
+    """session 條目還代表一個活的 pane：沒停、pane 沒被 opsx stop 關掉、沒被 reap 收掉（reap 只記 reaped_at，不改 mode）、
+    沒被 opsx release 放掉（propose 完放掉的 pane 等 reap 收）。"""
+    return (entry.get("mode") != "stopped" and not entry.get("pane_closed_at") and not entry.get("reaped_at")
+            and not entry.get("released_at"))
 
 
 def human_stopped(entry, feature: str) -> bool:

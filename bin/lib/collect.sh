@@ -398,7 +398,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     inbox = read(os.path.join(d, "inbox.md"))
     key = "%s/%s" % (c["repo"], c["slug"])
     disp = dispatch.get(key)
-    if disp and disp.get("mode") == "stopped": disp = None
+    if disp and (disp.get("mode") == "stopped" or disp.get("released_at")): disp = None
     agent_status = mergeready.agent_status_of(agents, disp.get("pane")) if disp else None
     if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
@@ -590,7 +590,7 @@ else:
     debt = {r: [{k: h[k] for k in keep if k in h} for h in hits] for r, hits in debt_raw.items()}
 
 # 孤兒 pane：cwd（或 foreground_cwd）在 <repo>/.claude/worktrees/<slug>/ 底下（或 dispatch.json 記的 worktree），
-# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
+# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped 或 released_at（opsx release 放掉）、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
 # 三個都要：只看 cwd，人在同名 worktree 自己開的 pane 會被認領；只看 pane id，herdr 重用 id 時會指到別人的 pane。
 # 判斷只在這裡算一次，coordinate / reap / 看板都讀 orphans。
 # workplan 標 merged 的卡（stage archive）還沒歸檔，agent 可能正在跑 /archive，不算。
@@ -620,6 +620,7 @@ def orphan_reason(key, pane):
     if entry.get("pane_closed_at") or entry.get("reaped_at"): return None
     # 這次沒掃到的 repo（同名被丟掉、sources.toml 壞了）看不到它的卡，判不出 pane 還有沒有人用
     if key[0] not in repo_paths: return None
+    if entry.get("released_at"): return "released"
     # session 條目不是卡：走到這裡代表 pane 上已沒有活成員（live_panes 先擋掉了）
     if key[1].startswith("@"): return "session-done"
     c = card_by_key.get(key)
@@ -632,12 +633,12 @@ def orphan_reason(key, pane):
     if entry.get("mode") == "stopped": return "stopped"
     return None
 
-# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
+# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped 也沒有 released_at）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
 # worktree_of 又是最後一筆勝出，所以 pane 上只要還有活卡，這個 pane 就不是孤兒，不管 worktree 現在算給誰。
 live_panes = set()
 for k, e in dispatch.items():
     key = tuple(k.split("/", 1)); c = card_by_key.get(key)
-    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped": continue
+    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped" or e.get("released_at"): continue
     live_panes.add(str(e.get("pane")))
     if e.get("via"): live_panes.add(str((dispatch.get("%s/%s" % (key[0], e["via"])) or {}).get("pane")))
 
