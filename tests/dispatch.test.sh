@@ -631,12 +631,22 @@ out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-y --agent 
 assert_eq "$rc" 0 "名額沒滿照派: $out"
 echo "$out" | grep -qF '已有' && fail "名額沒滿不警告: $out"
 assert_eq "$(jq -r 'has("Acmecorp-CS/cap-y") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額沒滿照寫條目"
-# 閒著的 pane 不佔名額：8 個 pane 的 agent 都是 idle，不警告
+# 閒著的 pane 不佔名額：8 個 pane 的 agent 都是 idle，不警告，也不是數不出名額
 mkdir -p "$R/openspec/changes/cap-i"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-i/.openspec.yaml"
 cap_state 8 idle
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-i --agent claude --mode interactive 2>&1)"; rc=$?
 assert_eq "$rc" 0 "8 個 idle pane 手動派照派: $out"
 echo "$out" | grep -qF '已有' && fail "idle 的 pane 不佔名額，不警告: $out"
+echo "$out" | grep -qF '數不出' && fail "idle 的 pane 要真的數過名額: $out"
+# 在跑自己背景工作的 idle pane 照佔名額：8 個 idle pane 都停在等背景工作、2 小時內，警告 8/8
+mkdir -p "$R/openspec/changes/cap-b" "$OPSX_STATE_DIR/stop-said"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-b/.openspec.yaml"
+now="$(date +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do printf '等背景工作（bash tests/run.sh）\n%s\n' "${now%??}:${now: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"; done
+cap_state 8 idle
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-b --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "背景工作佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "在跑背景工作的 idle pane 要佔名額: $out"
+rm -rf "$OPSX_STATE_DIR/stop-said"
 # herdr agent list 失敗：印一行數不出名額到 stdout（看板成功時只顯示 stdout），照派
 cap_state 8
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>/dev/null)"; rc=$?

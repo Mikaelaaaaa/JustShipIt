@@ -1292,22 +1292,26 @@ cards "[$(held_n 8 working){\"slug\":\"q1\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch')" 0 "8 個 working pane 佔滿：$(cat "$OPSX_FAKE_LOG")"
 full 8 8
-cards "[$(held_n 8 idle){\"slug\":\"q1\"}]"; panes
+# 名額欄用上限驗數字：上限 1 時名額 0 只派得出 q1、q2 記達上限 1；混合列上限 5 時名額 4 只派得出 q1
+printf '1\n' > "$MW"
+cards "[$(held_n 8 idle){\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch q1 ')" 1 "idle 的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
-assert_not_grep '達上限' "$LOG"
-cards "[$(held_n 8 done){\"slug\":\"q1\"}]"; panes
+assert_eq "$(dispatched)" "q1" "idle 的 pane 名額是 0：$(cat "$OPSX_FAKE_LOG")"
+full 1 1
+cards "[$(held_n 8 done){\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch q1 ')" 1 "done 的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
-assert_not_grep '達上限' "$LOG"
-cards "[$(held_n 8 blocked){\"slug\":\"q1\"}]"; panes
+assert_eq "$(dispatched)" "q1" "done 的 pane 名額是 0：$(cat "$OPSX_FAKE_LOG")"
+full 1 1
+cards "[$(held_n 8 blocked){\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch q1 ')" 1 "blocked 的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
-assert_not_grep '達上限' "$LOG"
-cards "[$(held_n 4 working)$(held b1 idle),$(held b2 idle),$(held b3 blocked),$(held b4 done),{\"slug\":\"q1\"}]"; panes
+assert_eq "$(dispatched)" "q1" "blocked 的 pane 名額是 0：$(cat "$OPSX_FAKE_LOG")"
+full 1 1
+printf '5\n' > "$MW"
+cards "[$(held_n 4 working)$(held b1 idle),$(held b2 idle),$(held b3 blocked),$(held b4 done),{\"slug\":\"q1\"},{\"slug\":\"q2\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx dispatch q1 ')" 1 "混合時只有 working 佔名額，4 個還有空：$(cat "$OPSX_FAKE_LOG")"
-assert_not_grep '達上限' "$LOG"
+assert_eq "$(dispatched)" "q1" "混合時只有 working 佔名額，名額是 4：$(cat "$OPSX_FAKE_LOG")"
+full 5 5
+rm -f "$MW"
 cards "[$(held_n 7 working){\"slug\":\"q1\"}]"; panes
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 1 "7 個 pane 還有名額：$(cat "$OPSX_FAKE_LOG")"
@@ -1449,6 +1453,41 @@ assert_eq "$(count '^opsx dispatch')" 0 "上限 1、1 個 pane 不派"
 cards '[{"slug":"q1"}]'; panes
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch q1 ')" 1 "上限 1、沒有 pane 派"
+# 這輪協調者自己答掉 gate 叫醒的 pane 照佔名額：上限 2，兩個 pane 停在可代答的 opsx decision gate，答完不派 q1
+printf '2\n' > "$MW"
+OWW='{"gate_id":"g1","type":"等待決定","needs":null,"waits_on":null,"question":"範圍要不要收窄？","recommended":"A。收窄","options":["A。收窄","B"]}'
+# wk <slug> <agent_status>：opsx-workflow 的卡，pane w1:<slug>，停在可代答的 gate
+wk() { printf '{"repo":"opsx-workflow","slug":"%s","section":"待處理","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:%s","drive_pid":null},"agent_status":"%s","waiting":%s}' "$1" "$1" "$2" "$OWW"; }
+cards "[$(wk wa1 blocked),$(wk wa2 idle),{\"slug\":\"q1\"}]"
+jq --arg r "$R" '.repo_paths["opsx-workflow"] = $r' "$OPSX_TEST_COLLECT_JSON" > "$FX/ow-collect.json"; mv "$FX/ow-collect.json" "$OPSX_TEST_COLLECT_JSON"
+panes
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 2 "兩個 gate 照建議答：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "答掉 gate 叫醒的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+# 在跑自己背景工作的閒著 pane 照佔名額（D9）：停住原因是等背景工作或等背景 subagent、2 小時內
+SAID="$OPSX_STATE_DIR/stop-said"; mkdir -p "$SAID" "$R/openspec/changes/bg1" "$R/openspec/changes/bg2"; rm -f "$MEMO"
+cards "[$(held bg1 idle),$(held bg2 done),{\"slug\":\"q1\"}]"; panes
+printf '等背景 subagent（reviewer 3 個）\n%s\n' "$(ago 5)" > "$SAID/demo-bg1"
+printf '等背景工作（bash tests/run.sh）\n%s\n' "$(ago 30)" > "$SAID/demo-bg2"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "在跑背景工作的 idle、done pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+# 停住原因超過 2 小時、或不是等背景工作，不佔名額
+printf '等背景 subagent（reviewer 3 個）\n%s\n' "$(ago 130)" > "$SAID/demo-bg1"
+printf '等你回 gate g1\n%s\n' "$(ago 5)" > "$SAID/demo-bg2"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q1 ')" 1 "停住超過 2 小時或在等人的 pane 不佔名額：$(cat "$OPSX_FAKE_LOG")"
+assert_not_grep '達上限' "$LOG"
+# 停住超過 2 小時、子 change 的 subagent 還在跑：照佔名額
+mkdir -p "$R/openspec/changes/bg1/subs/s1" "$R/openspec/changes/bg2/subs/s1"; rm -f "$MEMO"
+printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "$(ago 1)" > "$R/openspec/changes/bg1/subs/s1/status.json"
+printf '等背景 subagent（子 change s1）\n%s\n' "$(ago 130)" > "$SAID/demo-bg2"
+printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "$(ago 1)" > "$R/openspec/changes/bg2/subs/s1/status.json"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "子 change 有 subagent 在跑的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+full 2 2
+rm -rf "$SAID" "$R/openspec/changes/bg1" "$R/openspec/changes/bg2"; rm -f "$MEMO"
 # 讀不到 herdr agent list，這輪什麼都不做
 rm -f "$MW" "$MEMO"; mkcard q-p0; incident q-p0 security "tests/auth.test.sh 第 3 案：未登入可讀 /admin"
 cards '[{"slug":"q-p0"}]'; panes
