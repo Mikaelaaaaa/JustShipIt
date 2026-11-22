@@ -33,7 +33,8 @@ const p0 = {repo: 'r', slug: 'a', priority: {level: 'P0', reason: 'P0：security
 const row = priorityBadge(p0);
 assert.match(row, /class="badge[^"]*"[^>]*>P0</, `卡片要有 P0 徽章：${row}`);
 assert.ok(!row.includes('改'), `沒覆寫不標「改」：${row}`);
-assert.ok(priorityBadge(p0, true).includes('P0：security（附證據）'), `展開區要有理由：${priorityBadge(p0, true)}`);
+assert.ok(priorityBadge(p0, true).includes('security（附證據）'), `展開區要有理由：${priorityBadge(p0, true)}`);
+assert.ok(priorityBadge(p0, true).includes('<span class="prio-why">security（附證據）</span>'), `徽章旁的理由不再寫一次等級：${priorityBadge(p0, true)}`);
 assert.ok(!row.includes('prio-why'), `列上理由只在 title，展開才顯示：${row}`);
 
 // 覆寫標記

@@ -340,5 +340,23 @@ assert.ok(pc.includes('const status=(w?') && (pc.match(/\$\{status\}/g) || []).l
 assert.ok(pc.includes("const doc=L&&!L.ok?'':"), '列檔失敗不畫文件卡');
 assert.ok(!files.fileTabsHtml({ok: false, error: '卡目錄不在了'}, null, p => p).includes('err'), '文件 tab 的列檔失敗是灰字');
 assert.ok(!/<div class="note err">\$\{esc\(o\.error\)\}/.test(pc) && !/<div class="note err">\$\{esc\(tlErr\)\}/.test(pc), '最後輸出與紀錄讀不到是灰字');
+
+// ---------- 第 2 輪瀏覽器檢查（browser-review-2.md） ----------
+const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+const rule = sel => { const i = css.indexOf(sel + '{'); if (i < 0) throw new Error('找不到 CSS ' + sel); return css.slice(i, css.indexOf('}', i)); };
+// 1 總覽四格等高、內容靠上
+assert.ok(rule('.ov').includes('align-items:stretch'), '總覽四格等高：' + rule('.ov'));
+// 2 卡片 meta 只留 repo 與天數，天數不被截
+assert.ok(!fn('rowRunning').includes('c.dispatch?.agent'), '進行中卡的 meta 不放 agent');
+assert.ok(!rule('.c-ttl .m').includes('text-overflow:ellipsis') && !rule('.c-ttl .m').includes('nowrap'), 'meta 可以換行，不截字：' + rule('.c-ttl .m'));
+// 3 最後輸出與紀錄讀不到用白話，原始錯誤只放 title
+assert.ok(pc.includes('沒有 agent 在跑') && !/>\$\{esc\(o\.error\)\}</.test(pc), '最後輸出讀不到：白話「沒有 agent 在跑」，不露原始錯誤');
+assert.ok(pc.includes('紀錄讀不到') && pc.includes('data-act="log-retry"') && !/>\$\{esc\(tlErr\)\}</.test(pc), '紀錄讀不到：白話加重試');
+assert.ok(html.includes("if(a==='log-retry'){loadLog();return;}"), '重試接線');
+// 5 900 寬頂列一行：新增、立即同步只剩圖示，協調者與更新於收成一個點加 tooltip
+const narrow = css.slice(css.indexOf('@media (max-width:900px)'));
+assert.ok(narrow.includes('#new-open,#sync-btn{font-size:0') && narrow.includes('#new-open::before') && narrow.includes('#sync-btn::before'), '窄版新增與同步是圖示按鈕');
+assert.ok(narrow.includes('#stamp{display:none}') && narrow.includes('.coord{font-size:0'), '窄版協調者與更新於收成一個點');
+assert.ok(fn('renderTop').includes("$('#coord').title="), '協調者點的 tooltip 帶狀態與更新時間');
 JS
 echo ok
