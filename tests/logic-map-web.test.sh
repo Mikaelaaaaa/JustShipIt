@@ -55,5 +55,15 @@ assert.ok(/const lmPos=logicMapScroll\(\$\('#drawer'\)\);[\s\S]*\$\('#drawer'\)\
 
 // 位置：合併請求段之後、紀錄段之前
 assert.ok(html.includes('${mr}${logicMapSection(c)}${logSec}'), 'renderDrawer 要把邏輯表段放在 mr 與 logSec 之間');
+
+// 合併請求段的合併鈕跟著快照：MR ready 而且邏輯表對到 head 才有，沒對到時是「卡在 …」文字（board-mergeable-needs-map D1）
+const ms = html.indexOf('  const mr=c.mr&&c.mr.url?'), me = html.indexOf('\n', ms);
+if (ms < 0) throw new Error('index.html 找不到 renderDrawer 的 const mr=');
+const mrSection = new Function('c', 'COND', html.slice(es, ee) + html.slice(ms, me) + ';return mr;');
+const COND = [['opened', '開著']];
+const mrCard = at => ({mr: {url: 'https://x/-/merge_requests/1', state: 'ready', conditions: {opened: true}}, logic_map_at_head: at});
+assert.ok(mrSection(mrCard(true), COND).includes('data-act="merge"'), '邏輯表對到 head：有合併鈕');
+const off = mrSection(mrCard(false), COND);
+assert.ok(!off.includes('data-act="merge"') && off.includes('卡在 ready'), '邏輯表沒對到 head：沒有合併鈕，顯示卡在 …：' + off);
 JS
 echo ok
