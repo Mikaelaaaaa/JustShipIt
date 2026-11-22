@@ -703,7 +703,7 @@ function rowDone(c){
   return `<div class="card" data-key="${esc(key(c))}" role="link" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="c-top">${bot(c,28)}<div class="c-ttl"><div class="t">${esc(c.title)}</div><div class="m">${joinDot([nw(esc(c.repo)),nw(c.mr&&c.mr.url?esc(c.mr.url.split('/').pop()):'')])}</div></div></div>
     <div class="st">${c.stage==='split'?'已拆開':c.mr&&c.mr.merged_at?'MR 已合併':'做完了'}</div>
-    <div class="c-act">${archiveCtl(c)}</div></div>`;
+    <div class="c-act">${archiveCtl(c,coordAlive())}</div></div>`;
 }
 function rowUnmatched(a){
   return `<div class="row"><div class="main"><span class="title">${esc(a.name||'(沒名字)')}</span><span class="meta">${joinDot(['pane '+esc(a.pane),esc(AGENT_WORD[a.agent_status]||'')])}</span></div><div class="act"><button class="sm" data-act="pane-id" data-agent="${esc(a.name||'')}">開啟 pane</button></div></div>`;
@@ -814,14 +814,14 @@ function rowUnfiled(u){
     <div class="main"><span class="title">${esc(u.title)}</span><span class="meta">${esc(u.source||'')} · ${esc(u.found||'')}</span></div>
     <div class="act"><select aria-label="選 repo"><option value="">選 repo…</option>${opts}</select><button class="primary sm" data-act="file">建卡</button>${dropCtl('unfiled:'+u.slug)}</div></div>`;
 }
-/* 歸檔按鈕（board-actions D5）：已合併而且 pane 不在了才給按鈕；pane 還在的留給協調者收尾。server 端照同一條件再檢查一次 */
+/* 歸檔按鈕（board-actions D5）：已合併、pane 不在了、協調者也沒在跑才給按鈕；還有開著的 gate 不給。server 端照同一條件再檢查一次 */
 /* 歸檔 start */
-function archiveState(c){
-  if(!(c.mr&&c.mr.merged_at))return null;
-  return c.dispatch&&c.agent_status!=='unknown'?'wait':'ready';
+function archiveState(c,coordOn){
+  if(!(c.mr&&c.mr.merged_at)||(c.open_gates&&c.open_gates.length))return null;
+  return coordOn||(c.dispatch&&c.agent_status!=='unknown')?'wait':'ready';
 }
-function archiveCtl(c){
-  const s=archiveState(c);
+function archiveCtl(c,coordOn){
+  const s=archiveState(c,coordOn);
   return s==='ready'?'<button class="sm primary" data-act="archive">歸檔</button>':s==='wait'?'<span class="badge line">等協調者收尾</span>':'';
 }
 const archiveBody=(c,repoPaths)=>({slug:c.slug,repo:(repoPaths||{})[c.repo]});
@@ -834,6 +834,7 @@ const GROUP_MIN=5;
 const COLLAPSE_KEY='opsx-board-collapsed';
 const needsYou=c=>!!c.waiting;
 const waitsOnYou=c=>needsYou(c)||subWaiting(c,data.sessions||[]).length>0;
+const coordAlive=()=>data.unmatched_agents.some(a=>a.coordinator);
 function waitCat(c){
   const w=c.waiting;
   if(!w)return 'none';
@@ -917,7 +918,8 @@ function scopeHas(f,scopes,repo){
   const s=scopes.find(s=>s.repos.includes(repo));
   return (s?s.workspace:null)===f.ws;
 }
-const facetOf=c=>({repo:c.repo,prio:c.priority?c.priority.level:'',kind:c.kind,agent:c.dispatch&&c.dispatch.agent||'none',you:!!c.waiting,pc:c.progress_class||null,text:(c.title+' '+c.slug).toLowerCase()});
+/* you：卡在不在等你由呼叫端判斷（看板用 waitsOnYou，含子 change 在等的主卡），跟等你數同一個判斷 */
+const facetOf=(c,you)=>({repo:c.repo,prio:c.priority?c.priority.level:'',kind:c.kind,agent:c.dispatch&&c.dispatch.agent||'none',you:!!you,pc:c.progress_class||null,text:(c.title+' '+c.slug).toLowerCase()});
 function matchF(f,x,scopes){
   if(!scopeHas(f,scopes,x.repo))return false;
   for(const k of FILTER_KEYS)if(f[k].length&&!f[k].includes(x[k]))return false;
@@ -971,17 +973,17 @@ const href=path=>'#'+path+qs(F);
 const cardHref=(c,file)=>href(cardPath(c.repo,c.slug,file));
 const liveCards=()=>data.cards.filter(c=>!c.archived);
 const archCards=()=>data.cards.filter(c=>c.archived);
-const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c),data.scopes));
-const fArchived=()=>archCards().filter(c=>matchF(forPage(F,'archived'),facetOf(c),data.scopes));
+const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c,waitsOnYou(c)),data.scopes));
+const fArchived=()=>archCards().filter(c=>matchF(forPage(F,'archived'),facetOf(c,false),data.scopes));
 function facetOfEvent(e){
   const c=e.repo?byKey(e.repo+'/'+e.slug):null;
-  const base=c?facetOf(c):{repo:e.repo||'',prio:'',kind:'',agent:'',you:false,pc:null};
+  const base=c?facetOf(c,waitsOnYou(c)):{repo:e.repo||'',prio:'',kind:'',agent:'',you:false,pc:null};
   return {...base,text:(String(e.text)+' '+(e.slug||'')+' '+e.tag).toLowerCase()};
 }
 const evPass=e=>inTime(F,e.ts,Date.now())&&matchF(F,facetOfEvent(e),data.scopes);
 function fbarHtml(page){
   const g=FGROUPS(page);
-  const base=page==='archived'?archCards().map(facetOf):page==='log'?(tl?tl.events.map(facetOfEvent):[]):liveCards().map(facetOf);
+  const base=page==='archived'?archCards().map(c=>facetOf(c,false)):page==='log'?(tl?tl.events.map(facetOfEvent):[]):liveCards().map(c=>facetOf(c,waitsOnYou(c)));
   const count=(k,v)=>base.filter(x=>x[k]===v).length;
   const chip=(k,v,l)=>`<button class="chip" data-fk="${k}" data-fv="${esc(v)}" aria-pressed="${F[k].includes(v)}">${esc(l)} <i>${count(k,v)}</i></button>`;
   const grp=(label,inner)=>`<div class="fg" role="group" aria-label="${label}"><span>${label}</span><div>${inner}</div></div>`;
@@ -1044,7 +1046,7 @@ function inboxBody(list){
 /* 子 change 等你 start */
 /* collect 只把 session 放進待處理，主 change 卡留在自己的欄；這裡把等人的子 change 列進待處理欄，回答在細節頁的 session 樹上 */
 function subWaiting(c,sessions){
-  if(!c.session||c.section==='待處理'||c.section==='已完成')return [];
+  if(!c.session||c.section==='待處理')return [];
   const s=sessions.find(s=>s.repo+'/'+s.feature===c.session);const m=s&&s.mains.find(m=>m.slug===c.slug);
   return m?m.subs.filter(x=>x.waiting).map(x=>x.slug):[];
 }
@@ -1133,7 +1135,7 @@ function cardPathLabel(c){
 }
 function cardActs(c){
   const d=c.dispatch||{};const done=c.section==='已完成'||c.archived;
-  return `<div class="box acts">${d.pane?`<button class="sm" data-act="pane">開啟 pane ${esc(d.pane)}</button><button class="sm" data-act="stop">停止</button>`:''}${done?'':`<button class="sm${d.pane?'':' primary'}" data-act="dispatch">${d.pane?'重新指派':'指派'}</button>`}${c.section==='收件匣'?'<button class="sm" data-act="explore">先 explore</button>':''}${done?'':prioCtl(c)}${c.section==='收件匣'?mergeCtl(c,data.cards)+dropCtl(key(c)):''}${archiveCtl(c)}${cardPathLabel(c)}</div>`;
+  return `<div class="box acts">${d.pane?`<button class="sm" data-act="pane">開啟 pane ${esc(d.pane)}</button><button class="sm" data-act="stop">停止</button>`:''}${done?'':`<button class="sm${d.pane?'':' primary'}" data-act="dispatch">${d.pane?'重新指派':'指派'}</button>`}${c.section==='收件匣'?'<button class="sm" data-act="explore">先 explore</button>':''}${done?'':prioCtl(c)}${c.section==='收件匣'?mergeCtl(c,data.cards)+dropCtl(key(c)):''}${archiveCtl(c,coordAlive())}${cardPathLabel(c)}</div>`;
 }
 function pageCard(r){
   const back=`<nav class="crumbs"><a href="${href('board')}">← 回看板</a></nav>`;
@@ -1373,7 +1375,8 @@ async function loadCardFiles(k,path){
   try{store[slot]=await api.cardFiles(k,path);}catch(e){store[slot]={ok:false,error:e.message};}
   if(ui.open===k)render();
 }
-/* 進細節頁那一刻重抓檔案清單與最後輸出（5 秒重拉不重抓）；換檔案 tab 時才讀那個檔 */
+/* 進細節頁那一刻抓檔案清單與最後輸出，換檔案 tab 時才讀那個檔。
+   shortcut: 停在頁面上不重抓，agent 改了檔要離開再進來才看得到；要即時再在 5 秒重拉時比對清單大小重抓開著的檔 */
 function ensureCard(r){
   const k=r.repo+'/'+r.slug;const c=byKey(k);if(!c)return;
   if(ui.entered!==k){ui.entered=k;delete cardFiles[k];for(const x of Object.keys(fileTexts))if(x.startsWith(k+'\n'))delete fileTexts[x];delete outputs[k];if(c.dispatch&&c.dispatch.pane)loadOutput(c);if(!tl)loadLog();}

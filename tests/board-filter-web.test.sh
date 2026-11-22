@@ -56,7 +56,12 @@ assert.deepStrictEqual(parseF('t=custom', known).t, 'all', '自訂起訖沒有�
 // Scenario 換頁保留條件：頂列連結與卡片連結都經 href，帶上 qs(F)
 assert.ok(html.includes("const href=path=>'#'+path+qs(F);"), 'href 帶篩選條件');
 assert.ok(html.includes('<a href="${href(k)}"'), '頂列的頁面連結經 href');
-assert.ok(html.includes('const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c),data.scopes));'), '變更頁與看板頁同一組篩選');
+assert.ok(html.includes('const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c,waitsOnYou(c)),data.scopes));'), '變更頁與看板頁同一組篩選');
+// 「只看等我的」跟等你數同一個判斷（D14）：主卡自己沒有 gate、子 change 在等，也篩得出來
+const subOnly = card('a', 'main', {session: 'a/f'});
+assert.strictEqual(facetOf(subOnly, true).you, true, '呼叫端判定在等（含子 change）就算等我');
+assert.ok(matchF({...emptyF(), you: true}, facetOf(subOnly, true), scopes), '只看等我的篩得出子 change 在等的主卡');
+assert.ok(!matchF({...emptyF(), you: true}, facetOf(subOnly, false), scopes), '沒在等的卡被濾掉');
 
 // 範圍：全部、workspace、單一 repo
 assert.deepStrictEqual(pick({...emptyF(), scope: 'ws', ws: 'develop'}), ['a/x', 'a/y', 'b/z'], 'workspace develop 底下的 repo');

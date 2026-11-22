@@ -218,10 +218,17 @@ assert.strictEqual(arc.archiveCtl({slug: 'x', mr: null, dispatch: null}), '', '�
 // 跟 server 同一條件：pane 已經不在（unknown）算沒有活 pane；idle 是 pane 還在
 assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'unknown'}), 'ready');
 assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'idle'}), 'wait');
+// 協調者活著：留給它照原流程收尾（D5），只顯示等協調者收尾
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: null, agent_status: null}, true), 'wait', '協調者在跑：不給按鈕');
+const coordWait = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: null, agent_status: null}, true);
+assert.ok(coordWait.includes('等協調者收尾') && !coordWait.includes('data-act'), '協調者在跑：等協調者收尾');
+// 還有開著的 gate（例如合併後又有 commit 的 late gate）：不畫按鈕，gate 不能隨歸檔消失
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: null, agent_status: null, open_gates: [{id: 'late-abc'}]}, false), null, '有 open gate：不給歸檔');
+assert.ok(fn('rowDone').includes('archiveCtl(c,coordAlive())') && fn('cardActs').includes('archiveCtl(c,coordAlive())'), '兩處都帶協調者狀態');
+assert.ok(html.includes('const coordAlive=()=>data.unmatched_agents.some(a=>a.coordinator);'), 'coordAlive 讀 collect 的 coordinator 欄');
 assert.deepStrictEqual(arc.archiveBody({repo: 'a', slug: 'x'}, {a: '/code/a'}), {slug: 'x', repo: '/code/a'}, 'POST body 帶 repo 根路徑');
 assert.ok(html.includes("function archiveCard(c){act(`openspec archive ${c.slug} -y`,()=>api.post('archive',archiveBody(c,data.repo_paths)));}"), '按鈕走動作接線（失敗 toast stderr）');
 assert.ok(html.includes("if(a==='archive'){archiveCard(c);return;}"), '點擊接線');
-assert.ok(fn('rowDone').includes('archiveCtl(c)') && fn('cardActs').includes('archiveCtl(c)'), '已完成欄與細節頁都畫歸檔');
 
 // ---------- 子 change 等你 ----------
 // collect 在子 change 有 waiting 時只把 session 放進待處理，主 change 卡留在自己的欄；看板的待處理欄要列出它，點進細節頁從樹上回
@@ -234,6 +241,7 @@ assert.deepStrictEqual(sw.subWaiting(bt, sess), ['as'], '主 change 底下等你
 assert.deepStrictEqual(sw.subWaiting({repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}, sess), [], '子 change 都沒在等：不列');
 assert.deepStrictEqual(sw.subWaiting({repo: 'a', slug: 'x', section: '進行中'}, sess), [], '沒有 session：不列');
 assert.deepStrictEqual(sw.subWaiting({...bt, section: '待處理'}, sess), [], '主 change 自己已在待處理：不重複列');
+assert.deepStrictEqual(sw.subWaiting({...bt, section: '已完成'}, sess), ['as'], '主卡已完成、子 change 還在等：照樣列出（D17）');
 const swh = sw.subWaitingHtml([bt, {repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}], sess);
 assert.ok(swh.includes('#card/a/bt') && swh.includes('as') && !swh.includes('#card/a/bu'), '待處理欄的子 change 區塊連到主 change 的細節頁');
 assert.strictEqual(sw.subWaitingHtml([{repo: 'a', slug: 'bu', session: 'a/fb', section: '進行中'}], sess), '', '沒有等你的子 change：不畫區塊');

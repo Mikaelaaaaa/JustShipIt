@@ -1099,6 +1099,9 @@ class CardFilesTest(unittest.TestCase):
         (cls.card / "specs" / "foo" / "spec.md").write_text("spec")
         (cls.card / "subs" / "s1" / "inbox.md").write_text("sub")
         (cls.card / "notes.txt").write_text("not md")
+        (cls.card / "status.json").write_text("{}")
+        (cls.card / "locked.md").write_text("locked")
+        (cls.card / "locked.md").chmod(0)
         for name, size in (("r100.md", 100), ("r60000.md", 60000), ("r60001.md", 60001), ("r200000.md", 200000)):
             (cls.card / name).write_text("a" * size)
         outside = cls.tmp / "outside"
@@ -1117,6 +1120,7 @@ class CardFilesTest(unittest.TestCase):
                  {"repo": "a", "slug": "y", "archived": False, "path": str(changes / "y") + "/"},
                  {"repo": "a", "slug": "z", "archived": False, "path": str(changes / "z") + "/"},
                  {"repo": "a", "slug": "old", "archived": True, "path": str(arch) + "/"},
+                 {"repo": "a", "slug": "moved", "archived": False, "path": str(changes / "moved") + "/"},
                  {"repo": "b", "slug": "x", "archived": False, "path": str(cls.card) + "/"}]
         cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(repo)}, "cards": cards}, [])
 
@@ -1185,11 +1189,26 @@ class CardFilesTest(unittest.TestCase):
         self.assertIn("nope.md", body["error"])
 
     def test_blocked_paths_are_400(self):
-        for path in ("../y/inbox.md", "/etc/passwd", "specs/../../y/inbox.md", "..", "specs/..", ""):
+        # NUL、清單列不出來的檔（不是 .md、在 subs/ 底下，D10）也擋
+        for path in ("../y/inbox.md", "/etc/passwd", "specs/../../y/inbox.md", "..", "specs/..", "", "a\x00b",
+                     "status.json", "notes.txt", "subs/s1/inbox.md"):
             with self.subTest(path=path):
                 status, body = self.get("card=a/x&path=" + urllib.parse.quote(path, safe=""))
                 self.assertEqual(status, 400, body)
+                self.assertFalse(body["ok"])
                 self.assertNotIn("t", body)
+
+    def test_filesystem_errors_are_json(self):
+        """檔案系統丟的錯都回 {ok:false, error}，不讓連線斷掉（D2）。"""
+        for query, want in (("card=a/x&path=tasks.md/x.md", 404),   # 中間一段是檔案：NotADirectoryError
+                            ("card=a/x&path=locked.md", 400),       # 權限 000：PermissionError
+                            ("card=a/moved", 404),                  # 卡目錄被搬走（例如剛歸檔）
+                            ("card=a/moved&path=inbox.md", 404)):
+            with self.subTest(query=query):
+                status, body = self.get(query)
+                self.assertEqual(status, want, body)
+                self.assertFalse(body["ok"])
+                self.assertTrue(body["error"])
 
     def test_symlinks_are_refused(self):
         for query in ("card=a/y&path=link.md", "card=a/y&path=specs/evil/spec.md", "card=a/z", "card=a/z&path=secret.md"):
@@ -1244,8 +1263,12 @@ class ArchiveTest(unittest.TestCase):
             {"repo": "a", "slug": "open", "archived": False, "mr": {"url": "u", "merged_at": None}, "dispatch": None, "agent_status": None},
             {"repo": "a", "slug": "nomr", "archived": False, "mr": None, "dispatch": None, "agent_status": None},
             {"repo": "a", "slug": "done", "archived": True, "mr": None, "dispatch": None, "agent_status": None},
+            # 合併後又有 commit、opsx late 開了 gate：歸檔會讓 gate 從看板消失
+            {"repo": "a", "slug": "gated", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None,
+             "open_gates": [{"id": "late-abc", "opened_at": "2026-11-21T10:00:00+08:00"}]},
         ]
-        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards}, [shim_dir])
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards,
+                                                               "unmatched_agents": [{"name": "scratch", "pane": "p7", "coordinator": False}]}, [shim_dir])
 
     @classmethod
     def tearDownClass(cls):
@@ -1267,7 +1290,7 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(self.log.read_text().strip(), "%s|archive ok -y" % self.repo.resolve())
 
     def test_conditions(self):
-        for slug, want in (("ok", 200), ("busy", 422), ("open", 422), ("nomr", 422), ("gonepane", 200), ("idle", 422)):
+        for slug, want in (("ok", 200), ("busy", 422), ("open", 422), ("nomr", 422), ("gonepane", 200), ("idle", 422), ("gated", 422)):
             with self.subTest(slug=slug):
                 self.log.write_text("")
                 status, body = self.archive(slug)
@@ -1303,6 +1326,38 @@ class ArchiveTest(unittest.TestCase):
     def test_needs_token(self):
         status, _ = self.archive("ok", token=False)
         self.assertEqual(status, 401)
+
+
+class ArchiveWhileCoordinatorRunsTest(unittest.TestCase):
+    """協調者活著時看板不歸檔，留給協調者照原流程收尾（D5：按鈕只補協調者沒在跑時的空窗）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-server-archive-coord."))
+        cls.repo = cls.tmp / "a"
+        (cls.repo / "openspec" / "changes").mkdir(parents=True)
+        shim_dir = cls.tmp / "bin"
+        shim_dir.mkdir()
+        cls.log = cls.tmp / "openspec.log"
+        cls.log.write_text("")
+        shim = shim_dir / "openspec"
+        shim.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$*" >> "{cls.log}"\n')
+        shim.chmod(0o755)
+        cards = [{"repo": "a", "slug": "ok", "archived": False, "mr": ArchiveTest.MERGED, "dispatch": None, "agent_status": None}]
+        coordinator = {"name": "Opsx coordinator session duties", "pane": "w9:pM", "agent_status": "idle", "coordinator": True}
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards,
+                                                               "unmatched_agents": [coordinator]}, [shim_dir])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.kill()
+        cls.proc.wait()
+
+    def test_refuses_while_coordinator_runs(self):
+        status, body = call(self.base, "/api/archive", self.token, {"slug": "ok", "repo": str(self.repo)})
+        self.assertEqual(status, 422, body)
+        self.assertIn("協調者", body["stderr"])
+        self.assertEqual(self.log.read_text(), "")
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ import argparse
 import base64
 import binascii
 import datetime
+import errno
 import json
 import os
 import pathlib
@@ -70,7 +71,7 @@ NAME_MAX = 128
 NAME_MAX_BYTES = 255   # 多數檔案系統的單一檔名上限是 255 bytes，CJK 一字三 bytes
 # 一句話會進 argv，太長的一行（壓縮過的 JSON、log）會讓 exec 回 E2BIG；全文另存在 paste.md
 ONE_LINER_MAX = 200
-MAX_FILE = 60_000   # 卡內單檔超過就只回大小，跟使用者確認過的設計稿同一個上限
+MAX_FILE = 60_000   # 卡內單檔超過就只回大小，不回內文
 FILE_ORDER = ("inbox.md", "explore.md", "grill.md", "proposal.md", "design.md", "tasks.md",
               "report.md", "logic-map.md", "gates.md", "mr.md")
 
@@ -321,10 +322,10 @@ class CardFileError(Exception):
 def card_dir(payload: dict, card: str) -> pathlib.Path:
     """collect 結果裡 <repo>/<slug> 的卡目錄。同名時取活卡；repo 沒登記、卡不在、目錄是符號連結或不在 repo 的 changes/ 底下都 raise。"""
     label, slug = card.split("/")
-    repo = (payload.get("repo_paths") or {}).get(label)
+    repo = payload["repo_paths"].get(label)
     if repo is None:
         raise CardFileError(404, "repo 沒登記：%s" % label)
-    hits = [c for c in payload.get("cards") or [] if c.get("repo") == label and c.get("slug") == slug]
+    hits = [c for c in payload["cards"] if c.get("repo") == label and c.get("slug") == slug]
     hits.sort(key=lambda c: bool(c.get("archived")))
     if not hits or not hits[0].get("path"):
         raise CardFileError(404, "找不到卡 %s" % card)
@@ -334,7 +335,9 @@ def card_dir(payload: dict, card: str) -> pathlib.Path:
             raise CardFileError(400, "卡目錄是符號連結：%s" % card)
     except FileNotFoundError as e:
         raise CardFileError(404, "卡目錄不在了：%s" % card) from e
-    changes = os.path.realpath(os.path.join(repo, "openspec", "changes"))
+    except PermissionError as e:
+        raise CardFileError(400, "卡目錄讀不到：%s" % card) from e
+    changes =os.path.realpath(os.path.join(repo, "openspec", "changes"))
     if os.path.commonpath([changes, os.path.realpath(d)]) != changes:
         raise CardFileError(400, "卡目錄不在 %s 底下：%s" % (changes, card))
     return d
@@ -346,15 +349,25 @@ def file_rank(rel: str) -> tuple:
     return (2 if rel.startswith("specs/") else 1, 0, rel)
 
 
+def raise_walk_error(e: OSError) -> None:
+    """os.walk 的 onerror：卡目錄在走訪前被搬走（例如剛歸檔）時不回空清單，回 404。"""
+    if isinstance(e, FileNotFoundError):
+        raise CardFileError(404, "卡目錄不在了：%s" % e.filename) from e
+    raise CardFileError(400, "卡目錄讀不到：%s" % e.filename) from e
+
+
 def list_card_files(d: pathlib.Path) -> dict:
     """卡目錄底下的 .md（不跟符號連結）；subs/ 底下只算個數。"""
     files, subs = [], 0
-    for root, _, names in os.walk(d):
+    for root, _, names in os.walk(d, onerror=raise_walk_error):
         rel_root = os.path.relpath(root, d)
         in_subs = rel_root == "subs" or rel_root.startswith("subs" + os.sep)
         for name in names:
             full = os.path.join(root, name)
-            st = os.lstat(full)
+            try:
+                st = os.lstat(full)
+            except FileNotFoundError:
+                continue   # 走訪到一半被刪的檔，清單不列
             if not name.endswith(".md") or not stat.S_ISREG(st.st_mode):
                 continue
             if in_subs:
@@ -366,22 +379,35 @@ def list_card_files(d: pathlib.Path) -> dict:
 
 
 def read_card_file(d: pathlib.Path, rel: str) -> dict:
-    """讀卡目錄底下的一個一般檔。每一段都 lstat，遇到符號連結就拒絕；最後一段再用 O_NOFOLLOW 開。"""
+    """讀卡目錄底下、清單列得出來的一個 .md（不在 subs/）。每一段都 lstat，遇到符號連結就拒絕；最後一段再用 O_NOFOLLOW 開。"""
     parts = rel.split("/")
-    if not rel or rel.startswith("/") or any(p in ("", ".", "..") for p in parts):
-        raise CardFileError(400, "path 要是卡目錄底下的相對路徑，不能有 .. 或空段：%r" % rel)
+    if not rel or rel.startswith("/") or "\0" in rel or any(p in ("", ".", "..") for p in parts):
+        raise CardFileError(400, "path 要是卡目錄底下的相對路徑，不能有 ..、空段或 NUL：%r" % rel)
+    if not rel.endswith(".md") or parts[0] == "subs":
+        raise CardFileError(400, "只讀清單列得出來的檔（subs/ 以外的 .md）：%r" % rel)
     cur = d
     for part in parts:
         cur = cur / part
         try:
             mode = os.lstat(cur).st_mode
-        except FileNotFoundError as e:
+        except (FileNotFoundError, NotADirectoryError) as e:
             raise CardFileError(404, "找不到 %s" % rel) from e
+        except PermissionError as e:
+            raise CardFileError(400, "%s 讀不到（權限）" % rel) from e
         if stat.S_ISLNK(mode):
             raise CardFileError(400, "%s 經過符號連結，不讀" % rel)
     if not stat.S_ISREG(mode):
         raise CardFileError(400, "%s 不是一般檔" % rel)
-    fd = os.open(cur, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        fd = os.open(cur, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError as e:
+        raise CardFileError(404, "%s 在讀取前不見了" % rel) from e
+    except PermissionError as e:
+        raise CardFileError(400, "%s 讀不到（權限）" % rel) from e
+    except OSError as e:
+        if e.errno != errno.ELOOP:
+            raise
+        raise CardFileError(400, "%s 在讀取前換成了符號連結，不讀" % rel) from e
     with os.fdopen(fd, "rb") as f:
         size = os.fstat(f.fileno()).st_size
         if size > MAX_FILE:
@@ -392,14 +418,18 @@ def read_card_file(d: pathlib.Path, rel: str) -> dict:
 def archive_refusal(payload: dict, repo: str, slug: str) -> str | None:
     """歸檔條件不成立時回原因；成立回 None。repo 用實體路徑比對 collect 的 repo_paths。"""
     real = os.path.realpath(repo)
-    labels = [k for k, v in (payload.get("repo_paths") or {}).items() if os.path.realpath(v) == real]
-    card = next((c for c in payload.get("cards") or [] if c.get("repo") in labels and c.get("slug") == slug and not c.get("archived")), None)
+    labels = [k for k, v in payload["repo_paths"].items() if os.path.realpath(v) == real]
+    card = next((c for c in payload["cards"] if c.get("repo") in labels and c.get("slug") == slug and not c.get("archived")), None)
     if card is None:
         return "%s 不是 %s 裡還沒歸檔的卡" % (slug, repo)
     if not (card.get("mr") or {}).get("merged_at"):
         return "%s 還沒合併，不能歸檔" % slug
     if card.get("dispatch") and card.get("agent_status") != "unknown":
         return "%s 還有 pane（%s），等協調者收尾" % (slug, card.get("agent_status"))
+    if card.get("open_gates"):
+        return "%s 還有開著的 gate（%s），先回答再歸檔" % (slug, "、".join(g["id"] for g in card["open_gates"]))
+    if any(a.get("coordinator") for a in payload["unmatched_agents"]):
+        return "協調者在跑，等它收尾 %s（它會一併標 workplan、停 pane、清 worktree）" % slug
     return None
 
 

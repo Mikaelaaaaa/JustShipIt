@@ -105,5 +105,5 @@ assert.deepStrictEqual(inSec({...emptyF(), pc: 'developing'}, '進行中'), ['ru
 assert.deepStrictEqual(inSec({...emptyF(), pc: 'not_dispatched'}, '待指派'), ['ready']);
 assert.deepStrictEqual(inSec({...emptyF(), pc: 'not_dispatched'}, '收件匣'), ['fresh'], '收件匣裡還沒派的卡要畫');
 assert.deepStrictEqual(inSec({...emptyF(), pc: 'developing', scope: 'repo', srepo: 'r'}, '進行中'), ['run', 'in-session'], '篩選中範圍篩選同時套用');
-assert.ok(html.includes('const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c),data.scopes));'), '看板的卡都經 matchF（含範圍與進度分類）');
+assert.ok(html.includes('const fCards=()=>liveCards().filter(c=>matchF(F,facetOf(c,waitsOnYou(c)),data.scopes));'), '看板的卡都經 matchF（含範圍與進度分類）');
 JS
