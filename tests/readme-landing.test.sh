@@ -89,10 +89,11 @@ printf '%s\n' "$flow" | grep -qF '合併永遠留給人' || fail "流程段沒�
 how="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f' "$README")"
 for svg in docs/assets/architecture-light.svg docs/assets/architecture-dark.svg; do
   [ -f "$OPSX_ROOT/$svg" ] || fail "缺 $svg"
-  printf '%s\n' "$how" | grep -qF "$svg" || fail "怎麼運作段沒引用 $svg"
 done
 printf '%s\n' "$how" | grep -qF '<picture>' || fail "怎麼運作段的架構圖沒用 <picture>"
-printf '%s\n' "$how" | grep -qF 'prefers-color-scheme: dark' || fail "怎麼運作段的架構圖沒依 prefers-color-scheme 切換"
+# 深淺色要配對：對調的話淺色主題會顯示深色那張，字幾乎看不見
+printf '%s\n' "$how" | grep -qF '<source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg"' || fail "怎麼運作段的深色 <source> 沒指向 docs/assets/architecture-dark.svg"
+printf '%s\n' "$how" | grep -qF '<img src="docs/assets/architecture-light.svg"' || fail "怎麼運作段的 <img> 沒指向 docs/assets/architecture-light.svg"
 ! printf '%s\n' "$how" | grep -qF '```mermaid' || fail "怎麼運作段還有 mermaid，流程圖要用 SVG 架構圖"
 
 # --- Requirement：不外洩且授權段只連到 LICENSE ---
