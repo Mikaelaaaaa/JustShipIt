@@ -13,8 +13,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "bin" / "lib"))
 import runtime  # noqa: E402
 
-SECTIONS = ("待處理", "進行中", "待指派", "收件匣", "已完成")
-MARK = {"待處理": "▲", "進行中": "●", "待指派": "○", "收件匣": "·", "已完成": "—"}
+SECTIONS = ("待處理", "進行中", "等待中", "待指派", "收件匣", "已完成")
+MARK = {"待處理": "▲", "進行中": "●", "等待中": "◌", "待指派": "○", "收件匣": "·", "已完成": "—"}
 SELECTABLE = ("card", "session")
 UNMOUNTED = "沒掛的"   # scopes[] 裡 workspace 為 null 的那一項，跟網頁範圍選單同名
 

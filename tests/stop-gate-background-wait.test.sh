@@ -92,7 +92,7 @@ out="$(sg "$T")"; assert_eq "$(decision "$out")" block "只有壞行要擋: $out
 rm -rf "$STOP_STATE"; { yes '{"type":"assistant","message":"filler"}' | head -c 20000000; start_monitor job1; } > "$T"
 SECONDS=0; out="$(sg "$T")"
 assert_eq "$(decision "$out")" allow "大 transcript 尾端的背景工作要放行: $out"
-[ "$SECONDS" -le 3 ] || fail "大 transcript 判斷花了 ${SECONDS} 秒，hook 上限 10 秒"
+[ "$SECONDS" -le 8 ] || fail "大 transcript 判斷花了 ${SECONDS} 秒，上限 8 秒（hook timeout 10 秒留 2 秒餘量）"
 
 # 7200 秒邊界：直接呼叫函式，now 明給
 printf '{"type":"user","timestamp":"2026-11-12T00:00:00.000Z","toolUseResult":{"taskId":"job1","timeoutMs":900000,"persistent":false}}\n' > "$T"

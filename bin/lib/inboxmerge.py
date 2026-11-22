@@ -5,20 +5,24 @@
         追加一段，印這段拿到的 id。id 是新卡原本會拿到的 slug；目標裡已經有同一個 id 時依序加 -2、-3。
         鎖內發現目標已有 tasks.md 或已拆就不寫，退出 4。
     $OPSX_PY -I inboxmerge.py card <卡目錄> <id>
-        印那一段拆回獨立卡時的 inbox.md（跟 opsx new 寫的同形）。找不到退出 2。
+        印那一段拆回獨立卡時的 inbox.md（一行形狀跟 opsx new 寫的同形，縮排形狀還原來源整份內文）。找不到退出 2。
     $OPSX_PY -I inboxmerge.py remove <卡目錄> <id>
         刪掉那一段，其餘位元組不動。找不到退出 2。
     $OPSX_PY -I inboxmerge.py ids <卡目錄>
         一行印一個這張卡現有的併入 id（opsx drop 用來拒絕還有併入項目的卡）。
     $OPSX_PY -I inboxmerge.py split-out <卡目錄> <id> <repo 根>
-        同一個卡鎖內讀那一段、用 common.sh 的 new_shell 建殼、刪那一段；印新殼 slug。找不到那段退出 2，不建殼。
+        同一個卡鎖內讀那一段、算好拆掉後的目標全文（照 `- carried:` 撤回目標 frontmatter、用其餘帶 frontmatter 的段照 carry 規則補回這次撤掉的部分
+        並記進它們的 `- carried:`、刪「- 併進」證據行、刪那一段）、用 common.sh 的 new_shell 建殼、一次寫回目標；印新殼 slug。
+        人改過沒撤的鍵在 stderr 印一行。找不到那段退出 2；段或 `- carried:` 格式不對、算好的目標不合格退出 1；兩者都不建殼。
     $OPSX_PY -I inboxmerge.py evidence <卡目錄> <行>
         卡鎖內把一行插進 `## 證據` 段最後一行非空內容之後（opsx merge-card）。沒有證據段退出 1。
-    $OPSX_PY -I inboxmerge.py carry <目標卡目錄> <來源 inbox 檔> <來源 slug>
+    $OPSX_PY -I inboxmerge.py carry <目標卡目錄> <來源 inbox 檔> <來源 slug> <併入段 id>
         來源卡的 kind_of_work / impact / evidence / priority 覆寫併進目標卡 frontmatter（opsx merge-card，來源捨棄成功之後；來源 inbox 已複製出來）：
-        kind_of_work 取較高，impact 取聯集，evidence 依 " ; " 去重接在後面，priority 取較高。
+        kind_of_work 取較高，impact 取聯集，evidence 依 " ; " 去重接在後面，priority 取較高。改了什麼以 `- carried:` 記進那段併入。
     $OPSX_PY -I inboxmerge.py carry-check <目標卡目錄> <來源 inbox 檔> <來源 slug>
         同上但不寫檔：只驗欄位合格與目標有 frontmatter（opsx merge-card，捨棄來源之前）。
+    $OPSX_PY -I inboxmerge.py summary-check <來源 inbox 檔> <來源 slug>
+        來源內文沒有 `## 一句話` 或那段沒有非空行就退出 1（opsx merge-card，捨棄來源之前；這樣的段拆不回來）。
     $OPSX_PY -I inboxmerge.py drop <卡目錄> <理由> -- <歸檔指令…>
         卡鎖內重查併入段（有就退出 1）、寫 outcome: declined 與 ## 捨棄理由、跑歸檔指令，鎖到指令結束才放。指令失敗退出 3。
 兩個 agent 可能同時併進同一張卡：鎖在卡目錄上（inbox.md 會被原子替換換掉 inode，鎖它本身擋不住），鎖內重讀再改。
@@ -26,6 +30,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -41,8 +46,15 @@ FRONTMATTER = re.compile(r"\A---\n(.*?\n)---\n", re.S)
 MERGED = re.compile(r"^## 併入：")
 MERGED_HEAD = re.compile(r"^## 併入：(\S+) (\S+)\s*$")
 ID_LINE = re.compile(r"^- id: (\S+)\s*$")
-FIELD = re.compile(r"^- (id|kind_of_work|evidence|type|area): (.*)$")
+FIELD = re.compile(r"^- (id|kind_of_work|evidence|type|area|carried): (.*)$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+INDENT = "  "
+SUMMARY_HEAD = re.compile(r"^## 一句話\s*$")   # 跟 collect.sh 讀一般卡一句話的規則一樣容許尾端空白
+ATTACH_HEAD = re.compile(r"^## 附件\s*$")
+# 跟 str.splitlines(keepends=True) 一樣保留行尾，但只認 \n：U+2028、U+0085、\x0c 是行內字元，寫入端照收
+LINE = re.compile(r"[^\n]*\n|[^\n]+\Z")
+PRIORITY_KEYS = ("priority", "priority_reason", "priority_auto")
+CARRIED_KEYS = ("kind_of_work",) + PRIORITY_KEYS
 
 
 SPLIT_INTO = re.compile(r"^split_into:\s*(.*?)\s*(#.*)?$")
@@ -132,19 +144,19 @@ def append(card_dir: str, base: str, when: str, source: str, kind: str, evidence
 
 
 def append_full(card_dir: str, source_inbox: str, source_slug: str, when: str) -> str:
-    """來源卡全文（一句話、證據）以 ## 併入： 段併進目標；每行縮排兩格，標題與欄位樣式的行就切不斷這一段、也不會多出假 id。"""
+    """來源卡整份 inbox（frontmatter、一句話、證據）以 ## 併入： 段併進目標；每行縮排兩格，標題與欄位樣式的行就切不斷這一段、也不會多出假 id。
+    frontmatter 一起存，拆回時 impact、priority 這些欄位不會掉。"""
     with open(source_inbox, encoding="utf-8") as f:
         text = f.read()
     fm, _ = priority.frontmatter(text)
     got = facts(source_slug, text)
-    body = FRONTMATTER.sub("", text, count=1).strip("\n")
-    indented = "\n".join(("  " + x) if x else x for x in body.split("\n"))
+    indented = "\n".join(("  " + x) if x else x for x in text.strip("\n").split("\n"))
     return append(card_dir, source_slug, when, fm.get("source") or "me", got["kind"], got["evidence"], fm.get("type") or "待定", indented)
 
 
 def find(text: str, mid: str) -> tuple:
-    """含 `- id: <mid>` 的併入段，回傳 (起始行, 結束行之後)，行號以 keepends 切行計。"""
-    lines = text.splitlines(keepends=True)
+    """含 `- id: <mid>` 的併入段，回傳 (起始行, 結束行之後)，行號以 LINE 切行計。"""
+    lines = LINE.findall(text)
     heads = [i for i, x in enumerate(lines) if HEAD.match(x)] + [len(lines)]
     hits = [(a, b) for a, b in zip(heads, heads[1:]) if MERGED.match(lines[a]) and mid in merged_ids("".join(lines[a:b]))]
     if not hits:
@@ -154,8 +166,39 @@ def find(text: str, mid: str) -> tuple:
     return hits[0]
 
 
+def unindent(rest: list, mid: str) -> str:
+    """append_full 寫的內文（每個非空行縮排兩格）還原成來源 inbox 內文；段尾空行不算。"""
+    while rest and rest[-1] == "":
+        rest = rest[:-1]
+    for x in rest:
+        if x and not x.startswith(INDENT):
+            raise ValueError("縮排的併入段有一行沒縮排兩格（id %s）：%s" % (mid, x))
+    return "\n".join(x[len(INDENT):] for x in rest)
+
+
+def summary(body: str, mid: str) -> str:
+    """還原內文裡 `## 一句話` 段的第一個非空行，給看板那一列用；跟 collect.sh 的 one_liner 取法一樣。"""
+    lines = body.split("\n")
+    head = next((i for i, x in enumerate(lines) if SUMMARY_HEAD.match(x)), None)
+    if head is None:
+        raise ValueError("縮排的併入段沒有 ## 一句話（id %s）" % mid)
+    for x in lines[head + 1:]:
+        if HEAD.match(x):
+            break
+        if x.strip():
+            return x.strip()
+    raise ValueError("縮排的併入段 ## 一句話 是空的（id %s）" % mid)
+
+
+def summary_check(source_inbox: str, source_slug: str) -> None:
+    """opsx merge-card 捨棄來源之前先驗：來源內文（去掉 frontmatter）有拆得回來的 `## 一句話`，規則跟讀縮排段的 summary 一樣。"""
+    with open(source_inbox, encoding="utf-8") as f:
+        summary(FRONTMATTER.sub("", f.read(), count=1), source_slug)
+
+
 def parse(block: list) -> dict:
-    """一段併入的行（不含換行）照 inboxmerge.section 的形狀拆成欄位；形狀不對就 raise 指出哪一行。"""
+    """一段併入的行（不含換行）拆成欄位；形狀不對就 raise 指出哪一行。
+    欄位後空行接的第一行縮排兩格是 append_full 寫的縮排形狀（多回一個 body：還原的來源內文），否則是 section 寫的一行形狀。"""
     m = MERGED_HEAD.match(block[0])
     if not m:
         raise ValueError("併入段標題不是「## 併入：<時間> <來源>」：%s" % block[0])
@@ -178,6 +221,10 @@ def parse(block: list) -> dict:
     if "type" not in out and "area" not in out:
         raise ValueError("併入段要有 - type: 或 - area:（標題 %s）" % block[0])
     rest = block[i + 1:]
+    if rest and rest[0].startswith(INDENT):
+        out["body"] = unindent(rest, out["id"])
+        out["text"] = summary(out["body"], out["id"])
+        return out
     if not rest or rest[0] == "" or any(x != "" for x in rest[1:]):
         raise ValueError("併入段欄位後要是空行加一行一句話（id %s）" % out["id"])
     out["text"] = rest[0]
@@ -186,24 +233,32 @@ def parse(block: list) -> dict:
 
 def sections(text: str) -> list:
     """每段 `## 併入：` 依檔案順序回 (標題行, parse 的結果或它丟的 ValueError)；看板列項目、報格式錯誤用。"""
-    lines = [x.rstrip("\n") for x in text.splitlines(keepends=True)]
+    lines = [x.rstrip("\n") for x in LINE.findall(text)]
     heads = [i for i, x in enumerate(lines) if HEAD.match(x)] + [len(lines)]
     out = []
     for a, b in zip(heads, heads[1:]):
         if not MERGED.match(lines[a]):
             continue
         try:
-            out.append((lines[a], parse(lines[a:b])))
+            got = parse(lines[a:b])
+            got.pop("body", None)   # 看板只列一句話；一行形狀沒有 body
+            got.pop("carried", None)   # 只給 split-out 撤回用；一行形狀與舊段沒有
+            out.append((lines[a], got))
         except ValueError as e:
             out.append((lines[a], e))
     return out
 
 
 def card_body(fields: dict) -> str:
+    # merge-card 連 frontmatter 存的段原樣拆回；之前寫的縮排段沒有 frontmatter，由欄位重建
+    if "body" in fields and fields["body"].startswith("---"):
+        return fields["body"] + "\n"
     kind_type = fields["type"] if "type" in fields else "待定"   # 舊段沒有 type
     lines = ["---", "type: " + kind_type, "source: " + fields["source"], "found: " + fields["when"][:10], "related:", "kind_of_work: " + fields["kind_of_work"]]
     if "evidence" in fields:
         lines.append("evidence: " + fields["evidence"])
+    if "body" in fields:
+        return "\n".join(lines + ["---", "", fields["body"], ""])
     lines += ["---", "", "## 一句話", "", fields["text"], "", "## 證據", "", ""]
     return "\n".join(lines)
 
@@ -212,7 +267,12 @@ def _card_unlocked(card_dir: str, mid: str) -> str:
     with open(os.path.join(card_dir, "inbox.md"), encoding="utf-8") as f:
         cur = f.read()
     start, end = find(cur, mid)
-    return card_body(parse([x.rstrip("\n") for x in cur.splitlines(keepends=True)[start:end]]))
+    fields = parse([x.rstrip("\n") for x in LINE.findall(cur)[start:end]])
+    # 附件跟來源卡一起歸檔了，新殼帶不回來；拆出來連結會斷，所以不拆
+    if "body" in fields and any(ATTACH_HEAD.match(x) for x in fields["body"].split("\n")):
+        raise ValueError("縮排的併入段有 ## 附件（id %s），附件隨來源卡歸檔在 %s/archive/*-%s/attachments/，拆出帶不回來，請手動處理"
+                         % (mid, os.path.dirname(os.path.abspath(card_dir)), mid))
+    return card_body(fields)
 
 
 def card(card_dir: str, mid: str) -> str:
@@ -225,7 +285,7 @@ def _remove_unlocked(card_dir: str, mid: str) -> None:
     with open(inbox, encoding="utf-8") as f:
         cur = f.read()
     start, end = find(cur, mid)
-    lines = cur.splitlines(keepends=True)
+    lines = LINE.findall(cur)
     safefile.write_atomic(inbox, "".join(lines[:start] + lines[end:]))
 
 
@@ -234,19 +294,132 @@ def remove(card_dir: str, mid: str) -> None:
         _remove_unlocked(card_dir, mid)
 
 
+def carried(raw: str, mid: str) -> dict:
+    """- carried: 的一行 JSON 解析成記錄並驗形狀（carry 寫的形狀，見 carry）；不對就 raise，訊息指名段 id 與欄位。"""
+    try:
+        rec = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError("併入段 %s 的 - carried: 不是 JSON：%s" % (mid, raw)) from e
+    if not isinstance(rec, dict):
+        raise ValueError("併入段 %s 的 - carried: 要是 JSON 物件：%s" % (mid, raw))
+    extra = sorted(set(rec) - {"impact", "evidence", "set", "before"})
+    if extra:
+        raise ValueError("併入段 %s 的 - carried: 有不認得的欄位 %s" % (mid, "、".join(extra)))
+    for k in ("impact", "evidence"):
+        if k in rec and not (isinstance(rec[k], list) and all(isinstance(x, str) for x in rec[k])):
+            raise ValueError("併入段 %s 的 - carried: 的 %s 要是字串陣列：%s" % (mid, k, json.dumps(rec[k], ensure_ascii=False)))
+    for k in ("set", "before"):
+        if k in rec and not isinstance(rec[k], dict):
+            raise ValueError("併入段 %s 的 - carried: 的 %s 要是物件：%s" % (mid, k, json.dumps(rec[k], ensure_ascii=False)))
+    written, before = rec.get("set", {}), rec.get("before", {})
+    if set(written) != set(before):
+        raise ValueError("併入段 %s 的 - carried: 的 set 與 before 鍵要相同：set 有 [%s]，before 有 [%s]"
+                         % (mid, "、".join(sorted(written)), "、".join(sorted(before))))
+    for k in written:
+        if k not in CARRIED_KEYS:
+            raise ValueError("併入段 %s 的 - carried: 的 set 不能有 %s，只能是 %s" % (mid, k, "、".join(CARRIED_KEYS)))
+        for side, v in (("set", written[k]), ("before", before[k])):
+            if v is not None and not (isinstance(v, str) and "\n" not in v):
+                raise ValueError("併入段 %s 的 - carried: 的 %s.%s 要是不含換行的字串或 null：%s"
+                                 % (mid, side, k, json.dumps(v, ensure_ascii=False)))
+    return rec
+
+
+def undo(rec: dict, text: str) -> tuple:
+    """carried 驗過的記錄換成 (rewrite_frontmatter 的 updates, 撤掉了什麼)：拿掉仍在的 impact 值與 evidence 片段（拿空就刪鍵），
+    kind_of_work 只在現值仍等於當初寫入值時改回改前的值（null 是刪鍵）；priority 那組鍵要每個都仍等於寫入值才整組改回；人改過的不動。
+    撤掉了什麼是 {"impact": [值], "evidence": [片段], "reverted": 改回的 kind_of_work／priority, "kept": 人改過沒撤的 kind_of_work／priority}。"""
+    fm, _ = priority.frontmatter(text)
+    updates = {}
+    impact = [x.strip() for x in (fm.get("impact") or "").split(",") if x.strip()]
+    kept_impact = [x for x in impact if x not in rec.get("impact", [])]
+    if kept_impact != impact:
+        updates["impact"] = ", ".join(kept_impact) or None
+    parts = [p for p in (fm.get("evidence") or "").split(" ; ") if p]
+    kept_parts = [p for p in parts if p not in rec.get("evidence", [])]
+    if kept_parts != parts:
+        updates["evidence"] = " ; ".join(kept_parts) or None
+    removed = {"impact": [x for x in impact if x not in kept_impact], "evidence": [p for p in parts if p not in kept_parts],
+               "reverted": set(), "kept": []}
+    written = rec.get("set", {})
+    if "kind_of_work" in written:
+        if fm.get("kind_of_work") == written["kind_of_work"]:
+            updates["kind_of_work"] = rec["before"]["kind_of_work"]
+            removed["reverted"].add("kind_of_work")
+        else:
+            removed["kept"].append("kind_of_work")
+    # 三個鍵一起才是合格的覆寫：只撤一部分會留下沒理由的 priority，或把人拿掉的 priority_auto 加回來
+    group = [k for k in written if k in PRIORITY_KEYS]
+    if group:
+        if all(fm.get(k) == written[k] for k in group):
+            updates.update({k: rec["before"][k] for k in group})
+            removed["reverted"].add("priority")
+        else:
+            removed["kept"].append("priority")
+    return updates, removed
+
+
+def _reverted_unlocked(card_dir: str, mid: str, top: str) -> str:
+    """拆掉 mid 之後目標 inbox.md 的全文，不寫檔：刪那一段；縮排段再照 - carried: 改回 frontmatter（人改過沒撤的鍵印一行提醒）、
+    用其餘段補回這次撤掉的部分（remerged），刪 ## 證據 裡「- 併進：<repo>/<id> · 」那行。一行形狀（opsx new 寫的）沒有 carry 也沒有證據行，只刪段；
+    沒有 - carried: 的舊縮排段只刪證據行，提醒人看 frontmatter。"""
+    inbox = os.path.join(card_dir, "inbox.md")
+    with open(inbox, encoding="utf-8") as f:
+        cur = f.read()
+    start, end = find(cur, mid)
+    lines = LINE.findall(cur)
+    fields = parse([x.rstrip("\n") for x in lines[start:end]])
+    text = "".join(lines[:start] + lines[end:])
+    if "body" not in fields:
+        return text
+    if "carried" in fields:
+        updates, removed = undo(carried(fields["carried"], mid), text)
+        if removed["kept"]:
+            print("split-out: %s 的 %s 被人改過，沒撤回" % (inbox, "、".join(removed["kept"])), file=sys.stderr)
+        text = rewrite_frontmatter(text, updates, inbox)
+        text = remerged(text, os.path.basename(card_dir), inbox, removed)
+    else:
+        print("split-out: 併入段 %s 是舊段，沒有 - carried: 記錄，%s 的 frontmatter 沒撤回，請檢查 kind_of_work、impact、evidence、priority"
+              % (mid, inbox), file=sys.stderr)
+    prefix = "- 併進：%s/%s · " % (os.path.basename(top), mid)
+    lines = text.split("\n")
+    hit = None
+    if "## 證據" in lines:
+        for i in range(lines.index("## 證據") + 1, len(lines)):
+            if HEAD.match(lines[i]):
+                break
+            if lines[i].startswith(prefix):
+                hit = i
+                break
+    if hit is None:
+        print("split-out: %s 的 ## 證據 找不到「%s」開頭的行，請手動確認" % (inbox, prefix), file=sys.stderr)
+    else:
+        del lines[hit]
+    return "\n".join(lines)
+
+
 def split_out(card_dir: str, mid: str, top: str) -> None:
-    """同一個卡鎖內讀併入段、建新殼、刪併入段。新殼建好就先印它的 slug：刪段失敗時 split-out.sh 要告訴人哪張殼已建。"""
+    """同一個卡鎖內讀併入段、算好撤回 merge-card 改動並刪段後的目標全文、建新殼、一次寫回目標。
+    段或 - carried: 格式不對、算好的目標全文不合格（facts 讀不懂）時在建殼前就失敗。新殼建好就先印它的 slug：之後寫回失敗時 split-out.sh 要告訴人哪張殼已建。"""
     common = os.path.join(os.path.dirname(os.path.abspath(__file__)), "common.sh")
     with safefile.CardLock(card_dir):
+        shell = _card_unlocked(card_dir, mid)
+        after = _reverted_unlocked(card_dir, mid, top)
+        slug = os.path.basename(card_dir)
+        try:
+            facts(slug, after)
+        except ValueError as e:
+            raise ValueError("拆掉 %s 後目標 %s 的 frontmatter 不合格，沒拆：%s" % (mid, slug, e)) from e
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md") as body:
-            body.write(_card_unlocked(card_dir, mid))
+            body.write(shell)
             body.flush()
-            p = subprocess.run(["bash", "-c", 'source "$1"; new_shell "$2" "$3" "$4"', "opsx-split-out", common, top, mid, body.name],
+            p = subprocess.run(["bash", "-c", 'source "$1"; new_shell "$2" "$3" "$4" "$5"', "opsx-split-out", common, top, mid, body.name,
+                                os.path.basename(card_dir)], env=dict(os.environ, OPSX_PY=sys.executable),
                                stdout=subprocess.PIPE, text=True)
         if p.returncode != 0:
             raise ValueError("建殼失敗：new_shell 退出 %d（上面是原因）" % p.returncode)
         print(p.stdout.strip(), flush=True)
-        _remove_unlocked(card_dir, mid)
+        safefile.write_atomic(os.path.join(card_dir, "inbox.md"), after)
 
 
 def evidence(card_dir: str, line: str) -> None:
@@ -273,6 +446,7 @@ def evidence(card_dir: str, line: str) -> None:
 
 def rewrite_frontmatter(text: str, updates: dict, where: str) -> str:
     """frontmatter 裡 updates 的 key 改成同一行的 key: value（原本巢狀的縮排續行一併拿掉）；原本沒有的接在結尾 --- 前。
+    值是 None 的 key 整個拿掉，原本沒有就不加。
     where 是檔案路徑，沒有 frontmatter（第一行不是 ---，或沒有結尾 ---）時訊息指名它。"""
     lines = text.split("\n")
     end = next((i for i, x in enumerate(lines[1:], 1) if x.strip() == "---"), None)
@@ -287,11 +461,12 @@ def rewrite_frontmatter(text: str, updates: dict, where: str) -> str:
         key = x.partition(":")[0].strip()
         skipping = key in updates
         if skipping:
-            out.append("%s: %s" % (key, updates[key]))
+            if updates[key] is not None:
+                out.append("%s: %s" % (key, updates[key]))
             seen.add(key)
         else:
             out.append(x)
-    out += ["%s: %s" % (k, v) for k, v in updates.items() if k not in seen]
+    out += ["%s: %s" % (k, v) for k, v in updates.items() if k not in seen and v is not None]
     return "\n".join(out + lines[end:])
 
 
@@ -306,38 +481,143 @@ def facts(slug: str, text: str) -> dict:
     return {"kind": got["kind"], "impact": got["impact"], "evidence": ev, "priority": got["priority"], "reason": got["priority_reason"]}
 
 
-def carry(target_dir: str, source_inbox: str, source_slug: str, write: bool = True) -> None:
+def with_carried(text: str, mid: str, record: dict) -> str:
+    """record 以 `- carried: <一行 JSON>` 插在 mid 那段併入欄位列最後一行之後。"""
+    lines = LINE.findall(text)
+    start, end = find(text, mid)
+    blank = next((i for i in range(start + 2, end) if lines[i] == "\n"), None)
+    if blank is None:
+        raise ValueError("併入段 %s 的欄位列後面沒有空行，記不了 - carried:" % mid)
+    lines.insert(blank, "- carried: %s\n" % json.dumps(record, ensure_ascii=False))
+    return "".join(lines)
+
+
+def merged_updates(t: dict, s: dict, source_slug: str) -> dict:
+    """carry 的合併規則：目標事實 t 併進來源事實 s（facts 的形狀）要寫進目標 frontmatter 的 updates，不讀寫檔。"""
+    updates = {}
+    if s["kind"] == "incident" and t["kind"] != "incident":
+        updates["kind_of_work"] = "incident"
+    impact = t["impact"] + [x for x in s["impact"] if x not in t["impact"]]
+    parts = [x for x in dict.fromkeys(p for e in (t["evidence"], s["evidence"]) for p in e.split(" ; ")) if x]
+    evidence = " ; ".join(parts)
+    if impact != t["impact"]:
+        updates["impact"] = ", ".join(impact)
+    if evidence != t["evidence"] or "impact" in updates:   # 目標原本用巢狀寫法時，evidence 要跟著 impact 一起改成同一行
+        updates["evidence"] = evidence
+    effective = t["priority"] or priority.rule_level("incident" if "kind_of_work" in updates else t["kind"], impact, None, None)[0]
+    if s["priority"] and priority.LEVELS.index(s["priority"]) < priority.LEVELS.index(effective):
+        updates.update({"priority": s["priority"], "priority_reason": "併自 %s：%s" % (source_slug, s["reason"]),
+                        "priority_auto": None})
+    return updates
+
+
+def undone_facts(slug: str, text: str) -> dict:
+    """撤回後、重併前的目標事實（merged_updates 用到的 kind、impact、evidence、priority）。
+    不經 facts_of 驗：共用的 evidence 片段剛被撤掉時 impact 會暫時沒有 evidence，要等其餘段重併補回。"""
+    fm, nested = priority.frontmatter(text)
+    if "impact" in nested:
+        try:
+            impact, ev = priority.nested_impact(slug, nested["impact"])
+        except priority.PriorityError as e:
+            raise ValueError(str(e)) from e
+    else:
+        impact, ev = [x.strip() for x in (fm.get("impact") or "").split(",") if x.strip()], ""
+    return {"kind": fm.get("kind_of_work") or "planned", "impact": impact, "evidence": fm.get("evidence") or ev,
+            "priority": fm.get("priority")}
+
+
+def remerged(text: str, slug: str, where: str, removed: dict) -> str:
+    """undo 剛撤掉的部分（removed，見 undo），由目標裡其餘帶 frontmatter 與 - carried: 的併入段依檔案順序照 carry 的規則補回：
+    只補那段仍帶著的、前面的段還沒補回的 impact 值與 evidence 片段；kind_of_work、priority 組只在 undo 改回了它時才補。
+    補回的值併進那段的 - carried:，之後拆那段會撤掉。undo 沒動的鍵不碰；一行形狀與沒有 frontmatter 的舊縮排段不參與。"""
+    impact_left, evidence_left = list(removed["impact"]), list(removed["evidence"])
+    lines = [x.rstrip("\n") for x in LINE.findall(text)]
+    heads = [i for i, x in enumerate(lines) if HEAD.match(x)] + [len(lines)]
+    for a, b in zip(heads, heads[1:]):
+        if not MERGED.match(lines[a]):
+            continue
+        got = parse(lines[a:b])
+        if "body" not in got or not got["body"].startswith("---") or "carried" not in got:
+            continue
+        s = facts(got["id"], got["body"])
+        only = {"kind": s["kind"] if "kind_of_work" in removed["reverted"] else "planned",
+                "impact": [x for x in s["impact"] if x in impact_left],
+                "evidence": " ; ".join(p for p in s["evidence"].split(" ; ") if p in evidence_left),
+                "priority": s["priority"] if "priority" in removed["reverted"] else None, "reason": s["reason"]}
+        t = undone_facts(slug, text)
+        updates = merged_updates(t, only, got["id"])
+        if not updates:
+            continue
+        fm, _ = priority.frontmatter(text)
+        record = record_of(t, only, updates, fm)
+        text = recarried(rewrite_frontmatter(text, updates, where), got["id"], record)
+        impact_left = [x for x in impact_left if x not in record.get("impact", [])]
+        evidence_left = [p for p in evidence_left if p not in record.get("evidence", [])]
+    return text
+
+
+def record_of(t: dict, s: dict, updates: dict, fm: dict) -> dict:
+    """merged_updates(t, s) 的 updates 寫進目標時要記的 - carried: 記錄（形狀見 carry）；fm 是寫入前目標的 frontmatter。"""
+    record = {}
+    if "impact" in updates:
+        record["impact"] = [x for x in s["impact"] if x not in t["impact"]]
+    parts = updates["evidence"].split(" ; ") if "evidence" in updates else []
+    added = [p for p in parts if p and p not in t["evidence"].split(" ; ")]
+    if added:
+        record["evidence"] = added
+    single = {k: v for k, v in updates.items() if k not in ("impact", "evidence") and fm.get(k) != v}
+    if single:
+        record["set"] = single
+        record["before"] = {k: fm.get(k) for k in single}
+    return record
+
+
+def recarried(text: str, mid: str, add: dict) -> str:
+    """add（record_of 的形狀）併進 mid 那段既有的 - carried:：impact、evidence 接在後面，set、before 逐鍵蓋過。"""
+    lines = LINE.findall(text)
+    start, end = find(text, mid)
+    i = next(i for i in range(start, end) if lines[i].startswith("- carried: "))   # 呼叫端只對有 - carried: 的段呼叫
+    rec = carried(lines[i][len("- carried: "):].rstrip("\n"), mid)
+    for k in ("impact", "evidence"):
+        if k in add:
+            rec[k] = rec.get(k, []) + add[k]
+    for k in ("set", "before"):
+        if k in add:
+            rec[k] = dict(rec.get(k, {}), **add[k])
+    lines[i] = "- carried: %s\n" % json.dumps(rec, ensure_ascii=False)
+    return "".join(lines)
+
+
+def carry(target_dir: str, source_inbox: str, source_slug: str, mid: str | None) -> None:
     """來源卡的事實欄位併進目標卡 frontmatter：kind_of_work 取較高（incident 高於 planned），impact 取聯集，
     evidence 依 " ; " 分段去重後接在後面，來源的 priority 覆寫比目標高（或目標沒有）就連同理由帶過去。
-    來源沒有事實（planned、沒有 impact、沒有 evidence、沒有覆寫）就在解析目標之前返回，目標一個位元組都不動。
+    來源沒有事實（planned、沒有 impact、沒有 evidence、沒有覆寫）就不解析目標，frontmatter 一個位元組都不動。
     等級由 opsx priority 從併完的欄位算。priority 覆寫只在比目標的有效等級（目標的覆寫，沒有就用併完的 kind 與 impact 算的等級）高時才帶過去。
     shortcut: 有效等級不看 workplan 的 milestone 位置，覆寫可能壓過目標因 milestone 得到的較高等級；併卡的來源與目標都在收件匣時沒差，到進了 workplan 的卡才要升級成用 priority.levels(top)
-    write=False 只驗兩張卡的欄位合格、目標有 frontmatter（opsx merge-card 在捨棄來源之前呼叫），不寫檔。"""
+    改了什麼在同一把鎖內以 `- carried:` 記進併入段 mid（split-out 照它撤回）：{"impact": [加的值], "evidence": [加的片段],
+    "set": {單值鍵: 寫入值}, "before": {單值鍵: 改前的值，沒有是 null}}，沒改的鍵不寫，什麼都沒改是 {}。
+    mid 是 None 時只驗兩張卡的欄位合格、目標有 frontmatter（opsx merge-card 在捨棄來源之前呼叫），不寫檔。"""
     inbox = os.path.join(target_dir, "inbox.md")
     with open(source_inbox, encoding="utf-8") as f:
         s = facts(source_slug, f.read())
     if s["kind"] == "planned" and not (s["impact"] or s["evidence"] or s["priority"]):
+        if mid is None:
+            return
+        with safefile.CardLock(target_dir):
+            with open(inbox, encoding="utf-8") as f:
+                text = f.read()
+            safefile.write_atomic(inbox, with_carried(text, mid, {}))
         return
     with safefile.CardLock(target_dir):
         with open(inbox, encoding="utf-8") as f:
             text = f.read()
         t = facts(os.path.basename(target_dir), text)
-        updates = {}
-        if s["kind"] == "incident" and t["kind"] != "incident":
-            updates["kind_of_work"] = "incident"
-        impact = t["impact"] + [x for x in s["impact"] if x not in t["impact"]]
-        parts = [x for x in dict.fromkeys(p for e in (t["evidence"], s["evidence"]) for p in e.split(" ; ")) if x]
-        evidence = " ; ".join(parts)
-        if impact != t["impact"]:
-            updates["impact"] = ", ".join(impact)
-        if evidence != t["evidence"] or "impact" in updates:   # 目標原本用巢狀寫法時，evidence 要跟著 impact 一起改成同一行
-            updates["evidence"] = evidence
-        effective = t["priority"] or priority.rule_level("incident" if "kind_of_work" in updates else t["kind"], impact, None, None)[0]
-        if s["priority"] and priority.LEVELS.index(s["priority"]) < priority.LEVELS.index(effective):
-            updates.update({"priority": s["priority"], "priority_reason": "併自 %s：%s" % (source_slug, s["reason"])})
+        updates = merged_updates(t, s, source_slug)
         new = rewrite_frontmatter(text, updates, inbox)
-        if write and new != text:
-            safefile.write_atomic(inbox, new)
+        if mid is None:
+            return
+        fm, _ = priority.frontmatter(text)
+        safefile.write_atomic(inbox, with_carried(new, mid, record_of(t, s, updates, fm)))
 
 
 def drop(card_dir: str, reason: str, argv: list) -> int:
@@ -359,10 +639,10 @@ def drop(card_dir: str, reason: str, argv: list) -> int:
 def main() -> None:
     args = sys.argv[1:]
     cmd = args[0] if args else ""
-    want = {"append": 9, "append-full": 5, "open-check": 2, "card": 3, "remove": 3, "ids": 2, "evidence": 3, "split-out": 4, "carry": 4, "carry-check": 4}
+    want = {"append": 9, "append-full": 5, "open-check": 2, "summary-check": 3, "card": 3, "remove": 3, "ids": 2, "evidence": 3, "split-out": 4, "carry": 5, "carry-check": 4}
     ok = len(args) >= 5 and args[3] == "--" if cmd == "drop" else cmd in want and len(args) == want[cmd]
     if not ok:
-        sys.exit("用法：inboxmerge.py append <卡目錄> <基本 id> <ISO 時間> <來源> <kind_of_work> <evidence> <type> <一句話> | append-full <目標卡目錄> <來源 inbox 檔> <來源 slug> <ISO 時間> | open-check <目標卡目錄> | card <卡目錄> <id> | remove <卡目錄> <id> | ids <卡目錄> | evidence <卡目錄> <行> | carry <目標卡目錄> <來源 inbox 檔> <來源 slug> | carry-check <目標卡目錄> <來源 inbox 檔> <來源 slug> | split-out <卡目錄> <id> <repo 根> | drop <卡目錄> <理由> -- <歸檔指令…>")
+        sys.exit("用法：inboxmerge.py append <卡目錄> <基本 id> <ISO 時間> <來源> <kind_of_work> <evidence> <type> <一句話> | append-full <目標卡目錄> <來源 inbox 檔> <來源 slug> <ISO 時間> | open-check <目標卡目錄> | summary-check <來源 inbox 檔> <來源 slug> | card <卡目錄> <id> | remove <卡目錄> <id> | ids <卡目錄> | evidence <卡目錄> <行> | carry <目標卡目錄> <來源 inbox 檔> <來源 slug> <併入段 id> | carry-check <目標卡目錄> <來源 inbox 檔> <來源 slug> | split-out <卡目錄> <id> <repo 根> | drop <卡目錄> <理由> -- <歸檔指令…>")
     try:
         if cmd == "append":
             print(append(*args[1:]))
@@ -370,6 +650,8 @@ def main() -> None:
             print(append_full(*args[1:]))
         elif cmd == "open-check":
             open_check(args[1])
+        elif cmd == "summary-check":
+            summary_check(*args[1:])
         elif cmd == "split-out":
             split_out(*args[1:])
         elif cmd == "evidence":
@@ -377,7 +659,7 @@ def main() -> None:
         elif cmd == "carry":
             carry(*args[1:])
         elif cmd == "carry-check":
-            carry(*args[1:], write=False)
+            carry(*args[1:], None)
         elif cmd == "drop":
             sys.exit(drop(args[1], args[2], args[4:]))
         elif cmd == "card":

@@ -1,10 +1,9 @@
-"""把標準設定與 repo 路徑合併進使用者層 Claude Code settings.json。
+"""把標準設定與 repo 路徑合併進 Claude Code settings.json（使用者層，或協調者的 coordinator-settings.json）。
 
---template 是 plugin 的標準設定（只含物件與字串陣列，字串裡的 ${NAME} 由環境變數展開）；
---add-dir 追加 permissions.additionalDirectories。只追加不存在的元素，不動其他鍵；
+--template 是 plugin 的標準設定（物件，葉節點是字串，或元素為字串或物件的陣列；字串裡的 ${NAME} 由環境變數展開）；
+--add-dir 追加 permissions.additionalDirectories。只追加不存在的元素（物件要整個相等才算已有），字串值只寫沒有的鍵（已有就保留使用者的值），不動其他鍵；
 有變化且原檔存在時先備份成 <file>.opsx-bak（已有就不覆蓋）。
 檔案不是合法 JSON、或要寫的鍵路徑上的型別不符時直接失敗，不改檔。
---render 把範本整份展開後印到 stdout（不需要 --file，不寫檔），給只想帶給單一 session 的 --settings 檔用。
 成功時 stdout 印 created（原檔不存在）、changed 或 unchanged。--check 只比對不寫：缺的逐行印出，有缺 exit 3。
 """
 import argparse
@@ -28,19 +27,22 @@ def expand(text, source):
 
 
 def flatten(node, keys, source):
-    """範本 → [(鍵路徑, 字串陣列)]。葉節點不是字串陣列就失敗。"""
+    """範本 → [(鍵路徑, 元素陣列或字串)]。葉節點要是字串，或元素是字串或物件的陣列，否則失敗。"""
     if isinstance(node, dict):
         wants = []
         for k, v in node.items():
             wants += flatten(v, keys + (k,), source)
         return wants
-    if isinstance(node, list) and all(isinstance(v, str) for v in node):
-        return [(keys, [expand(v, source) for v in node])]
-    raise SystemExit(f"claude-settings: {source} 的 {'.'.join(keys)} 要是字串陣列，實際是 {node!r}")
+    where = f"{source} 的 {'.'.join(keys)}"
+    if isinstance(node, list) and all(isinstance(v, (str, dict)) for v in node):
+        return [(keys, expand_tree(node, where))]
+    if isinstance(node, str):
+        return [(keys, expand(node, source))]
+    raise SystemExit(f"claude-settings: {where} 要是字串，或字串或物件的陣列，實際是 {node!r}")
 
 
 def expand_tree(node, source):
-    """範本整份展開 ${NAME}（物件、陣列、字串），給 --render 印出。"""
+    """展開 ${NAME}（物件、陣列、字串）；其他型別失敗。"""
     if isinstance(node, dict):
         return {k: expand_tree(v, source) for k, v in node.items()}
     if isinstance(node, list):
@@ -62,10 +64,8 @@ def load(path):
     return data
 
 
-def merge(data, keys, values, path):
-    """把 values 追加進 data 的 keys 路徑上的陣列；回傳實際新增的元素。"""
-    if not values:
-        return []
+def parent(data, keys, path):
+    """回傳 keys 最後一層所在的物件，路上缺的物件補建；路上有非物件就失敗。"""
     node = data
     for i, key in enumerate(keys[:-1]):
         if key not in node:
@@ -73,6 +73,23 @@ def merge(data, keys, values, path):
         node = node[key]
         if not isinstance(node, dict):
             raise SystemExit(f"claude-settings: {path} 的 {'.'.join(keys[:i + 1])} 要是物件，實際是 {node!r}")
+    return node
+
+
+def set_missing(data, keys, value, path):
+    """keys 路徑上沒有這個鍵才寫入 value；已有就保留原值，不論是否相同。回傳實際新增的值。"""
+    node = parent(data, keys, path)
+    if keys[-1] in node:
+        return []
+    node[keys[-1]] = value
+    return [value]
+
+
+def merge(data, keys, values, path):
+    """把 values 追加進 data 的 keys 路徑上的陣列；回傳實際新增的元素。"""
+    if not values:
+        return []
+    node = parent(data, keys, path)
     last = keys[-1]
     if last not in node:
         node[last] = []
@@ -90,17 +107,10 @@ def main():
     p.add_argument("--template")
     p.add_argument("--add-dir", action="append", default=[])
     p.add_argument("--check", action="store_true")
-    p.add_argument("--render", action="store_true")
     args = p.parse_args()
 
-    if args.render:
-        if not args.template:
-            p.error("--render 要搭配 --template")
-        with open(args.template, encoding="utf-8") as f:
-            print(json.dumps(expand_tree(json.load(f), args.template), indent=2, ensure_ascii=False))
-        return
     if not args.file:
-        p.error("要給 --file（或用 --render 印出展開後的範本）")
+        p.error("要給 --file")
 
     wants = []
     if args.template:
@@ -119,7 +129,8 @@ def main():
     data = load(args.file) if exists else {}
     added = []
     for keys, values in wants:
-        added += [(keys, v) for v in merge(data, keys, values, args.file)]
+        put = set_missing if isinstance(values, str) else merge
+        added += [(keys, v) for v in put(data, keys, values, args.file)]
 
     if args.check:
         for keys, v in added:

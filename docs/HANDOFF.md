@@ -49,7 +49,7 @@ related:
 
 ## 一句話
 
-opsx 的看板：herdr plugin（薄）+ 本機網頁，三個 tab（首頁 / 收件匣 / 紀錄），資料全從磁碟和 herdr / glab 投影。
+opsx 的看板：herdr plugin（薄）+ 本機網頁，五個頁面（看板 / 卡片細節 / 變更 / 已歸檔 / 紀錄），資料全從磁碟和 herdr / glab 投影。
 
 ## 證據
 

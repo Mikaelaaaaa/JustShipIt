@@ -232,6 +232,15 @@ assert_eq "$(level_of carry-dst8)" P2
 assert_rc 0 opsx merge-card carry-src8 --into carry-dst8 --repo "$A"
 assert_eq "$(level_of carry-dst8)" P0 "來源的 priority 覆寫要帶過去"
 
+# --- 人定的 priority 併進自動 P2 的目標：拿掉 priority_auto，理由不顯示系統（workplan-attach D7）---
+mk_card carry-src14 planned "" ""; mk_card carry-dst14 planned "" ""
+printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P1\npriority_reason: 人判定\n---\n\n## 一句話\n\ncarry-src14\n\n## 證據\n\n- 原有\n' > "$CH/carry-src14/inbox.md"
+printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P2\npriority_reason: 自動掛進 workplan，維持 P2\npriority_auto: true\n---\n\n## 一句話\n\ncarry-dst14\n\n## 證據\n\n- 原有\n' > "$CH/carry-dst14/inbox.md"
+assert_rc 0 opsx merge-card carry-src14 --into carry-dst14 --repo "$A"
+assert_eq "$(fm_value carry-dst14 priority_auto)" "" "人定的等級帶過去後不能留 priority_auto"
+assert_eq "$(level_of carry-dst14)" P1
+case "$(opsx priority carry-dst14 --repo "$A" | cut -f2)" in *使用者：併自\ carry-src14*) ;; *) fail "理由要是使用者：併自 carry-src14：$(opsx priority carry-dst14 --repo "$A")" ;; esac
+
 # --- 兩張卡有同一條證據併進同一個目標：證據不重複 ---
 mk_card carry-s9a incident data "same"; mk_card carry-s9b incident data "same"; mk_card carry-dst9 planned "" ""
 assert_rc 0 opsx merge-card carry-s9a --into carry-dst9 --repo "$A"
@@ -303,4 +312,43 @@ before="$(snap)"
 err="$(opsx merge-card carry-src6 --into carry-dst6 --repo "$A" 2>&1)" && fail "impact 沒有 evidence 要退出非零"
 case "$err" in *evidence*) ;; *) fail "stderr 要指名 evidence：$err" ;; esac
 assert_eq "$(snap)" "$before"
+
+# ========== 來源沒有一句話不捨棄（board-actions「merge-card 帶來源卡全文進併入段」）==========
+no_summary() { # <名> <內文>：內文沒有非空一句話的來源，merge-card 退出非零、兩張卡都不動
+  mk_card "$1-s" planned "" ""; mk_card "$1-d" planned "" ""
+  printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\n---\n\n%s\n' "$2" > "$CH/$1-s/inbox.md"
+  before="$(snap)"
+  err="$(opsx merge-card "$1-s" --into "$1-d" --repo "$A" 2>&1)" && fail "$1：沒有一句話要退出非零"
+  case "$err" in *"$1-s"*"## 一句話"*|*"## 一句話"*"$1-s"*) ;; *) fail "$1：訊息要含來源 slug 與 ## 一句話：$err" ;; esac
+  assert_eq "$(snap)" "$before" "$1：兩張卡都不動"
+}
+no_summary ns1 $'## 證據\n\n- foo.py:3'
+no_summary ns2 $'## 一句話\n\n## 證據'
+
+# ========== 縮排段保存來源 frontmatter ==========
+mk_card fm-s incident prod_or_main "foo.py:3"; mk_card fm-d planned "" ""
+printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-17\nrelated:\nkind_of_work: incident\nimpact: prod_or_main\nevidence: foo.py:3\npriority: P1\npriority_reason: 照建議\n---\n\n## 一句話\n\nfm-s\n\n## 證據\n\n- 原有\n' > "$CH/fm-s/inbox.md"
+assert_rc 0 opsx merge-card fm-s --into fm-d --repo "$A"
+assert_grep '^  found: 2026-11-17$' "$CH/fm-d/inbox.md"
+assert_grep '^  impact: prod_or_main$' "$CH/fm-d/inbox.md"
+assert_grep '^  priority: P1$' "$CH/fm-d/inbox.md"
+assert_eq "$(fm_value fm-d found)" 2026-11-10 "目標第一個 frontmatter 的 found 不變"
+
+# ========== carry 的變更記進併入段（- carried:，接在欄位列最後一行之後）==========
+carried_row() { # <名> <記錄>：<名>-s 併進 <名>-d 後，那段併入的 - carried: 是 <記錄>
+  assert_rc 0 opsx merge-card "$1-s" --into "$1-d" --repo "$A"
+  assert_eq "$(grep -c '^- carried: ' "$CH/$1-d/inbox.md")" 1 "$1：一段併入一行 carried"
+  assert_eq "$(grep '^- carried: ' "$CH/$1-d/inbox.md")" "- carried: $2" "$1 的 carried"
+  assert_eq "$(grep -B1 '^- carried: ' "$CH/$1-d/inbox.md" | head -1)" "- type: bug" "$1：carried 接在欄位列最後一行之後"
+}
+mk_card cr1-s incident prod_or_main "a"; mk_card cr1-d planned "" ""
+carried_row cr1 '{"impact": ["prod_or_main"], "evidence": ["a"], "set": {"kind_of_work": "incident"}, "before": {"kind_of_work": "planned"}}'
+mk_card cr2-s incident "data, security" "b"; mk_card cr2-d incident data "x"
+carried_row cr2 '{"impact": ["security"], "evidence": ["b"]}'
+mk_card cr3-s planned "" ""; mk_card cr3-d planned "" ""
+carried_row cr3 '{}'
+mk_card cr4-s planned "" ""; mk_card cr4-d planned "" ""
+printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P1\npriority_reason: 手動\n---\n\n## 一句話\n\ncr4-s\n\n## 證據\n\n- 原有\n' > "$CH/cr4-s/inbox.md"
+printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P2\npriority_reason: 原理由\n---\n\n## 一句話\n\ncr4-d\n\n## 證據\n\n- 原有\n' > "$CH/cr4-d/inbox.md"
+carried_row cr4 '{"set": {"priority": "P1", "priority_reason": "併自 cr4-s：手動"}, "before": {"priority": "P2", "priority_reason": "原理由"}}'
 echo ok

@@ -28,7 +28,7 @@ cat > "$FX/on_wait.sh" <<EOF
 case "\$*" in *"--until working"*) printf '{}' > "$OPSX_STATE_DIR/dispatch.json" ;; esac
 EOF
 export OPSX_TEST_ON_WAIT="$FX/on_wait.sh"
-TRUST=$'Adding a new directory: /Users/x/.local/state/opsx\nThis session hasn\'t worked here before. Is this a directory you created or one you trust?\n❯ No, exit\n  Yes, add it\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)\n'
+TRUST=$'Adding a new directory: /Users/me/.local/state/opsx\nThis session hasn\'t worked here before. Is this a directory you created or one you trust?\n❯ No, exit\n  Yes, add it\n\nEsc to exit · To add it, press ↓ to Yes, then Enter (your text is kept)\n'
 PERM_FOOT=$'\n❯ 1. Yes\n  2. No\n\nEsc to cancel'
 
 gate_block() { awk -v id="## $1" '/^## /{on = ($0 == id)} on' "$C/gates.md"; }
@@ -110,6 +110,6 @@ assert_grep 'agent wait retry-backoff --until working' "$OPSX_FAKE_LOG"
 got="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import gaterule
 w = {"gate_id": "dialog-1", "needs": "run", "type": "等待決定"}
 s = {"gate_id": "drive-apply-1", "needs": None, "type": "等待決定"}
-print(gaterule.decide(w), gaterule.decide(s))' "$OPSX_ROOT/bin/lib")"
+print(gaterule.decide(w, "opsx-workflow"), gaterule.decide(s, "opsx-workflow"))' "$OPSX_ROOT/bin/lib")"
 assert_eq "$got" "('human', 'run') ('human', 'stuck')" "gaterule 判斷"
 echo "drive-dialog ok"

@@ -104,13 +104,20 @@ wait
 assert_eq "$(jget "$FX/par/settings.json" permissions.additionalDirectories | python3 -I -c 'import json,sys; print(len(set(json.load(sys.stdin))))')" 12 "並行寫入丟了項目"
 assert_eq "$(ls -A "$FX/par" | grep -c 'tmp$' || true)" 0 "並行後留下暫存檔"
 
-# --- --render：把範本的 ${NAME} 展開後整份印出（給單一 session 用 --settings 帶的檔），不需要 --file、不寫任何檔 ---
-printf '%s' "$(run --render --template "$T")" > "$FX/rendered.json"
-assert_eq "$(jget "$FX/rendered.json" sandbox.network.allowUnixSockets)" '["/h/herdr.sock"]'
-assert_eq "$(jget "$FX/rendered.json" permissions.additionalDirectories)" '["/x/state"]'
-printf '{"permissions": {"additionalDirectories": ["${NO_SUCH_VAR}/x"]}}' > "$FX/bad1.json"
-out="$(run --render --template "$FX/bad1.json" 2>&1)"; rc=$?
-[ "$rc" -ne 0 ] || fail "--render 遇到未定義變數也要失敗"
+# --- 物件元素合併一次：物件裡的 ${NAME} 展開，整個相等才算已有，第二次 unchanged ---
+printf '%s' '{"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "${OPSX_STATE_DIR}/hook.sh"}]}]}}' > "$FX/obj.json"
+run --file "$FX/cfg/obj-settings.json" --template "$FX/obj.json" >/dev/null || fail "物件元素合併 rc"
+out="$(run --file "$FX/cfg/obj-settings.json" --template "$FX/obj.json" 2>&1)"; rc=$?
+assert_eq "$rc" 0 "物件元素重跑 rc: $out"
+assert_eq "$out" unchanged "物件元素重跑應印 unchanged"
+assert_eq "$(jget "$FX/cfg/obj-settings.json" hooks.UserPromptSubmit)" '[{"hooks": [{"type": "command", "command": "/x/state/hook.sh"}]}]'
+
+# --- 陣列元素是數字：失敗，訊息點名鍵路徑 ---
+printf '%s' '{"hooks": {"UserPromptSubmit": [{"timeout": 5}]}}' > "$FX/bad3.json"
+out="$(run --file "$FX/cfg/new.json" --template "$FX/bad3.json" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "陣列元素含數字應該失敗"
+case "$out" in *hooks.UserPromptSubmit*) ;; *) fail "訊息要點名鍵路徑：$out" ;; esac
+assert_no_file "$FX/cfg/new.json"
 
 # --- 壞 JSON：非 0、訊息含檔名、位元組不變、不備份 ---
 rm -f "$S.opsx-bak"
@@ -146,3 +153,33 @@ printf '{"sandbox": {"enabled": true}}' > "$FX/bad2.json"
 out="$(run --file "$FX/cfg/new.json" --template "$FX/bad2.json" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] || fail "範本葉節點不是陣列應該失敗"
 case "$out" in *sandbox.enabled*) ;; *) fail "訊息要點名鍵路徑：$out" ;; esac
+
+# --- 字串葉節點（env）：沒有該鍵才寫，已有的值不論是否相同都保留（specs/vitest-worker-limit）---
+TE="$FX/tpl-env.json"
+printf '{"env": {"VITEST_MAX_FORKS": "2", "VITEST_MAX_THREADS": "1"}}' > "$TE"
+E="$FX/env/settings.json"; mkdir -p "$FX/env"
+# 範本的 env 字串值寫進沒有該鍵的 settings（正例）
+printf '{"env": {"FOO": "bar"}}' > "$E"; orig="$(cat "$E")"
+out="$(run --file "$E" --template "$TE" 2>&1)" || fail "env merge rc: $out"
+assert_eq "$(jget "$E" env)" '{"FOO": "bar", "VITEST_MAX_FORKS": "2", "VITEST_MAX_THREADS": "1"}'
+assert_eq "$(cat "$E.opsx-bak")" "$orig" "env 合併前要備份原內容"
+out="$(run --file "$E" --template "$TE" 2>&1)" || fail "env rerun rc: $out"
+case "$out" in *unchanged*) ;; *) fail "env 已齊時重跑要 unchanged：$out" ;; esac
+# 使用者已有的 env 值不被覆寫（反例）
+printf '{"env": {"VITEST_MAX_FORKS": "4"}}' > "$FX/env/user.json"
+run --file "$FX/env/user.json" --template "$TE" >/dev/null || fail "env keep rc"
+assert_eq "$(jget "$FX/env/user.json" env)" '{"VITEST_MAX_FORKS": "4", "VITEST_MAX_THREADS": "1"}' "使用者的值被覆寫"
+# --check：使用者改過值的 env 鍵不算缺（正例）；缺的鍵逐項印出（反例）
+run --file "$FX/env/user.json" --template "$TE" --check >/dev/null || fail "使用者改過值的 env 鍵不該算缺"
+printf '{"env": {"VITEST_MAX_THREADS": "1"}}' > "$FX/env/miss.json"; before="$(cat "$FX/env/miss.json")"
+out="$(run --file "$FX/env/miss.json" --template "$TE" --check 2>&1)"; rc=$?
+assert_eq "$rc" 3 "缺 env 鍵時 --check 要 exit 3：$out"
+assert_eq "$out" "缺 env.VITEST_MAX_FORKS: 2"
+assert_eq "$(cat "$FX/env/miss.json")" "$before" "--check 改了檔"
+# env 不是物件時拒寫（反例）
+printf '{"env": "x"}' > "$FX/env/bad.json"; before="$(cat "$FX/env/bad.json")"
+out="$(run --file "$FX/env/bad.json" --template "$TE" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] || fail "env 不是物件應該失敗"
+case "$out" in *"$FX/env/bad.json"*env*) ;; *) fail "訊息要含檔名與 env：$out" ;; esac
+assert_eq "$(cat "$FX/env/bad.json")" "$before" "env 不是物件時檔案被改了"
+assert_no_file "$FX/env/bad.json.opsx-bak"

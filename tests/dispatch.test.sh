@@ -63,7 +63,7 @@ assert_not_grep '^workspace create' "$OPSX_FAKE_LOG"
 S="$OPSX_STATE_DIR/settings/Acmecorp-CS-retry-backoff-autopilot.json"; assert_file "$S"
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert "Bash(git push:*)" in d["allow"],d;assert "Bash(glab mr merge:*)" in d["allow"] and "Bash(gh pr merge:*)" in d["allow"],d;assert not any("merge" in x for x in d["deny"]),d;assert not any("glab mr create" in a for a in d["allow"]),d;assert "Bash(glab issue note:*)" not in d["allow"] and "Bash(gh issue comment:*)" not in d["allow"],d;assert not any("gh pr comment" in x or "glab api" in x for x in d["allow"]),d' "$S"
 # dontAsk 下不在 allow 的指令直接被拒：常用唯讀與測試指令要在 allow 裡，不然 agent 連跑測試都不行
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(glab mr view:*)","Bash(glab ci:*)","Bash(gh pr view:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)"] if x not in a];assert not miss,miss' "$S" || fail "allow 少了常用指令"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(jq:*)","Bash(head:*)","Bash(tail:*)","Bash(wc:*)","Bash(sed -n:*)","Bash(bash tests/:*)","Bash(bash tests/*)","Bash(tests/run.sh:*)","Bash(herdr agent:*)","Bash(glab mr view:*)","Bash(glab ci view:*)","Bash(gh pr view:*)","Bash(git merge-base:*)","Bash(git merge:*)","Bash(git remote:*)"] if x not in a];assert not miss,miss' "$S" || fail "allow 少了常用指令"
 # 重啟 / resume 後旗標不在，可寫目錄還要由 settings 供應
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["permissions"];assert d["additionalDirectories"]==[sys.argv[2],sys.argv[3]],d' "$S" "$R/openspec" "$OPSX_STATE_DIR" || fail "autopilot settings 缺 additionalDirectories"
 # dispatch.json
@@ -226,8 +226,9 @@ cp "$FX/ws.real" "$OPSX_STATE_DIR/workspaces.toml"   # 下面再測一次沒掛 
 : > "$OPSX_FAKE_LOG"
 printf '[repos."scam-guard"]\nmr = true\n' >> "$OPSX_STATE_DIR/grants.toml"
 opsx dispatch rdap-timeout --agent claude --mode autopilot --kind dev >/dev/null 2>&1 || fail "dispatch unmapped repo"
-python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(glab mr create:*)","Bash(gh pr create:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"] if x not in a];assert not miss,miss' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 要含 issue 留言"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];miss=[x for x in ["Bash(glab mr create:*)","Bash(glab mr note create:*)","Bash(glab mr note list:*)","Bash(gh pr create:*)","Bash(glab issue note:*)","Bash(glab issue comment:*)","Bash(gh issue comment:*)"] if x not in a];assert not miss,miss' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 要含 issue 留言"
 python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];assert not any("gh pr comment" in x or "glab api" in x for x in a),a;assert "Bash(git -C:*)" not in a,a' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 allow 不含任何 gh pr comment、glab api 規則與 git -C"
+python3 -I -c 'import json,sys;a=json.load(open(sys.argv[1]))["permissions"]["allow"];n=[x for x in a if x.startswith("Bash(glab mr note")];assert n==["Bash(glab mr note create:*)","Bash(glab mr note list:*)"],n' "$OPSX_STATE_DIR/settings/scam-guard-rdap-timeout-autopilot.json" || fail "mr 授權的 glab mr note 只放行 create 與 list，不放行裸的 note、delete、update"
 assert_grep '^workspace create --label scam-guard' "$OPSX_FAKE_LOG"
 assert_grep '^"scam-guard" = "scam-guard"$' "$OPSX_STATE_DIR/workspaces.toml"   # 記 label，id 在 dispatch.json
 assert_grep '^tab create --workspace w9 ' "$OPSX_FAKE_LOG"
@@ -243,12 +244,72 @@ assert_grep '^agent prompt rdap-timeout /opsx-workflow:explore rdap-timeout$' "$
 R3="$(mk_repo Acmecorp-AI)"; mkdir -p "$R3/openspec/changes/eval-core"; printf 'schema: opsx\nkind: dev\n' > "$R3/openspec/changes/eval-core/.openspec.yaml"
 printf 'features:\n  - name: eval\n    prs:\n      - name: eval-core\n        branch: feat/eval-core-v2/mikaela\n        status: pending\n' > "$R3/openspec/workplan.yaml"
 printf '"Acmecorp-AI" = "w1"\n' >> "$OPSX_STATE_DIR/workspaces.toml"
+cp "$R3/openspec/workplan.yaml" "$FX/wp3.before"
 cd "$R3"; opsx dispatch eval-core --agent claude --mode drive >/dev/null 2>&1 || fail "dispatch with workplan"
 wait_drive Acmecorp-AI eval-core   # --mode drive 是 autopilot 的別名：照樣起 drive，dispatch.json 寫 autopilot
 python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]))["Acmecorp-AI/eval-core"];assert d["mode"]=="autopilot",d' "$OPSX_STATE_DIR/dispatch.json" || fail "--mode drive 要寫成 autopilot"
 assert_eq "$(git -C "$R3/.claude/worktrees/eval-core" rev-parse --abbrev-ref HEAD)" "feat/eval-core-v2/mikaela" "workplan branch"
+cmp -s "$FX/wp3.before" "$R3/openspec/workplan.yaml" || fail "已在 workplan 的卡派工不動 workplan：$(diff "$FX/wp3.before" "$R3/openspec/workplan.yaml")"
+
+# --- 不在 workplan 的卡派工前先掛進去，branch 用 workplan 上那個 PR 的（specs/workplan-attach「派工時補掛」）---
+mkdir -p "$R3/openspec/changes/x"; printf 'schema: opsx\nkind: bug-fix\n' > "$R3/openspec/changes/x/.openspec.yaml"
+printf -- '---\ntype: bug\nsource: me\nkind_of_work: planned\n---\n\n## 一句話\n\nx\n' > "$R3/openspec/changes/x/inbox.md"
+out="$(OPSX_USER=mika opsx dispatch x --agent claude --mode autopilot 2>&1)" || fail "dispatch 不在 workplan 的卡: $out"
+python3 -I - "$OPSX_ROOT/bin/lib" "$R3/openspec/workplan.yaml" <<'PY' || fail "x 要自成 feature、PR branch 是 fix/x/mika：$(cat "$R3/openspec/workplan.yaml")"
+import sys
+sys.path.insert(0, sys.argv[1]); import chain
+f = [x for x in chain.load_workplan(sys.argv[2])["features"] if x["name"] == "x"][0]
+assert [(p["name"], p["branch"]) for p in f["prs"]] == [("x", "fix/x/mika")], f
+PY
+assert_eq "$(git -C "$R3/.claude/worktrees/x" rev-parse --abbrev-ref HEAD)" "fix/x/mika" "worktree 用 workplan 上的 branch"
+assert_grep '^priority: P2$' "$R3/openspec/changes/x/inbox.md"
+opsx stop x >/dev/null 2>&1
+# 前綴照 kind（workplan-attach D8）：type 是 bug、kind 是 chore 的卡，workplan 與 worktree 都是 chore/
+mkdir -p "$R3/openspec/changes/xc"; printf 'schema: opsx\nkind: dev\n' > "$R3/openspec/changes/xc/.openspec.yaml"
+printf -- '---\ntype: bug\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/xc/inbox.md"
+out="$(OPSX_USER=mika opsx dispatch xc --kind chore --agent claude --mode autopilot 2>&1)" || fail "dispatch kind chore: $out"
+assert_eq "$(git -C "$R3/.claude/worktrees/xc" rev-parse --abbrev-ref HEAD)" "chore/xc/mika" "kind chore 的前綴是 chore"
+grep -q 'branch: "chore/xc/mika"' "$R3/openspec/workplan.yaml" || fail "workplan 的 branch 要是 chore/xc/mika：$(cat "$R3/openspec/workplan.yaml")"
+opsx stop xc >/dev/null 2>&1
+# 建卡時已掛進 workplan（還沒有 kind，照 type 寫 feat/）：派工的 kind 是 refactoring、branch 還沒建，就改成 refactor/（workplan-attach D14）
+mkdir -p "$R3/openspec/changes/xr"; printf 'schema: opsx\n' > "$R3/openspec/changes/xr/.openspec.yaml"
+printf -- '---\ntype: 功能\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/xr/inbox.md"
+python3 -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$R3" xr "" mika "" || fail "建卡時的掛入"
+grep -q 'branch: "feat/xr/mika"' "$R3/openspec/workplan.yaml" || fail "建卡時照 type 是 feat/xr/mika：$(cat "$R3/openspec/workplan.yaml")"
+out="$(OPSX_USER=mika opsx dispatch xr --kind refactoring --agent claude --mode autopilot 2>&1)" || fail "dispatch kind refactoring: $out"
+assert_eq "$(git -C "$R3/.claude/worktrees/xr" rev-parse --abbrev-ref HEAD)" "refactor/xr/mika" "已掛的卡照 kind 改前綴"
+grep -q 'branch: "refactor/xr/mika"' "$R3/openspec/workplan.yaml" || fail "workplan 的 branch 要改成 refactor/xr/mika：$(cat "$R3/openspec/workplan.yaml")"
+opsx stop xr >/dev/null 2>&1
+# branch 已經建出來就不改
+mkdir -p "$R3/openspec/changes/xe"; printf 'schema: opsx\n' > "$R3/openspec/changes/xe/.openspec.yaml"
+printf -- '---\ntype: bug\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/xe/inbox.md"
+python3 -I "$OPSX_ROOT/bin/lib/workplanwrite.py" attach "$R3" xe "" mika "" || fail "建卡時的掛入 xe"
+git -C "$R3" branch fix/xe/mika || fail "先建 branch"
+cp "$R3/openspec/workplan.yaml" "$FX/wp3.xe"
+out="$(OPSX_USER=mika opsx dispatch xe --kind chore --agent claude --mode autopilot 2>&1)" || fail "dispatch xe: $out"
+assert_eq "$(git -C "$R3/.claude/worktrees/xe" rev-parse --abbrev-ref HEAD)" "fix/xe/mika" "branch 已建出來就沿用"
+cmp -s "$FX/wp3.xe" "$R3/openspec/workplan.yaml" || fail "branch 已建出來時 workplan 不動：$(diff "$FX/wp3.xe" "$R3/openspec/workplan.yaml")"
+opsx stop xe >/dev/null 2>&1
+
+# --- 補掛失敗只警告、照 kind 預設 branch 派（workplan-attach D11）：沒有 inbox frontmatter、milestone 欄位壞掉 ---
+mkdir -p "$R3/openspec/changes/nofm"; printf 'schema: opsx\nkind: refactoring\n' > "$R3/openspec/changes/nofm/.openspec.yaml"
+out="$(OPSX_USER=mika opsx dispatch nofm --agent claude --mode autopilot 2>&1)" || fail "沒有 frontmatter 的卡要派得出去: $out"
+case "$out" in *沒掛進\ workplan*) ;; *) fail "要警告沒掛進 workplan：$out" ;; esac
+assert_eq "$(git -C "$R3/.claude/worktrees/nofm" rev-parse --abbrev-ref HEAD)" "refactor/nofm/mika" "掛不進去時用 kind 的預設前綴"
+opsx stop nofm >/dev/null 2>&1
+cp "$R3/openspec/workplan.yaml" "$FX/wp3.keep"
+printf 'current_milestone: "9"\n' >> "$R3/openspec/workplan.yaml"
+mkdir -p "$R3/openspec/changes/badms"; printf 'schema: opsx\nkind: dev\n' > "$R3/openspec/changes/badms/.openspec.yaml"
+printf -- '---\ntype: 功能\nsource: me\nkind_of_work: planned\n---\n' > "$R3/openspec/changes/badms/inbox.md"
+out="$(OPSX_USER=mika opsx dispatch badms --agent claude --mode autopilot 2>&1)" || fail "milestone 欄位壞掉時要派得出去: $out"
+case "$out" in *沒掛進\ workplan*) ;; *) fail "要警告沒掛進 workplan：$out" ;; esac
+assert_eq "$(git -C "$R3/.claude/worktrees/badms" rev-parse --abbrev-ref HEAD)" "feat/badms/mika"
+opsx stop badms >/dev/null 2>&1
+cp "$FX/wp3.keep" "$R3/openspec/workplan.yaml"
 
 # --- 分支尾巴：OPSX_USER 沒設就用 git user.name；是 git 的占位字「Your Name」或空的就拒絕，不開 worktree 不碰 herdr ---
+# 這段測沒有 workplan 時 dispatch 自己取的 branch：先把 R3 的 workplan 移開，段尾放回
+mv "$R3/openspec/workplan.yaml" "$FX/wp3.aside"
 mkdir -p "$R3/openspec/changes/noname-card"; printf 'schema: opsx\nkind: dev\n' > "$R3/openspec/changes/noname-card/.openspec.yaml"
 : > "$OPSX_FAKE_LOG"
 out="$(OPSX_USER= opsx dispatch noname-card --agent claude --mode autopilot 2>&1)" || fail "git user.name t should name the branch: $out"
@@ -259,6 +320,12 @@ out="$(OPSX_USER= opsx dispatch noname-card --agent claude --mode autopilot 2>&1
 echo "$out" | grep -q 'OPSX_USER' && echo "$out" | grep -q 'Your Name' || fail "要說怎麼設名字: $out"
 [ ! -d "$R3/.claude/worktrees/noname-card" ] || fail "refused dispatch must not open a worktree"
 assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "refused dispatch must not touch herdr"
+# 有 workplan 時，名字是占位字的卡掛不進 workplan，一樣拒絕
+mv "$FX/wp3.aside" "$R3/openspec/workplan.yaml"
+printf -- '---\ntype: 功能\nsource: me\n---\n' > "$R3/openspec/changes/noname-card/inbox.md"
+out="$(OPSX_USER= opsx dispatch noname-card --agent claude --mode autopilot 2>&1)"; [ $? -eq 2 ] || fail "placeholder name must be refused with a workplan: $out"
+echo "$out" | grep -q 'OPSX_USER' && echo "$out" | grep -q 'Your Name' || fail "要說怎麼設名字: $out"
+[ ! -d "$R3/.claude/worktrees/noname-card" ] || fail "refused dispatch must not open a worktree"
 git -C "$R3" config user.name t
 
 # --- 新分支從 fetch 後的 origin/main 開，不從主 checkout 當下的 HEAD（主 checkout 在 feat/x、origin/main 比本機新） ---
@@ -336,9 +403,18 @@ features:
         changes:
           - name: m3
             status: pending
+      - name: m4
+        branch: feat/m4/mikaela
+        status: pending
+        depends-on: []
+        changes:
+          - name: m4
+            status: pending
 EOF
 mkdir -p "$RF/openspec"; mv "$RF/openspec-wp.yaml" "$RF/openspec/workplan.yaml"
-for s in m1 m2 m3; do mkdir -p "$RF/openspec/changes/$s"; printf 'schema: opsx\nkind: dev\n' > "$RF/openspec/changes/$s/.openspec.yaml"; printf -- '- [ ] 1.1 x\n' > "$RF/openspec/changes/$s/tasks.md"; done
+for s in m1 m2 m3 m4; do mkdir -p "$RF/openspec/changes/$s"; printf 'schema: opsx\nkind: dev\n' > "$RF/openspec/changes/$s/.openspec.yaml"; printf -- '- [ ] 1.1 x\n' > "$RF/openspec/changes/$s/tasks.md"; done
+# m4 是 P2：沒依賴、有 tasks.md，但 session 不接它（session-dispatch「P2 的主 change 不寫」）
+printf -- '---\ntype: 功能\nsource: me\npriority: P2\npriority_reason: 自動掛進 workplan，維持 P2\n---\n' > "$RF/openspec/changes/m4/inbox.md"
 cd "$RF"; printf '{}' > "$OPSX_STATE_DIR/dispatch.json"; : > "$OPSX_FAKE_LOG"
 
 # 沒有這個 feature：拒絕，不開 pane
@@ -363,6 +439,7 @@ assert_eq "$(jq -r '."Feat-Repo/m1" | [.herdr_name, .via, .feature, .pane, .bran
 assert_eq "$(jq -r '."Feat-Repo/m2" | [.herdr_name, .via, .feature, .pane, .branch] | join(" ")' "$J")" "fs @fs fs w1:pE feat/m2/mikaela" "m2 跟 m1 共用 pane"
 assert_eq "$(jq -r 'keys | map(select(startswith("Feat-Repo/"))) | join(" ")' "$J")" "Feat-Repo/@fs Feat-Repo/m1 Feat-Repo/m2" "session 加兩個成員共三筆"
 assert_eq "$(jq -r '."Feat-Repo/m3" // "none"' "$J")" none "依賴沒滿足的主 change 不寫"
+assert_eq "$(jq -r '."Feat-Repo/m4" // "none"' "$J")" none "P2 的主 change 不寫"
 assert_eq "$(git -C "$RF/.claude/worktrees/fs" rev-parse --abbrev-ref HEAD)" "feat/m1/mikaela" "worktree 叫 feature 名，從第一個主 change 的 branch 開"
 assert_grep '已指派' "$RF/openspec/changes/m2/decisions.tsv"
 
@@ -386,7 +463,8 @@ python3 -I -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["Feat-Repo/m
 # 重派人停的成員卡、session 還活著：清掉 stopped、送 [m2] /apply m2 給 session，不開 pane
 : > "$OPSX_FAKE_LOG"
 out="$(opsx dispatch m2 --agent claude --mode autopilot 2>&1)"; assert_eq "$?" 0 "session 活著重派 m2: $out"
-assert_eq "$(cat "$OPSX_FAKE_LOG")" "agent prompt fs [m2] /opsx-workflow:apply m2" "只送一句給 session"
+assert_eq "$(cat "$OPSX_FAKE_LOG")" "agent prompt fs [m2] /opsx-workflow:apply m2
+agent read w1:pE --source visible --format ansi" "只送一句給 session，送出後讀一次輸入框"
 assert_eq "$(jq -r '."Feat-Repo/m2" | [.mode, .pane, .via, .herdr_name, (has("stopped_at") | tostring)] | join(" ")' "$J")" "autopilot w1:pE @fs fs false" "m2 不再是 stopped，pane 取自 session"
 
 # opsx stop @fs：關 session pane、標 session 條目 stopped，成員條目不動
@@ -522,16 +600,19 @@ out="$(opsx dispatch held --agent claude --mode autopilot 2>&1)"; [ $? -ne 0 ] |
 echo "$out" | grep -qF '.claude/worktrees/c' || fail "要說佔著的 worktree: $out"
 [ ! -d "$R/.claude/worktrees/held" ] || fail "被佔時不能開 worktree"
 # --- 人手動派，名額已滿只警告（specs/dispatch-concurrency：人手動派名額已滿只警告）---
-# cap_state <活著的 pane 數>：dispatch.json 加 8 個沒停的條目 cap1…cap8，herdr 只回前 n 個的 agent（idle）
+# cap_state <有 agent 的 pane 數> [agent_status]：dispatch.json 加 8 個沒停的條目 cap1…cap8（worktree 是 $FX/capwt/capN），
+# herdr 只回前 n 個的 agent（狀態預設 working，cwd 在各自的 worktree 裡）
 cap_state() {
-  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" <<'PY'
-import json, sys
-path, agents_path, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" "$FX/capwt" "${2:-working}" <<'PY'
+import json, os, sys
+path, agents_path, n, wtroot, status = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
 d = json.load(open(path))
 for i in range(1, 9):
-    d["Acmecorp-CS/cap%d" % i] = {"mode": "autopilot", "agent": "claude", "pane": "w9:cap%d" % i, "drive_pid": None}
+    wt = os.path.join(wtroot, "cap%d" % i)
+    os.makedirs(wt, exist_ok=True)
+    d["Acmecorp-CS/cap%d" % i] = {"mode": "autopilot", "agent": "claude", "pane": "w9:cap%d" % i, "drive_pid": None, "worktree": wt}
 json.dump(d, open(path, "w"))
-agents = [{"agent": "claude", "agent_status": "idle", "pane_id": "w9:cap%d" % i} for i in range(1, n + 1)]
+agents = [{"agent": "claude", "agent_status": status, "pane_id": "w9:cap%d" % i, "cwd": os.path.join(wtroot, "cap%d" % i)} for i in range(1, n + 1)]
 json.dump({"id": "cli:agent:list", "result": {"agents": agents, "type": "agent_list"}}, open(agents_path, "w"))
 PY
 }
@@ -550,6 +631,45 @@ out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-y --agent 
 assert_eq "$rc" 0 "名額沒滿照派: $out"
 echo "$out" | grep -qF '已有' && fail "名額沒滿不警告: $out"
 assert_eq "$(jq -r 'has("Acmecorp-CS/cap-y") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額沒滿照寫條目"
+# 閒著的 pane 不佔名額：8 個 pane 的 agent 都是 idle，不警告，也不是數不出名額
+mkdir -p "$R/openspec/changes/cap-i"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-i/.openspec.yaml"
+cap_state 8 idle
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-i --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "8 個 idle pane 手動派照派: $out"
+echo "$out" | grep -qF '已有' && fail "idle 的 pane 不佔名額，不警告: $out"
+echo "$out" | grep -qF '數不出' && fail "idle 的 pane 要真的數過名額: $out"
+# 在跑自己背景工作的 idle pane 照佔名額：8 個 idle pane 都停在等背景工作、2 小時內，警告 8/8
+mkdir -p "$R/openspec/changes/cap-b" "$OPSX_STATE_DIR/stop-said"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-b/.openspec.yaml"
+now="$(date +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do printf '等背景工作（bash tests/run.sh）\n%s\n' "${now%??}:${now: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"; done
+cap_state 8 idle
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-b --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "背景工作佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "在跑背景工作的 idle pane 要佔名額: $out"
+# 停住超過 2 小時、子 change 的 subagent 還在跑：照佔名額，跟協調者一樣找得到卡的 repo
+mkdir -p "$R/openspec/changes/cap-s2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-s2/.openspec.yaml"
+old="$(date -v-130M +%Y-%m-%dT%H:%M:%S%z)"; fresh="$(date -v-1M +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do
+  printf '等背景 subagent（子 change s1）\n%s\n' "${old%??}:${old: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"
+  mkdir -p "$R/openspec/changes/cap$i/subs/s1"
+  printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "${fresh%??}:${fresh: -2}" > "$R/openspec/changes/cap$i/subs/s1/status.json"
+done
+cap_state 8 idle
+# 這個 repo 不在 OPSX_CODE_ROOT 底下，跟 collect 一樣要登記在 sources.toml 才找得到
+printf '[[source]]\npath = "%s"\n' "$R" > "$OPSX_STATE_DIR/sources.toml"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-s2 --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "子 change subagent 佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "子 change 的 subagent 還在跑的 idle pane 要佔名額: $out"
+rm -rf "$OPSX_STATE_DIR/stop-said"
+# sources.toml 寫壞：跟協調者一樣只看 root 底下的 repo 照數，不是整個不數
+mkdir -p "$R/openspec/changes/cap-t"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-t/.openspec.yaml"
+printf 'not [toml\n' > "$OPSX_STATE_DIR/sources.toml"
+cap_state 8
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-t --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "sources.toml 壞了手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "sources.toml 壞了也要數名額: $out"
 # herdr agent list 失敗：印一行數不出名額到 stdout（看板成功時只顯示 stdout），照派
 cap_state 8
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>/dev/null)"; rc=$?
@@ -563,6 +683,60 @@ printf 'not json\n' > "$FX/cap-bad.json"
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-bad.json" opsx dispatch cap-w --agent claude --mode interactive 2>/dev/null)"; rc=$?
 assert_eq "$rc" 0 "agent list 讀不懂照派: $out"
 echo "$out" | grep -qF 'herdr agent list 讀不懂' || fail "讀不懂要說原因: $out"
+mkdir -p "$R/openspec/changes/cap-n"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-n/.openspec.yaml"
+printf '{"result":{"agents":null}}\n' > "$FX/cap-bad.json"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-bad.json" opsx dispatch cap-n --agent claude --mode interactive 2>/dev/null)"; rc=$?
+assert_eq "$rc" 0 "agents 是 null 照派: $out"
+echo "$out" | grep -F 'herdr agent list 讀不懂' | grep -qF 'None' || fail "agents 是 null 要說讀不懂與 None: $out"
+# cap_add '<條目 JSON 物件>' '<agent JSON 陣列>'：dispatch.json 併進這些條目，cap_state 寫的 herdr agent list 加上這些 agent
+cap_add() {
+  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" "$2" <<'PY'
+import json, sys
+path, agents_path = sys.argv[1], sys.argv[2]
+d = json.load(open(path))
+d.update(json.loads(sys.argv[3]))
+json.dump(d, open(path, "w"))
+a = json.load(open(agents_path))
+a["result"]["agents"] += json.loads(sys.argv[4])
+json.dump(a, open(agents_path, "w"))
+PY
+}
+# 名額沒滿：7 個單卡 pane，加一筆有 reaped_at 的條目與一筆 agent cwd 只在同前綴隔壁目錄的條目，兩個 pane 都有活 agent，都不佔名額
+mkdir -p "$R/openspec/changes/cap-v" "$FX/capwt/rp" "$FX/capwt/ow"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-v/.openspec.yaml"
+cap_state 7
+cap_add "{\"Acmecorp-CS/cap-rp\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:rp\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/rp\",\"reaped_at\":\"2026-11-17T09:00:00+08:00\"},\"Acmecorp-CS/cap-ow\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:ow\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/ow\"}}" \
+  "[{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:rp\",\"cwd\":\"$FX/capwt/rp\",\"foreground_cwd\":\"$FX/capwt/rp\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:ow\",\"cwd\":\"$FX/capwt/ow-other\",\"foreground_cwd\":\"$FX/capwt/ow-other\"}]"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-v --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "opsx 關過的與 cwd 對不上的 pane 手動派照派: $out"
+echo "$out" | grep -qF '已有' && fail "opsx 關過的與 cwd 對不上的 pane 不佔名額，不警告: $out"
+# session pane 在手動派時佔名額：7 個單卡 pane，加 1 個成員全停、session 條目沒停、agent working 的 session pane
+mkdir -p "$R/openspec/changes/cap-s" "$FX/capwt/sess"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-s/.openspec.yaml"
+cap_state 7
+SW="$FX/capwt/sess"
+cap_add "{\"Acmecorp-CS/@capf\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sess\",\"drive_pid\":null,\"worktree\":\"$SW\"},\"Acmecorp-CS/capm1\":{\"mode\":\"stopped\",\"agent\":\"claude\",\"pane\":\"w9:sess\",\"via\":\"@capf\",\"worktree\":\"$SW\"},\"Acmecorp-CS/capm2\":{\"mode\":\"stopped\",\"agent\":\"claude\",\"pane\":\"w9:sess\",\"via\":\"@capf\",\"worktree\":\"$SW\"}}" \
+  "[{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sess\",\"cwd\":\"$SW\",\"foreground_cwd\":\"$SW\"}]"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-s --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "session pane 佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "成員全停的 session pane 要佔名額: $out"
+# 協調者與手動派數到同一個數：上限 3；已歸檔的卡、成員全停的 session 條目、一張活卡，三個 agent 都 working；另兩張活卡的 agent idle、blocked 不佔名額。協調者的 collect 只掃到另一個 repo 的 card-new
+printf '3\n' > "$OPSX_STATE_DIR/max-working"
+CC="$FX/cc"; mkdir -p "$CC/openspec/changes/card-new" "$R/openspec/changes/archive/2026-11-17-same-ar" "$FX/capwt/sa" "$FX/capwt/sf" "$FX/capwt/sl" "$FX/capwt/si" "$FX/capwt/sb" "$FX/coordbin"
+printf -- '- [ ] 1.1 x\n' > "$CC/openspec/changes/card-new/tasks.md"
+printf 'created: 2026-11-07\n\nfeatures:\n  - name: cc\n    prs:\n      - name: card-new\n        status: pending\n        depends-on: []\n        changes:\n          - name: card-new\n            status: pending\n' > "$CC/openspec/workplan.yaml"
+printf '{"repo_paths":{"cc":"%s"},"cards":[{"repo":"cc","slug":"card-new","kind":"dev","stage":"apply","section":"待指派","archived":false,"waiting":null,"open_gates":[],"dispatch":null,"agent_status":null,"mr":null,"path":"%s/openspec/changes/card-new"}],"errors":[]}' "$CC" "$CC" > "$FX/cc-collect.json"
+printf '#!/usr/bin/env bash\nexec bash "%s/opsx" "$@"\n' "$FAKES" > "$FX/coordbin/opsx"; chmod +x "$FX/coordbin/opsx"
+cap_state 0
+cap_add "{\"Acmecorp-CS/same-ar\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sa\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sa\"},\"Acmecorp-CS/@samef\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-m1\":{\"mode\":\"stopped\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"via\":\"@samef\",\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-live\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sl\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sl\"},\"Acmecorp-CS/same-idle\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:si\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/si\"},\"Acmecorp-CS/same-blocked\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sb\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sb\"}}" \
+  "[{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sa\",\"cwd\":\"$FX/capwt/sa\",\"foreground_cwd\":\"$FX/capwt/sa\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sf\",\"cwd\":\"$FX/capwt/sf\",\"foreground_cwd\":\"$FX/capwt/sf\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sl\",\"cwd\":\"$FX/capwt/sl\",\"foreground_cwd\":\"$FX/capwt/sl\"},{\"agent\":\"claude\",\"agent_status\":\"idle\",\"pane_id\":\"w9:si\",\"cwd\":\"$FX/capwt/si\",\"foreground_cwd\":\"$FX/capwt/si\"},{\"agent\":\"claude\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:sb\",\"cwd\":\"$FX/capwt/sb\",\"foreground_cwd\":\"$FX/capwt/sb\"}]"
+PATH="$FX/coordbin:$PATH" OPSX_FAKE_LOG="$FX/cc.log" OPSX_TEST_COLLECT_JSON="$FX/cc-collect.json" OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" \
+  bash "$OPSX_ROOT/bin/opsx" coordinate > "$FX/cc-out" 2>&1 || fail "coordinate 要跑完: $(cat "$FX/cc-out")"
+grep -qF '同時在跑 3 個 pane，達上限 3' "$OPSX_STATE_DIR/coordinator.log" || fail "協調者要記同時在跑 3 個 pane，達上限 3: $(cat "$OPSX_STATE_DIR/coordinator.log")"
+assert_not_grep '^opsx dispatch' "$FX/cc.log"
+mkdir -p "$R/openspec/changes/card-x"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/card-x/.openspec.yaml"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch card-x --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "上限 3 手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 3/3 個 pane' || fail "手動派要跟協調者數到同一個 3: $out"
+rm -f "$OPSX_STATE_DIR/max-working"
 
 assert_not_grep 'gitlab\.example\.com' "$OPSX_FAKE_LOG"
 assert_not_grep 'gitlab\.example\.com' "$FX/glab-all.log"

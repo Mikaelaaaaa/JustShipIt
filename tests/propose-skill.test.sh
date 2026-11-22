@@ -15,6 +15,24 @@ has 'opsx check <name>' "$SUB"
 has 'do not continue to `/opsx-workflow:apply`' "$SUB"
 OUT="$FX/out"; sec "$P" "## Output" > "$OUT"; has 'opsx check' "$OUT"
 
+# --- Scenario（me-20261122-1148 specs/work-split）：propose 多個獨立 change 預設收成子 change，不再預設各開 PR ---
+B5="$FX/5b"; sec "$P" "### 5b." > "$B5"; [ -s "$B5" ] || fail "propose 少 5b 段"
+has 'sub-changes of one main change' "$B5"; has '4c' "$B5"
+has 'ships on its own' "$B5"; has 'must be reviewed separately' "$B5"
+! grep -qF 'give them separate PRs' "$B5" || fail "5b 不該再預設各開 PR"
+# R1.2：5b 要做得出來（4c 只在 subs/ 已存在時適用），標題不再限定 independent；R1.5 釘整句
+for k in 'subs/<sub>/' 'parent: <main>' 'changes[]' 'opsx check <main>' 'both ships on its own and must be reviewed separately'; do has "$k" "$B5"; done
+# R3.3：不另建主殼（4d／步驟 5 已給這張卡一個 PR，另建會多一個 PR）；這張卡就是主殼，改寫它既有的 PR 與 tasks.md
+! grep -qF 'openspec new change <main>' "$B5" || fail "5b 不該另建主殼"
+has 'The card you are proposing is the main shell' "$B5"
+# R4.2（D14）：加進既有 PR，只拿掉這張卡自己那筆；「換掉」會丟掉同 PR group 別的 change
+has 'add the sub-changes to its existing PR' "$B5"
+has 'remove only this card'"'"'s own entry' "$B5"
+! grep -qF 'replace the `changes[]`' "$B5" || fail "5b 不能換掉整個 changes[]"
+grep -F 'own feature and PR named after the slug' "$P" | grep -qF 'when 5b applies, that PR is the main change'"'"'s PR' || fail "4d 要註明 5b 適用時這個 PR 就是主 change 的 PR"
+! grep -qF 'unless 5b applies' "$P" || fail "「unless 5b applies」會被讀成 5b 適用時不開 PR"
+! head -1 "$B5" | grep -qi 'independent' || fail "5b 標題不該再寫 independent"
+
 # --- new-auto-merge：寫 tasks.md 前，每段 ## 併入 要嘛變成 task，要嘛先 opsx split-out ---
 has '## 併入' "$P"; has 'opsx split-out' "$P"
 
@@ -28,9 +46,17 @@ has 'bash tests/run.sh' "$P"
 has 'cd <worktree root>' "$P"
 ! grep -qE '^[[:space:]]*(`)?OPSX_ROOT=' "$P" || fail "propose SKILL.md 不能有 OPSX_ROOT= 開頭的測試指令範例"
 # agent-20261116-1405 Scenario：skill 的測試步驟依 repo；skill 不再無條件規定 bash tests/run.sh
-has 'When the repo has `tests/run.sh`, run tests only as `bash tests/run.sh' "$P"
+has 'When the repo has `tests/run.sh` (only the file name counts, not its content), run tests only as `bash tests/run.sh' "$P"
 has "use the repo's own test command" "$P"
 ! grep -qF 'Run tests only as `bash tests/run.sh' "$P" || fail "propose SKILL.md 不能無條件寫 bash tests/run.sh"
+# test-run-rule-edges Scenario：propose 在沒有 tests/run.sh 時給退路指令；退路排在 repo 自己的指令之後
+has '(CLAUDE.md first, then package.json / pyproject, then the usual `pnpm test`, `pytest`, `go test ./...`)' "$P"
+# D1：skill 文字也寫明只認 tests/run.sh 這個檔名
+has 'only the file name counts, not its content' "$P"
+has 'only the file name counts, not its content' "$OPSX_ROOT/skills/apply/SKILL.md"
+# Scenario：review 的 START 說明只在有 tests/run.sh 時適用；不再無條件說 tests/run.sh 會印 START
+has 'when the repo has `tests/run.sh`, it prints `START <name>`' "$S0"
+! grep -qF 'and `tests/run.sh` prints `START <name>`' "$RV" || fail "review SKILL.md 不能無條件說 tests/run.sh 會印 START"
 
 # 驗收：openspec/changes/propose-gherkin/subs/propose-specs-rewrite/specs/propose-spec-guidance/spec.md 五個 Scenario
 hasnt() { ! grep -qE -- "$1" "$2" || fail "'$1' should not be in $(basename "$2"): $(grep -nE -- "$1" "$2")"; }

@@ -2,5 +2,8 @@
   "sandbox": {
     "network": {"allowUnixSockets": ["${HOME}/.config/herdr/herdr.sock"]},
     "excludedCommands": ["opsx dispatch *"]
+  },
+  "hooks": {
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"${OPSX_ROOT}/hooks/lead-skill-reload.sh\""}]}]
   }
 }

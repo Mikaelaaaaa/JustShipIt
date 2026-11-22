@@ -92,13 +92,7 @@ When an idea is clear enough to act on, break it into a two-level hierarchy: **P
 
 ### PR level — optimized for the reviewer
 
-Split by concern, risk, or reviewability. Each PR should be understandable in one review session (~300-500 lines diff).
-
-Splitting criteria:
-- **Different risk** — DB migration vs business logic vs API layer → separate PRs
-- **Different concern** — infra setup vs domain logic vs integration wiring → separate PRs
-- **Different reviewer** — backend vs frontend vs ops → separate PRs
-- **Independent deployability** — if PR 1 can merge and ship without PR 2, split them
+One PR by default. Parts that differ in risk, concern or reviewer become separate commits (sub-changes) in the same PR, not separate PRs. Open a second PR only when that part both ships on its own and must be reviewed separately (it can merge and go live without the rest, and someone must review it apart from the rest). Write why it cannot be a sub-change on its `main change` line in the split gate ("Splitting a big card").
 
 ### Commit level — optimized for the AI
 
@@ -118,30 +112,27 @@ features:
   - name: eval-service
     status: active           # active | complete
     prs:
-      - name: eval-infra
-        branch: feat/eval-infra
+      - name: eval-scorer
+        branch: feat/eval-scorer
         status: pending      # pending | in-progress | merged
         depends-on: []
-        description: "Schema and interface definitions — low risk, merge first"
+        description: "Pluggable scorers on a BullMQ queue; one commit per change"
         changes:
           - name: add-scorer-interface
             status: pending  # pending | in-progress | done | skipped | on-hold
+            depends-on: []
             description: "Type definitions + pluggable scorer interface"
           - name: add-queue-schema
             status: pending
+            depends-on: []
             description: "DB migration + BullMQ queue setup"
-
-      - name: eval-core
-        branch: feat/eval-core
-        status: pending
-        depends-on: [eval-infra]
-        description: "Core implementation — main logic, careful review"
-        changes:
           - name: implement-scorer-plugins
             status: pending
+            depends-on: [add-scorer-interface]
             description: "Pluggable scorer pattern implementation"
           - name: implement-bullmq-worker
             status: pending
+            depends-on: [add-queue-schema, implement-scorer-plugins]
             description: "Queue consumer and worker"
 
   - name: notification-refactor
@@ -158,7 +149,7 @@ features:
             description: "Queue infrastructure and worker scaffold"
 ```
 
-Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-infra`), or individual changes.
+Workplan supports multiple features. Each feature groups PRs; each PR groups changes. Features and changes take `depends-on` too (a feature lists PR names, a change lists sibling changes in the same PR); see "Splitting a big card". `/opsx-workflow:apply` can target a feature (`/opsx-workflow:apply --auto eval-service`), a PR (`/opsx-workflow:apply eval-scorer`), or individual changes.
 
 A PR whose changes touch only `openspec/` (not in git, so nothing to push) gets `mr: none` next to its `status`. Once review is done and its branch has no commits beyond `<primary remote>/main`, the next stage is `/opsx-workflow:archive` instead of `/opsx-workflow:pr`. Leave it off any PR that changes tracked files.
 
@@ -180,6 +171,10 @@ A project's first big explore splits its milestones with the user, each one sent
 
 Four layers, defined in `references/work-split.md`: a dispatch sends out work; a **session** (workplan `features[]`) is one pane working a group of similar main changes in order; a **main change** (`prs[]`) is one branch and one PR; a **sub-change** (`prs[].changes[]`) is one commit, done by a subagent.
 
+D5 decides only whether to split. The default result is one main change with sub-changes: one PR, the sub-changes stacked in order, each with its own tasks and commit. A second main change is allowed only when that part both ships on its own and must be reviewed separately; different risk alone is not enough. Every main change after the first carries its reason on its `main change` line in the gate below, as `（不當子 change：<why>）`; with one main change, the gate has no `<pr2>` line. When the split has a second main change, write the 選項 line without `(Recommended)` and leave out the `建議:` line: the board takes 建議 as the recommendation, so only a gate with neither goes to the user, who checks the reasons. With one main change, keep both.
+
+A main change that already has `subs/`, or is listed in a parent card's `split_into`, does not split again: it holds the part of the card D5 already judged, so D5 would hold for it again. Its sub-changes are cut at propose 4c.
+
 When the D5 check in explore.md says split (at intake, or after exploring), write the split as one gate in `openspec/changes/<slug>/gates.md`:
 
 ```
@@ -192,13 +187,14 @@ status: open
   - session <feature> (milestone: <name or none>, depends-on: [<PR names>])
     - main change <pr> · <branch> (depends-on: [<pr>])
       - sub-change <name> (depends-on: [<sibling sub-change>])
+    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<原因>）  # with this line, drop `(Recommended)` and the `建議:` line; without a second main change, delete this line
 選項: 照這個拆法 (Recommended) | 改拆法 | 不拆
-建議: <why this grouping: similar topics share a session, different risks get their own main change>
+建議: <why this grouping: similar topics share a session, one main change unless a part ships on its own and must be reviewed separately>
 風險: <what a wrong split costs>
 預設: 不建殼，等回覆
 ```
 
-A gate's `type` is `approval` (a permission) or `decision` (a choice) and nothing else; add a `needs: run` line when 建議 is a command the user must run themselves, and a `waits-on: <card name>` line on a `decision` that can only be answered after that card merges into main. The split gate above never takes `waits-on`: the user answers it, and the coordinator never answers any gate. Until the gate is answered, create no shell and do not touch the workplan. Interactive mode asks the same thing with AskUserQuestion instead of the gate. Once confirmed, in this order:
+A gate's `type` is `approval` (a permission) or `decision` (a choice) and nothing else; add a `needs: run` line when 建議 is a command the user must run themselves, and a `waits-on: <card name>` line on a `decision` that can only be answered after that card merges into main. The split gate above never takes `waits-on`: in the opsx-workflow repo a split gate with a second main change has no recommendation, so it goes to the user; one with a single main change the coordinator answers with its recommendation like a decision gate there (not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`), and in other repos the user answers it. Until the gate is answered, create no shell and do not touch the workplan. Interactive mode asks the same thing with AskUserQuestion instead of the gate. Once confirmed, in this order:
 
 1. Each main change: `openspec new change <pr> --schema opsx`, with an inbox.md that says what the whole main change does and lists its sub-changes.
 2. Each sub-change: `openspec/changes/<main>/subs/<sub>/` with `inbox.md` (frontmatter `parent: <main>`, `depends-on: [<sibling>]`) and `.openspec.yaml` (`schema: opsx`, `kind:`, `parent: <main>`). The openspec CLI does not know about these; `opsx check <main>` does.
@@ -221,6 +217,8 @@ waits-on: <the first unmerged dependency>
 Every inbox.md you write here, and any card you open while exploring, gets the facts in its frontmatter (`kind_of_work`, plus `impact` and `evidence` for an incident); then run `opsx priority <slug>`, and if it prints P0 without a user override write the `p0-review` gate per `references/priority.md`.
 
 Log the split in decisions.tsv with `opsx log`.
+
+A problem you find while exploring that is outside this card's scope (`../review/SKILL.md` Step 3, 範圍內／範圍外) becomes its own card: `opsx new` with the same flags as `../apply/SKILL.md` skeleton row 6, then, only when the printed slug is a fresh card, `opsx note <slug> --repo <top> -- "做到 propose 完成就停（留在待指派），不要 apply"` (skip `opsx note` when it merged). Whether to handle it here or open another card is never asked: 「另開卡」 is never a gate option. 範圍內的產品取捨, whether or how to change something inside this card's scope, still goes to the user.
 
 ## Capturing Decisions
 
@@ -276,7 +274,7 @@ When the change has a shell, go through these nine in order. Each condition is a
 
 When the change has a shell (`openspec/changes/<slug>/`), end by writing `explore.md` in the schema's template:
 
-- **已知**: facts from the code, each with a file path or the command you ran. Anything a prototype answered goes here with what was run and what it showed. Always include the **D5 check**, one line per criterion with your judgment: ① it spans more than one subsystem; ② it mixes different risk (data migration, permissions, external API next to ordinary logic); ③ one shell would hold more than 6 tasks. If any one holds, the card is split ("Splitting a big card"). Do not judge by estimated line count.
+- **已知**: facts from the code, each with a file path or the command you ran. Anything a prototype answered goes here with what was run and what it showed. Always include the **D5 check**, one line per criterion with your judgment: ① it spans more than one subsystem; ② it mixes different risk (data migration, permissions, external API next to ordinary logic); ③ one shell would hold more than 6 tasks. If any one holds, the card is split ("Splitting a big card"). A main change that already has `subs/`, or is listed in a parent card's `split_into`, does not split again. Do not judge by estimated line count.
 - **待決**: only questions the user must answer (product choice, preference, risk appetite). Each with 2–4 concrete options, the recommended one marked `(Recommended)`. A question `grep` or a ten-line script could answer does not belong here.
 - **不做**: directions ruled out, with the reason.
 - **步驟**: one line for each of the nine steps, shaped `- <n> <step name>：<where its output went>` when you did it, or `- <n> <step name>：skip：<which condition did not hold>` when you did not. Steps 2 to 7 name the 已知 block that holds their output, step 8 writes `待決`, and steps 1 and 9 have no block of their own and always run, so they write `done`. For example `- 1 讀卡：done`, `- 8 待決：待決`, `- 9 unslop：done`. A `skip：` with no reason counts as a missing line. `opsx check <slug>` reads this section, the Stop hook blocks the card in explore while a line is missing, and review compares a skipped 影響範圍 with the real diff.

@@ -26,7 +26,8 @@ for line in \
   'die "drop: 沒有捨棄 $repo/${slug}（上面是原因）"' \
   'die "drop: $repo/$slug 還有併入的項目"' \
   'fail "rc $rc)"' \
-  'echo "$1（"'; do
+  'echo "$1（"' \
+  'fail "路徑要加引號（${q}）：$x"'; do
   n=$((n + 1)); printf '%s\n' "$line" > "$T/ok$n.sh"
   [ -z "$(code_hits "$T/ok$n.sh")" ] || fail "掃描器誤報：$line"
 done

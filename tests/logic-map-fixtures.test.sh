@@ -17,10 +17,11 @@ assert_eq "$(awk '{print $1, $2}' "$FX/evals")" "1 fixtures/stop-gate-subagent
 3 fixtures/coordinate-usage-limit
 4 fixtures/question-reply
 5 fixtures/coordinate-usage-limit
-6 fixtures/logic-map-classify"
-grep -v '^4 ' "$FX/evals" > "$FX/map-evals"
+6 fixtures/logic-map-classify
+7 fixtures/question-reply"
+grep -v -e '^4 ' -e '^7 ' "$FX/evals" > "$FX/map-evals"
 assert_eq "$(grep -c 'HEAD^...HEAD' "$FX/map-evals")" 5 "產表題的範圍都是 HEAD^...HEAD"
-grep '^4 ' "$FX/evals" > "$FX/question-eval"
+grep -e '^4 ' -e '^7 ' "$FX/evals" > "$FX/question-eval"
 # 第 5 題只驗兩段業務說明：位置、句數、沒有識別字
 python3 -I -c '
 import json, sys

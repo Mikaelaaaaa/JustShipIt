@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # skills/babysit/SKILL.md：threads-only 的 push wave 之後、回覆之前照 review 的產表步重產邏輯表檔案（不發留言）；
-# check、merge 與沒 push 的輪次不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
+# 每一輪最後照 `## 邏輯表` 的 sha 比對 MR head，不同就重產一次；merge 模式不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 SK="$OPSX_ROOT/skills/babysit/SKILL.md"
 assert_file "$SK"
@@ -43,10 +43,7 @@ assert_not_fixed 'post a new comment' "$STEP"
 assert_not_fixed 'no `## 邏輯表` line' "$STEP"
 assert_fixed 'overwrite' "$STEP"
 
-# --- 步 8 只在 push 後重產；merge 模式永不重產（「merge 模式不重產」）---
-assert_fixed 'only a `threads-only` run that pushed regenerates the map' "$STEP"
-assert_fixed 'The `merge <sha>` mode never regenerates it;' "$STEP"
-assert_fixed 'regenerates it only through the comparison in step 1' "$STEP"
+# --- merge 模式永不重產（「merge 模式不重產」）；比對規則照下面 main 那段 ---
 assert_not_fixed 'the `check` mode, the `merge <sha>` mode' "$STEP"
 assert_not_fixed 'never regenerate it' "$STEP"
 
@@ -85,3 +82,43 @@ done
 ! grep -qF 'When the gate is answered and the line still does neither' "$FX/entry" || fail "入口還是答案一進來就停"
 # R3.2 步 8 同一句
 assert_fixed 'After the answer, run step 1b again first; when that run ends and the line still does neither, say so and stop again' "$STEP"
+# D9：最後一次 push 後的比對也認 skip： 行、也在 gate 停
+assert_fixed 'when it neither starts with `skip：` under the rule above nor is' "$STEP"
+assert_fixed 'run the same sub-steps 1–4 and stop at a gate the same way' "$STEP"
+
+# --- autopilot-forge-access D12：步 6 讀 GitLab 未解決 thread 用 glab mr note list --state unresolved，不用 glab api（autopilot 不放行）---
+STEP6="$FX/step6"
+awk '/^6\. /{on=1} /^7\. /{on=0} on' "$SK" > "$STEP6"
+[ -s "$STEP6" ] || fail "skills/babysit/SKILL.md 沒有步 6"
+grep -oE 'Unresolved threads:[^.]*' "$STEP6" | grep -qF 'glab mr note list <iid> --state unresolved' || fail "步 6 讀未解決 thread 要用 glab mr note list <iid> --state unresolved"
+assert_not_fixed 'glab api' "$STEP6"
+
+# --- D15：GitLab 那條要求每個 glab 指令單獨跑；串接的指令對不上 glab mr *，留在沙盒內 ---
+grep -F -- '- GitLab:' "$STEP6" | grep -qF 'Run each `glab` call as its own Bash command' || fail "步 6 的 GitLab 那條要寫 glab 單獨跑、不串接"
+
+# --- D12：步 8 GitLab 回覆進原 thread 用 glab mr note create --reply，沒有 --message-file 與 glab api ---
+assert_fixed 'glab mr note create <iid> --reply <discussion-id>' "$STEP"
+assert_not_fixed '--message-file' "$STEP"
+assert_not_fixed 'glab api' "$STEP"
+
+# --- D11：步 7 開新 build 前寫 gate（autopilot 的 allow 只放行唯讀 glab ci）---
+STEP7="$FX/step7"
+awk '/^7\. /{on=1} /^8\. /{on=0} on' "$SK" > "$STEP7"
+[ -s "$STEP7" ] || fail "skills/babysit/SKILL.md 沒有步 7"
+assert_fixed 'before that one fresh build, write a gate' "$STEP7"
+
+# --- 照 sha 比對重產（design D7，跟 pr step 5c 一樣）：不看這輪有沒有 push，merge 模式不產，一輪只產一次 ---
+assert_fixed 'Every run except the `merge <sha>` mode checks the map once, after its last push' "$STEP"
+assert_fixed 'with the same check the pr skill makes before its reply' "$STEP"
+assert_fixed 'a `產表失敗：` line, or no `## 邏輯表` section' "$STEP"
+assert_fixed 'A run whose map already shows the MR head does not regenerate it, and the `merge <sha>` mode never does' "$STEP"
+assert_not_fixed 'Every run that pushed regenerates' "$STEP"
+# sha 的比法跟 mergeready 一樣：7 碼以上、是 MR head 的開頭（大 repo 的 --short 會給 8–9 碼）
+assert_fixed 'a hex sha of 7 or more characters that the MR head starts with' "$STEP"
+assert_not_fixed 'the first 7 characters of the MR head' "$STEP"
+assert_not_fixed 'did not push never regenerate' "$STEP"
+# 步 5 不另寫一次重產，免得同一輪產兩次
+STEP5="$FX/step5"
+awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
+[ -s "$STEP5" ] || fail "skills/babysit/SKILL.md 沒有步 5"
+assert_not_fixed 'regenerate the logic map' "$STEP5"
