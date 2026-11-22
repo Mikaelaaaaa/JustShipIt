@@ -694,7 +694,32 @@ sleep 0 & dead=$!; wait "$dead"
 cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$dead"'},"agent_status":"idle"}]'
 round || fail "rc: $(cat "$FX/out")"
 assert_grep "^opsx dispatch u --agent claude" "$OPSX_FAKE_LOG"
+assert_grep "drive pid $dead 已經不在" "$LOG"
 rm -f "$MEMO" "$DISP"
+
+# --- drive pid 被別的程序用了：命令列不是這張卡的 drive 就重派 ---
+use_fakes ps
+sleep 30 & live=$!
+reused() { # <命令列> <重派：0 或 1> <原因片段，空字串是不檢查>
+  export OPSX_TEST_PS_CMD="$1"
+  cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+  round || fail "rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx dispatch u ')" "$2" "命令列 $1"
+  [ -z "$3" ] || assert_grep "$3" "$LOG"
+  rm -f "$MEMO" "$DISP"
+}
+reused "bash /x/bin/opsx drive u --repo $R" 0 ""
+reused "bash /x/bin/opsx drive u" 0 ""
+reused "/usr/bin/vim notes.md" 1 "drive pid $live 被別的程序用了（/usr/bin/vim notes.md）"
+reused "bash /x/bin/opsx drive u-2 --repo $R" 1 "被別的程序用了"
+reused "bash /x/bin/opsx drive uu --repo $R" 1 "被別的程序用了"
+# 讀不到命令列（沙盒裡 ps 跑不起來）：分不出來，不重派
+unset OPSX_TEST_PS_CMD
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 0 "讀不到命令列不重派"
+rm -f "$MEMO" "$DISP"
+kill "$live"
 
 # --- 派工照等級（priority-dispatch）---
 # incident <slug> <impact> <evidence>：收件卡的事實；evidence 給空字串就是沒證據

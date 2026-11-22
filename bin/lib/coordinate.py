@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argslost import args_lost, claude_argv  # noqa: E402
 import chain  # noqa: E402
 import coordq  # noqa: E402
+import drivepid  # noqa: E402
 import gaterule  # noqa: E402
 import jsonfile  # noqa: E402
 import late  # noqa: E402
@@ -1550,17 +1551,17 @@ def parse_relaunching_at(key, entry, now):
     return parsed
 
 
-def drive_dead(key, disp):
+def drive_dead(key, slug, disp):
+    """drive 死了回重派原因；還活著或分不出來回 None。"""
     pid = parse_drive_pid(key, disp)
     if pid is None:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        return False
-    return False
+        return None
+    st, cmd = drivepid.state(pid, slug)
+    if st == drivepid.GONE:
+        return "drive pid %d 已經不在" % pid
+    if st == drivepid.OTHER:
+        return "drive pid %d 被別的程序用了（%s）" % (pid, cmd)
+    return None
 
 
 def is_merged(c):
@@ -1706,11 +1707,11 @@ def one_round(state, dry):
         if paused or not c["dispatch"] or card_key(c) in r.memo["_parked"]:
             continue
         try:
-            dead = drive_dead(card_key(c), c["dispatch"])
+            dead = drive_dead(card_key(c), c["slug"], c["dispatch"])
             if c["agent_status"] == "unknown":
                 r.redispatch(c, repo_paths[c["repo"]], "agent 不在 herdr 裡（pane %s）" % c["dispatch"].get("pane"))
             elif dead:
-                r.redispatch(c, repo_paths[c["repo"]], "drive pid %s 已經不在" % c["dispatch"]["drive_pid"])
+                r.redispatch(c, repo_paths[c["repo"]], dead)
             else:
                 r.check_args(c, repo_paths[c["repo"]])
                 r.open_stale_wait_gate(c, repo_paths[c["repo"]])
