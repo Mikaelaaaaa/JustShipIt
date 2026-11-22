@@ -77,7 +77,7 @@ done
 
 # --- Requirement：流程段寫出自動開發的角色 ---
 # 只看說明文字：流程圖裡的節點名不算寫出角色
-flow="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
+flow="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&/<picture>/{p=1} f&&/<\/picture>/{p=0;next} f&&!c&&!p' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
