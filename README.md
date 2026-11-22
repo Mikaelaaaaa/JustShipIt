@@ -18,7 +18,7 @@
 - **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
 - **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
 
-<img src="docs/assets/board-web-framed.png" alt="JustShipIt 看板：頂端導覽與搜尋、總覽，下面是依階段排的欄，欄內依功能分組" width="100%" />
+<img src="docs/assets/board-demo.gif" alt="JustShipIt 看板操作錄影：開看板，點一張卡從右側滑出抽屜，按允許回 gate，再切到變更、已歸檔、紀錄三頁" width="100%" />
 
 ## <a id="why"></a>解決什麼問題
 
@@ -28,17 +28,10 @@
 
 一個想法先變成一張收件卡，之後依序經過 explore、grill、propose、apply、review、pr、babysit，每一站是一個 skill，產出的文件都留在 `openspec/changes/<卡>/`。agent 在 worktree 裡做，測試沒綠、review 沒過就不會往下走；需要你授權或做選擇時，它寫一筆 gate 然後先做別的。
 
-```mermaid
-flowchart LR
-  inbox[收件] --> explore --> grill --> propose --> apply --> review --> pr
-  pr --> babysit
-  babysit --> human{{合併：人}}
-  human --> archive
-  drive[[opsx drive]] -. 每張卡從 explore 推到 babysit .-> explore
-  coord[[opsx coordinate]] -. 派待指派、重派、收尾 .-> apply
-  lead[[opsx lead]] -. 收件派去 explore .-> inbox
-  lead -. 轉給人 .-> gate{{gate：人回}}
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg" />
+  <img src="docs/assets/architecture-light.svg" alt="架構圖：一張卡從收件經 explore、grill、propose、apply、review、pr、babysit，由人合併後 archive；opsx lead、drive、coordinate 在背景推進，agent pane 寫 gate 與狀態給看板，PR 開在 GitHub 或 GitLab，人只回 gate 與按合併" width="100%" />
+</picture>
 
 三個角色在背景推進：
 
