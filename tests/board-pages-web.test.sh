@@ -209,23 +209,20 @@ for (const t of ['id="new-open"', 'data-act="sync">立即同步', 'data-act="rea
 const arc = new Function(cut('歸檔') + ';return {archiveState, archiveCtl, archiveBody};')();
 const mrMerged = {url: 'u', merged_at: '2026-11-20T10:00:00Z'};
 // Scenario 歸檔按鈕的顯示（Examples 三列）
-const yes = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: null, agent_status: null});
-assert.ok(yes.includes('data-act="archive"') && yes.includes('歸檔') && !yes.includes('等協調者收尾'), '已合併、沒有活 pane：歸檔按鈕');
-const wait = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'working'});
-assert.ok(wait.includes('等協調者收尾') && !wait.includes('data-act'), '已合併、有活 pane：等協調者收尾，沒有按鈕');
-assert.strictEqual(arc.archiveCtl({slug: 'x', mr: {url: 'u', merged_at: null}, dispatch: null}), '', '沒合併：兩個都沒有');
-assert.strictEqual(arc.archiveCtl({slug: 'x', mr: null, dispatch: null}), '', '沒有 MR：兩個都沒有');
-// 跟 server 同一條件：pane 已經不在（unknown）算沒有活 pane；idle 是 pane 還在
-assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'unknown'}), 'ready');
-assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'idle'}), 'wait');
-// 協調者活著：留給它照原流程收尾（D5），只顯示等協調者收尾
-assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: null, agent_status: null}, true), 'wait', '協調者在跑：不給按鈕');
-const coordWait = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: null, agent_status: null}, true);
-assert.ok(coordWait.includes('等協調者收尾') && !coordWait.includes('data-act'), '協調者在跑：等協調者收尾');
-// 還有開著的 gate（例如合併後又有 commit 的 late gate）：不畫按鈕，gate 不能隨歸檔消失
+// 只給沒派過工的已合併卡（D19）：有 dispatch 的一律等協調者收尾，pane 在不在都一樣
+const yes = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: null, agent_status: null}, false);
+assert.ok(yes.includes('data-act="archive"') && yes.includes('歸檔') && !yes.includes('等協調者收尾'), '已合併、沒派過工：歸檔按鈕');
+const wait = arc.archiveCtl({slug: 'x', mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'working'}, false);
+assert.ok(wait.includes('等協調者收尾') && !wait.includes('data-act'), '已合併、派過工：等協調者收尾，沒有按鈕');
+assert.strictEqual(arc.archiveCtl({slug: 'x', mr: {url: 'u', merged_at: null}, dispatch: null}, false), '', '沒合併：兩個都沒有');
+assert.strictEqual(arc.archiveCtl({slug: 'x', mr: null, dispatch: null}, false), '', '沒有 MR：兩個都沒有');
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'unknown'}, false), 'wait', 'pane 不在也是 coordinate 收尾');
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: {pane: 'p'}, agent_status: 'idle'}, false), 'wait');
+// 還有開著的 gate（自己的 late gate，或子 change 的 gate）：不畫按鈕，gate 不能隨歸檔消失
 assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: null, agent_status: null, open_gates: [{id: 'late-abc'}]}, false), null, '有 open gate：不給歸檔');
-assert.ok(fn('rowDone').includes('archiveCtl(c,coordAlive())') && fn('cardActs').includes('archiveCtl(c,coordAlive())'), '兩處都帶協調者狀態');
-assert.ok(html.includes('const coordAlive=()=>data.unmatched_agents.some(a=>a.coordinator);'), 'coordAlive 讀 collect 的 coordinator 欄');
+assert.strictEqual(arc.archiveState({mr: mrMerged, dispatch: null, agent_status: null}, true), null, '子 change 還在等：不給歸檔');
+assert.ok(fn('rowDone').includes('archiveCtl(c,subWaiting(c,data.sessions).length>0)') && fn('cardActs').includes('archiveCtl(c,subWaiting(c,data.sessions).length>0)'), '兩處都帶子 change 在不在等');
+assert.ok(!html.includes('coordAlive'), '不再看協調者 pane 在不在');
 assert.deepStrictEqual(arc.archiveBody({repo: 'a', slug: 'x'}, {a: '/code/a'}), {slug: 'x', repo: '/code/a'}, 'POST body 帶 repo 根路徑');
 assert.ok(html.includes("function archiveCard(c){act(`openspec archive ${c.slug} -y`,()=>api.post('archive',archiveBody(c,data.repo_paths)));}"), '按鈕走動作接線（失敗 toast stderr）');
 assert.ok(html.includes("if(a==='archive'){archiveCard(c);return;}"), '點擊接線');

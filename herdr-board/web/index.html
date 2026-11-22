@@ -703,7 +703,7 @@ function rowDone(c){
   return `<div class="card" data-key="${esc(key(c))}" role="link" tabindex="0" aria-selected="${ui.sel===key(c)}">
     <div class="c-top">${bot(c,28)}<div class="c-ttl"><div class="t">${esc(c.title)}</div><div class="m">${joinDot([nw(esc(c.repo)),nw(c.mr&&c.mr.url?esc(c.mr.url.split('/').pop()):'')])}</div></div></div>
     <div class="st">${c.stage==='split'?'已拆開':c.mr&&c.mr.merged_at?'MR 已合併':'做完了'}</div>
-    <div class="c-act">${archiveCtl(c,coordAlive())}</div></div>`;
+    <div class="c-act">${archiveCtl(c,subWaiting(c,data.sessions).length>0)}</div></div>`;
 }
 function rowUnmatched(a){
   return `<div class="row"><div class="main"><span class="title">${esc(a.name||'(沒名字)')}</span><span class="meta">${joinDot(['pane '+esc(a.pane),esc(AGENT_WORD[a.agent_status]||'')])}</span></div><div class="act"><button class="sm" data-act="pane-id" data-agent="${esc(a.name||'')}">開啟 pane</button></div></div>`;
@@ -814,14 +814,15 @@ function rowUnfiled(u){
     <div class="main"><span class="title">${esc(u.title)}</span><span class="meta">${esc(u.source||'')} · ${esc(u.found||'')}</span></div>
     <div class="act"><select aria-label="選 repo"><option value="">選 repo…</option>${opts}</select><button class="primary sm" data-act="file">建卡</button>${dropCtl('unfiled:'+u.slug)}</div></div>`;
 }
-/* 歸檔按鈕（board-actions D5）：已合併、pane 不在了、協調者也沒在跑才給按鈕；還有開著的 gate 不給。server 端照同一條件再檢查一次 */
+/* 歸檔按鈕（board-actions D19）：只給沒派過工的已合併卡，派過的由 launchd 的 opsx coordinate 收尾；自己或子 change 還有開著的 gate 不給。
+   collect 把 stopped 的派工條目當 null，那種卡會畫按鈕，按下由 server 讀 dispatch.json 回 422 */
 /* 歸檔 start */
-function archiveState(c,coordOn){
-  if(!(c.mr&&c.mr.merged_at)||(c.open_gates&&c.open_gates.length))return null;
-  return coordOn||(c.dispatch&&c.agent_status!=='unknown')?'wait':'ready';
+function archiveState(c,subBusy){
+  if(!(c.mr&&c.mr.merged_at)||(c.open_gates&&c.open_gates.length)||subBusy)return null;
+  return c.dispatch?'wait':'ready';
 }
-function archiveCtl(c,coordOn){
-  const s=archiveState(c,coordOn);
+function archiveCtl(c,subBusy){
+  const s=archiveState(c,subBusy);
   return s==='ready'?'<button class="sm primary" data-act="archive">歸檔</button>':s==='wait'?'<span class="badge line">等協調者收尾</span>':'';
 }
 const archiveBody=(c,repoPaths)=>({slug:c.slug,repo:(repoPaths||{})[c.repo]});
@@ -833,9 +834,7 @@ const WAIT_CAT=[['approval','授權','#2563EB'],['decision','決定','#7c3aed'],
 const GROUP_MIN=5;
 const COLLAPSE_KEY='opsx-board-collapsed';
 const needsYou=c=>!!c.waiting;
-const waitsOnYou=c=>needsYou(c)||subWaiting(c,data.sessions||[]).length>0;
-const coordAlive=()=>data.unmatched_agents.some(a=>a.coordinator);
-function waitCat(c){
+const waitsOnYou=c=>needsYou(c)||subWaiting(c,data.sessions||[]).length>0;function waitCat(c){
   const w=c.waiting;
   if(!w)return 'none';
   if(w.type==='可以合併')return 'merge';
@@ -1135,7 +1134,7 @@ function cardPathLabel(c){
 }
 function cardActs(c){
   const d=c.dispatch||{};const done=c.section==='已完成'||c.archived;
-  return `<div class="box acts">${d.pane?`<button class="sm" data-act="pane">開啟 pane ${esc(d.pane)}</button><button class="sm" data-act="stop">停止</button>`:''}${done?'':`<button class="sm${d.pane?'':' primary'}" data-act="dispatch">${d.pane?'重新指派':'指派'}</button>`}${c.section==='收件匣'?'<button class="sm" data-act="explore">先 explore</button>':''}${done?'':prioCtl(c)}${c.section==='收件匣'?mergeCtl(c,data.cards)+dropCtl(key(c)):''}${archiveCtl(c,coordAlive())}${cardPathLabel(c)}</div>`;
+  return `<div class="box acts">${d.pane?`<button class="sm" data-act="pane">開啟 pane ${esc(d.pane)}</button><button class="sm" data-act="stop">停止</button>`:''}${done?'':`<button class="sm${d.pane?'':' primary'}" data-act="dispatch">${d.pane?'重新指派':'指派'}</button>`}${c.section==='收件匣'?'<button class="sm" data-act="explore">先 explore</button>':''}${done?'':prioCtl(c)}${c.section==='收件匣'?mergeCtl(c,data.cards)+dropCtl(key(c)):''}${archiveCtl(c,subWaiting(c,data.sessions).length>0)}${cardPathLabel(c)}</div>`;
 }
 function pageCard(r){
   const back=`<nav class="crumbs"><a href="${href('board')}">← 回看板</a></nav>`;

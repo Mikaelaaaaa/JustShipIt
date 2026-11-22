@@ -333,11 +333,11 @@ def card_dir(payload: dict, card: str) -> pathlib.Path:
     try:
         if stat.S_ISLNK(os.lstat(d).st_mode):
             raise CardFileError(400, "卡目錄是符號連結：%s" % card)
-    except FileNotFoundError as e:
+    except (FileNotFoundError, NotADirectoryError) as e:
         raise CardFileError(404, "卡目錄不在了：%s" % card) from e
     except PermissionError as e:
         raise CardFileError(400, "卡目錄讀不到：%s" % card) from e
-    changes =os.path.realpath(os.path.join(repo, "openspec", "changes"))
+    changes = os.path.realpath(os.path.join(repo, "openspec", "changes"))
     if os.path.commonpath([changes, os.path.realpath(d)]) != changes:
         raise CardFileError(400, "卡目錄不在 %s 底下：%s" % (changes, card))
     return d
@@ -349,25 +349,33 @@ def file_rank(rel: str) -> tuple:
     return (2 if rel.startswith("specs/") else 1, 0, rel)
 
 
-def raise_walk_error(e: OSError) -> None:
-    """os.walk 的 onerror：卡目錄在走訪前被搬走（例如剛歸檔）時不回空清單，回 404。"""
-    if isinstance(e, FileNotFoundError):
-        raise CardFileError(404, "卡目錄不在了：%s" % e.filename) from e
-    raise CardFileError(400, "卡目錄讀不到：%s" % e.filename) from e
+class WalkRootError:
+    """os.walk 的 onerror：卡目錄本身在走訪前被搬走（例如剛歸檔）或讀不到時，不回空清單而是 raise；
+    子資料夾走訪中途消失或讀不到，只略過那個資料夾，其他檔照列。"""
+
+    def __init__(self, root: pathlib.Path):
+        self.root = os.path.realpath(root)
+
+    def __call__(self, e: OSError) -> None:
+        if os.path.realpath(e.filename) != self.root:
+            return
+        if isinstance(e, FileNotFoundError):
+            raise CardFileError(404, "卡目錄不在了：%s" % e.filename) from e
+        raise CardFileError(400, "卡目錄讀不到：%s" % e.filename) from e
 
 
 def list_card_files(d: pathlib.Path) -> dict:
     """卡目錄底下的 .md（不跟符號連結）；subs/ 底下只算個數。"""
     files, subs = [], 0
-    for root, _, names in os.walk(d, onerror=raise_walk_error):
+    for root, _, names in os.walk(d, onerror=WalkRootError(d)):
         rel_root = os.path.relpath(root, d)
         in_subs = rel_root == "subs" or rel_root.startswith("subs" + os.sep)
         for name in names:
             full = os.path.join(root, name)
             try:
                 st = os.lstat(full)
-            except FileNotFoundError:
-                continue   # 走訪到一半被刪的檔，清單不列
+            except (FileNotFoundError, PermissionError):
+                continue   # 走訪到一半被刪或讀不到的檔，清單不列
             if not name.endswith(".md") or not stat.S_ISREG(st.st_mode):
                 continue
             if in_subs:
@@ -394,6 +402,10 @@ def read_card_file(d: pathlib.Path, rel: str) -> dict:
             raise CardFileError(404, "找不到 %s" % rel) from e
         except PermissionError as e:
             raise CardFileError(400, "%s 讀不到（權限）" % rel) from e
+        except OSError as e:
+            if e.errno != errno.ENAMETOOLONG:
+                raise
+            raise CardFileError(400, "%s 路徑太長" % rel) from e
         if stat.S_ISLNK(mode):
             raise CardFileError(400, "%s 經過符號連結，不讀" % rel)
     if not stat.S_ISREG(mode):
@@ -415,8 +427,9 @@ def read_card_file(d: pathlib.Path, rel: str) -> dict:
         return {"ok": True, "p": rel, "s": size, "t": f.read().decode("utf-8", errors="replace")}
 
 
-def archive_refusal(payload: dict, repo: str, slug: str) -> str | None:
-    """歸檔條件不成立時回原因；成立回 None。repo 用實體路徑比對 collect 的 repo_paths。"""
+def archive_refusal(payload: dict, dispatch: dict, repo: str, slug: str) -> str | None:
+    """歸檔條件不成立時回原因；成立回 None。repo 用實體路徑比對 collect 的 repo_paths。
+    dispatch 是 <state>/dispatch.json：有條目的卡（含 stopped）由 opsx coordinate 收尾，看板只歸檔它留給人的那種。"""
     real = os.path.realpath(repo)
     labels = [k for k, v in payload["repo_paths"].items() if os.path.realpath(v) == real]
     card = next((c for c in payload["cards"] if c.get("repo") in labels and c.get("slug") == slug and not c.get("archived")), None)
@@ -424,12 +437,14 @@ def archive_refusal(payload: dict, repo: str, slug: str) -> str | None:
         return "%s 不是 %s 裡還沒歸檔的卡" % (slug, repo)
     if not (card.get("mr") or {}).get("merged_at"):
         return "%s 還沒合併，不能歸檔" % slug
-    if card.get("dispatch") and card.get("agent_status") != "unknown":
-        return "%s 還有 pane（%s），等協調者收尾" % (slug, card.get("agent_status"))
+    if "%s/%s" % (card["repo"], slug) in dispatch:
+        return "%s 派過工，協調者會收尾（標 workplan、停 pane、清 worktree）" % slug
     if card.get("open_gates"):
         return "%s 還有開著的 gate（%s），先回答再歸檔" % (slug, "、".join(g["id"] for g in card["open_gates"]))
-    if any(a.get("coordinator") for a in payload["unmatched_agents"]):
-        return "協調者在跑，等它收尾 %s（它會一併標 workplan、停 pane、清 worktree）" % slug
+    subs = [s for sess in payload["sessions"] if sess["repo"] == card["repo"]
+            for m in sess["mains"] if m["slug"] == slug for s in m["subs"] if s.get("open_gates")]
+    if subs:
+        return "%s 的子 change 還有開著的 gate（%s），先回答再歸檔" % (slug, "、".join(s["slug"] for s in subs))
     return None
 
 
@@ -634,8 +649,15 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as e:
             self.send_json(400, {"error": str(e)}); return
         if action == "archive":
+            path = self.cfg.state / "dispatch.json"
+            try:
+                dispatch = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                dispatch = {}   # 沒有檔就是沒派過任何卡
+            except json.JSONDecodeError as e:
+                self.send_json(422, {"ok": False, "stdout": "", "stderr": "%s 不是 JSON，判斷不了誰會收尾：%s" % (path, e)}); return
             status, payload = self.collect()
-            why = "collect 失敗：%s" % payload.get("error") if status != 200 else archive_refusal(payload, body["repo"], body["slug"])
+            why = "collect 失敗：%s" % payload.get("error") if status != 200 else archive_refusal(payload, dispatch, body["repo"], body["slug"])
             if why:
                 self.send_json(422, {"ok": False, "stdout": "", "stderr": why}); return
             r = run(["openspec", "archive", body["slug"], "-y"], ACTION_TIMEOUT, self.opsx_env(), pathlib.Path(body["repo"]))

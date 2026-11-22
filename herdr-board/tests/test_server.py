@@ -4,6 +4,7 @@
 跑法：python3 -I herdr-board/tests/test_server.py（目錄名有連字號，不能用 -m unittest 的模組路徑），或 bash tests/run.sh（它會叫這支）。
 """
 import base64
+import errno
 import http.client
 import json
 import os
@@ -19,9 +20,12 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SERVER = ROOT / "herdr-board" / "server.py"
+sys.path.insert(0, str(ROOT / "herdr-board"))
+import server  # noqa: E402  讀檔函式的單元測試直接呼叫，不經 HTTP
 
 
 def b64(data: bytes) -> str:
@@ -1202,6 +1206,7 @@ class CardFilesTest(unittest.TestCase):
         """檔案系統丟的錯都回 {ok:false, error}，不讓連線斷掉（D2）。"""
         for query, want in (("card=a/x&path=tasks.md/x.md", 404),   # 中間一段是檔案：NotADirectoryError
                             ("card=a/x&path=locked.md", 400),       # 權限 000：PermissionError
+                            ("card=a/x&path=" + "a" * 300 + ".md", 400),   # 路徑段太長：ENAMETOOLONG
                             ("card=a/moved", 404),                  # 卡目錄被搬走（例如剛歸檔）
                             ("card=a/moved&path=inbox.md", 404)):
             with self.subTest(query=query):
@@ -1232,6 +1237,41 @@ class CardFilesTest(unittest.TestCase):
         status, body = self.get("card=a/x&path=specs/foo/spec.md")
         self.assertEqual(status, 200, body)
         self.assertEqual(body["t"], "spec")
+
+
+class CardFileFunctionsTest(unittest.TestCase):
+    """list_card_files、read_card_file 在 card_dir 之後才出錯的情況（HTTP 測試的卡目錄在 card_dir 就擋掉，走不到這裡）。"""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-cardfile-fn."))
+        self.card = self.tmp / "x"
+        (self.card / "specs" / "foo").mkdir(parents=True)
+        (self.card / "specs" / "locked").mkdir()
+        (self.card / "inbox.md").write_text("inbox")
+        (self.card / "specs" / "foo" / "spec.md").write_text("spec")
+        (self.card / "specs" / "locked" / "spec.md").write_text("hidden")
+        (self.card / "specs" / "locked").chmod(0)
+
+    def tearDown(self):
+        (self.card / "specs" / "locked").chmod(0o755)
+        shutil.rmtree(self.tmp)
+
+    def test_card_dir_gone_before_walk_is_404(self):
+        with self.assertRaises(server.CardFileError) as cm:
+            server.list_card_files(self.tmp / "gone")
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_unreadable_subdirectory_is_skipped(self):
+        got = server.list_card_files(self.card)
+        self.assertEqual([f["p"] for f in got["files"]], ["inbox.md", "specs/foo/spec.md"])
+
+    def test_file_gone_or_swapped_at_open(self):
+        """lstat 通過之後、os.open 之前檔案被刪或換成符號連結。"""
+        for err, want in ((FileNotFoundError(errno.ENOENT, "gone"), 404), (OSError(errno.ELOOP, "loop"), 400)):
+            with self.subTest(err=err), mock.patch.object(server.os, "open", side_effect=err):
+                with self.assertRaises(server.CardFileError) as cm:
+                    server.read_card_file(self.card, "inbox.md")
+                self.assertEqual(cm.exception.status, want)
 
 
 class ArchiveTest(unittest.TestCase):
@@ -1266,9 +1306,19 @@ class ArchiveTest(unittest.TestCase):
             # 合併後又有 commit、opsx late 開了 gate：歸檔會讓 gate 從看板消失
             {"repo": "a", "slug": "gated", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None,
              "open_gates": [{"id": "late-abc", "opened_at": "2026-11-21T10:00:00+08:00"}]},
+            # dispatch.json 的條目被 stop 掉：collect 把它當 null，但 coordinate 仍會收尾
+            {"repo": "a", "slug": "stopped", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None},
+            # 主卡自己沒 gate，子 change 還開著 gate（D17 顯示成等你）
+            {"repo": "a", "slug": "subgated", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None, "session": "a/f"},
         ]
-        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards,
+        sessions = [{"repo": "a", "feature": "f", "mains": [{"slug": "subgated", "subs": [
+            {"slug": "s1", "open_gates": [{"id": "g1", "opened_at": "2026-11-21T10:00:00+08:00"}], "waiting": {"type": "等待決定"}}]}]}]
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards, "sessions": sessions,
                                                                "unmatched_agents": [{"name": "scratch", "pane": "p7", "coordinator": False}]}, [shim_dir])
+        # coordinate 只收尾 dispatch.json 有條目的卡（bin/lib/coordinate.py one_round）
+        (cls.tmp / "state" / "dispatch.json").write_text(json.dumps({
+            "a/busy": {"pane": "w1:p1"}, "a/idle": {"pane": "w1:p1"}, "a/gonepane": {"pane": "w1:p9"},
+            "a/stopped": {"pane": "w1:p8", "mode": "stopped"}}))
 
     @classmethod
     def tearDownClass(cls):
@@ -1290,7 +1340,9 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(self.log.read_text().strip(), "%s|archive ok -y" % self.repo.resolve())
 
     def test_conditions(self):
-        for slug, want in (("ok", 200), ("busy", 422), ("open", 422), ("nomr", 422), ("gonepane", 200), ("idle", 422), ("gated", 422)):
+        # 只有 dispatch.json 沒條目的卡給歸檔（D19）：pane 不在（gonepane）、條目已 stop（stopped）都留給 coordinate
+        for slug, want in (("ok", 200), ("busy", 422), ("open", 422), ("nomr", 422), ("gonepane", 422), ("idle", 422), ("gated", 422),
+                           ("stopped", 422), ("subgated", 422)):
             with self.subTest(slug=slug):
                 self.log.write_text("")
                 status, body = self.archive(slug)
@@ -1329,7 +1381,7 @@ class ArchiveTest(unittest.TestCase):
 
 
 class ArchiveWhileCoordinatorRunsTest(unittest.TestCase):
-    """協調者活著時看板不歸檔，留給協調者照原流程收尾（D5：按鈕只補協調者沒在跑時的空窗）。"""
+    """協調者 pane 開著也照樣能歸檔從沒派過的卡：coordinate 把那種卡留給人（D19），不看協調者 pane 在不在。"""
 
     @classmethod
     def setUpClass(cls):
@@ -1346,18 +1398,17 @@ class ArchiveWhileCoordinatorRunsTest(unittest.TestCase):
         cards = [{"repo": "a", "slug": "ok", "archived": False, "mr": ArchiveTest.MERGED, "dispatch": None, "agent_status": None}]
         coordinator = {"name": "Opsx coordinator session duties", "pane": "w9:pM", "agent_status": "idle", "coordinator": True}
         cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards,
-                                                               "unmatched_agents": [coordinator]}, [shim_dir])
+                                                               "sessions": [], "unmatched_agents": [coordinator]}, [shim_dir])
 
     @classmethod
     def tearDownClass(cls):
         cls.proc.kill()
         cls.proc.wait()
 
-    def test_refuses_while_coordinator_runs(self):
+    def test_never_dispatched_card_archives_while_coordinator_pane_is_open(self):
         status, body = call(self.base, "/api/archive", self.token, {"slug": "ok", "repo": str(self.repo)})
-        self.assertEqual(status, 422, body)
-        self.assertIn("協調者", body["stderr"])
-        self.assertEqual(self.log.read_text(), "")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.log.read_text().strip(), "archive ok -y")
 
 
 if __name__ == "__main__":
