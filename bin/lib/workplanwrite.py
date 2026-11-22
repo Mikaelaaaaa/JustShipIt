@@ -238,46 +238,55 @@ def _rebranch(top: str, slug: str, kind: str) -> None:
             raise WorkplanError("改寫後讀回 %s 的 %s branch 不是 %s，已還原" % (path, slug, new))
 
 
-def attach(top: str, slug: str, parent: str, user: str, kind: str) -> None:
+def placement(features: list, level: str, parent: str, orphan_milestone):
+    """卡該掛在哪，回 (父 feature 名, None) 或 (None, 新 feature 的 milestone)。只讀 features，不寫檔。
+    父卡名先當 PR／change 名找，找不到再當 feature 名找（feature session 的 agent，D18），都找不到當成沒有父卡。
+    卡是 P2、父 feature 不是 complete 才掛進去（D9、D16）；否則自成 feature，milestone 沿用父 feature 的，沒有父卡用 orphan_milestone。"""
+    own = priority.owners(features)
+    owner = own[parent][0] if parent in own else {f.get("name"): f for f in features}.get(parent)
+    if owner is not None and owner.get("status") != "complete" and level == "P2":
+        return owner["name"], None
+    return None, (owner.get("milestone") if owner is not None else orphan_milestone)
+
+
+def attach(top: str, slug: str, parent: str, user: str, kind: str, branch: str = "", orphan_milestone=None) -> None:
     """把已建殼的卡掛進 workplan（workplan-attach D1、D2、D7–D9、D16、D18；母卡 me-20261118-1113 D7–D9）。
-    repo 沒有 workplan 就不動；卡已在 workplan 時，有給 kind（dispatch）只做 _rebranch。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼；
-    父卡名不是 PR／change 名時當成 feature 名找（feature session 的 agent），都找不到當成沒有父卡。
-    卡是 P2、父卡的 feature 不是 complete 就在它底下加 PR；否則（含 P0／P1 的卡）自成 feature，
-    milestone 沿用父 feature 的，沒有父卡用 current_milestone。掛入前是 P2 就先寫自動的 P2 覆寫再寫 workplan，
-    中間不會有一刻卡變成 P1 被協調者派走。kind 空字串時讀卡的 .openspec.yaml，還沒有 kind 就照 type 定前綴。"""
+    repo 沒有 workplan 就不動；卡已在 workplan 時，有給 kind（dispatch）只做 _rebranch。parent 空字串時取卡的 source: agent:<卡>，<主>--<子> 取主殼。
+    歸屬照 placement。掛入前是 P2 就先寫自動的 P2 覆寫再寫 workplan，中間不會有一刻卡變成 P1 被協調者派走。
+    branch 給了就照用（backfill 沿用卡已在用的）；沒給時 kind 空字串讀卡的 .openspec.yaml，還沒有 kind 就照 type 定前綴。
+    orphan_milestone 是沒有父卡時新 feature 的 milestone：None 用 current_milestone，空字串不寫（backfill，workplan-backfill D9）。"""
     if not os.path.exists(os.path.join(top, "openspec", "workplan.yaml")):
         return
     plan = priority.load_plan(top)
-    own = priority.owners(plan["features"])
-    if slug in own:
+    if slug in priority.owners(plan["features"]):
         if kind:
             _rebranch(top, slug, kind)
         return
-    if not user:
+    if not branch and not user:
         raise WorkplanError("分支尾巴沒有名字：OPSX_USER 沒設，git config user.name 是空的或占位字「Your Name」")
     inbox = os.path.join(top, "openspec", "changes", slug, "inbox.md")
     fm, _ = priority.frontmatter(priority.read_text(inbox))
     if not parent and (fm.get("source") or "").startswith("agent:"):
         parent = fm["source"][len("agent:"):]
-    parent = parent.split("--")[0]
-    by_feature = {f.get("name"): f for f in plan["features"]}
-    owner = own[parent][0] if parent in own else by_feature.get(parent)
     got = priority.levels(top)[slug]
     if "error" in got:
         raise WorkplanError(got["error"])
+    into, milestone = placement(plan["features"], got["level"], parent.split("--")[0],
+                                plan["current"] if orphan_milestone is None else orphan_milestone)
     if got["level"] == "P2" and not fm.get("priority"):
         priority.set_override(inbox, "P2", "自動掛進 workplan，維持 P2", True)
-    if not kind:
-        m = re.search(r"^kind:\s*(\S+)", priority.read_text(os.path.join(top, "openspec", "changes", slug, ".openspec.yaml")), re.M)
-        kind = m.group(1) if m else ""
-    prefix = KIND_PREFIX.get(kind, "feat") if kind else ("fix" if fm.get("type") == "bug" else "feat")
-    pr = {"name": slug, "branch": "%s/%s/%s" % (prefix, slug, user),
+    if not branch:
+        if not kind:
+            m = re.search(r"^kind:\s*(\S+)", priority.read_text(os.path.join(top, "openspec", "changes", slug, ".openspec.yaml")), re.M)
+            kind = m.group(1) if m else ""
+        prefix = KIND_PREFIX.get(kind, "feat") if kind else ("fix" if fm.get("type") == "bug" else "feat")
+        branch = "%s/%s/%s" % (prefix, slug, user)
+    pr = {"name": slug, "branch": branch,
           "status": "pending", "depends-on": [], "changes": [{"name": slug, "status": "pending"}]}
-    if owner is not None and owner.get("status") != "complete" and got["level"] == "P2":
-        add_pr(top, owner["name"], pr)
+    if into is not None:
+        add_pr(top, into, pr)
         return
     feature = {"name": slug}
-    milestone = owner.get("milestone") if owner is not None else plan["current"]
     if milestone:
         feature["milestone"] = milestone
     feature.update({"status": "active", "depends-on": [], "prs": [pr]})
