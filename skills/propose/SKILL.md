@@ -115,7 +115,7 @@ c. **If an artifact requires user input** (unclear context):
    - Use **AskUserQuestion tool** to clarify
    - Then continue with creation
 
-d. **In autopilot** (the router line carries `autopilot：`), never use AskUserQuestion. Unclear context that is a product choice, or a decision that is hard to undo, becomes a gate in `gates.md` in grill's format (`../grill/SKILL.md`, "In autopilot"), and you stop there. Anything else, make the call, say it in design.md's prose (not as a D), and log it in decisions.tsv. A change missing from the workplan gets its own feature and PR named after the slug unless 5b applies (then its sub-changes go into that one PR's `changes[]`), instead of a question about which PR group it belongs to.
+d. **In autopilot** (the router line carries `autopilot：`), never use AskUserQuestion. Unclear context that is a product choice, or a decision that is hard to undo, becomes a gate in `gates.md` in grill's format (`../grill/SKILL.md`, "In autopilot"), and you stop there. Anything else, make the call, say it in design.md's prose (not as a D), and log it in decisions.tsv. A change missing from the workplan gets its own feature and PR named after the slug (when 5b applies, that PR is the main change's PR and its sub-changes go into its `changes[]`), instead of a question about which PR group it belongs to.
 
 ### 4c. Sub-change shells
 

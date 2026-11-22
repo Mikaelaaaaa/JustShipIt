@@ -29,7 +29,8 @@ has 'The card you are proposing is the main shell' "$B5"
 has 'add the sub-changes to its existing PR' "$B5"
 has 'remove only this card'"'"'s own entry' "$B5"
 ! grep -qF 'replace the `changes[]`' "$B5" || fail "5b 不能換掉整個 changes[]"
-grep -F 'own feature and PR named after the slug' "$P" | grep -qF 'unless 5b applies' || fail "4d 要註明 5b 適用時不另加 PR"
+grep -F 'own feature and PR named after the slug' "$P" | grep -qF 'when 5b applies, that PR is the main change'"'"'s PR' || fail "4d 要註明 5b 適用時這個 PR 就是主 change 的 PR"
+! grep -qF 'unless 5b applies' "$P" || fail "「unless 5b applies」會被讀成 5b 適用時不開 PR"
 ! head -1 "$B5" | grep -qi 'independent' || fail "5b 標題不該再寫 independent"
 
 # --- new-auto-merge：寫 tasks.md 前，每段 ## 併入 要嘛變成 task，要嘛先 opsx split-out ---
