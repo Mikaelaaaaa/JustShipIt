@@ -15,6 +15,12 @@ has 'opsx check <name>' "$SUB"
 has 'do not continue to `/opsx-workflow:apply`' "$SUB"
 OUT="$FX/out"; sec "$P" "## Output" > "$OUT"; has 'opsx check' "$OUT"
 
+# --- Scenario（me-20261122-1148 specs/work-split）：propose 多個獨立 change 預設收成子 change，不再預設各開 PR ---
+B5="$FX/5b"; sec "$P" "### 5b." > "$B5"; [ -s "$B5" ] || fail "propose 少 5b 段"
+has 'sub-changes of one main change' "$B5"; has '4c' "$B5"
+has 'ships on its own' "$B5"; has 'must be reviewed separately' "$B5"
+! grep -qF 'give them separate PRs' "$B5" || fail "5b 不該再預設各開 PR"
+
 # --- new-auto-merge：寫 tasks.md 前，每段 ## 併入 要嘛變成 task，要嘛先 opsx split-out ---
 has '## 併入' "$P"; has 'opsx split-out' "$P"
 

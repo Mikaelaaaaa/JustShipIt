@@ -92,13 +92,7 @@ When an idea is clear enough to act on, break it into a two-level hierarchy: **P
 
 ### PR level — optimized for the reviewer
 
-Split by concern, risk, or reviewability. Each PR should be understandable in one review session (~300-500 lines diff).
-
-Splitting criteria:
-- **Different risk** — DB migration vs business logic vs API layer → separate PRs
-- **Different concern** — infra setup vs domain logic vs integration wiring → separate PRs
-- **Different reviewer** — backend vs frontend vs ops → separate PRs
-- **Independent deployability** — if PR 1 can merge and ship without PR 2, split them
+One PR by default. Parts that differ in risk, concern or reviewer become separate commits (sub-changes) in the same PR, not separate PRs. Open a second PR only when that part both ships on its own (it can merge and go live without the rest) and must be reviewed separately, and write down why it cannot be a sub-change.
 
 ### Commit level — optimized for the AI
 
@@ -180,6 +174,8 @@ A project's first big explore splits its milestones with the user, each one sent
 
 Four layers, defined in `references/work-split.md`: a dispatch sends out work; a **session** (workplan `features[]`) is one pane working a group of similar main changes in order; a **main change** (`prs[]`) is one branch and one PR; a **sub-change** (`prs[].changes[]`) is one commit, done by a subagent.
 
+D5 decides only whether to split. The default result is one main change with sub-changes: one PR, the sub-changes stacked in order, each with its own tasks and commit. A second main change is allowed only when that part both ships on its own and must be reviewed separately; different risk alone is not enough. Every extra main change carries its reason on its `main change` line in the gate below, as `（不當子 change：<why>）`.
+
 When the D5 check in explore.md says split (at intake, or after exploring), write the split as one gate in `openspec/changes/<slug>/gates.md`:
 
 ```
@@ -192,8 +188,9 @@ status: open
   - session <feature> (milestone: <name or none>, depends-on: [<PR names>])
     - main change <pr> · <branch> (depends-on: [<pr>])
       - sub-change <name> (depends-on: [<sibling sub-change>])
+    - main change <pr2> · <branch> (depends-on: [<pr>])（不當子 change：<why it ships on its own and must be reviewed separately>; only when there is a second main change）
 選項: 照這個拆法 (Recommended) | 改拆法 | 不拆
-建議: <why this grouping: similar topics share a session, different risks get their own main change>
+建議: <why this grouping: similar topics share a session, one main change unless a part ships on its own and must be reviewed separately>
 風險: <what a wrong split costs>
 預設: 不建殼，等回覆
 ```

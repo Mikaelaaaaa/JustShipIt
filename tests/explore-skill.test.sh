@@ -34,6 +34,20 @@ has 'type: decision' "$SPLIT"
 for k in session 'main change' 'sub-change' 'depends-on'; do has "$k" "$SPLIT"; done
 has 'Until the gate is answered, create no shell and do not touch the workplan' "$SPLIT"
 
+# --- Scenario（me-20261122-1148 specs/work-split）：split gate 預設一張主 change；多張要寫不能當子 change 的理由；風險不同不再另開 ---
+has 'one main change with sub-changes' "$SPLIT"
+has 'ships on its own' "$SPLIT"; has 'must be reviewed separately' "$SPLIT"
+SGATE="$FX/split-gate"; awk '/^## split$/{on=1} on && /^```/{exit} on' "$SPLIT" > "$SGATE"
+[ -s "$SGATE" ] || fail "拆卡段要有 split gate 範本"
+has '不當子 change：' "$SGATE"
+! grep -qF 'different risks get their own main change' "$SK" || fail "風險不同另開主 change 的提示要移除"
+
+# --- Scenario（me-20261122-1148）：PR level 段用兩個條件，不再按風險／關注點／reviewer 分 PR ---
+PRL="$FX/pr-level"; awk '/^### PR level/{on=1;next} on && /^#{2,3} /{exit} on' "$SK" > "$PRL"
+[ -s "$PRL" ] || fail "section missing: PR level"
+has 'ships on its own' "$PRL"; has 'must be reviewed separately' "$PRL"
+for k in 'Different risk' 'Different concern' 'Different reviewer'; do ! grep -qF -- "$k" "$PRL" || fail "PR level 段還有 $k"; done
+
 # --- Scenario：移除 autopilot 不確認的句子 ---
 ! grep -qF 'written without the confirmation step' "$SK" || fail "autopilot 不確認的句子要移除"
 has 'Splitting a big card' "$ENGAGE"

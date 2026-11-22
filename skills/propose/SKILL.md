@@ -138,7 +138,7 @@ If no workplan exists, create it with this one feature / PR / change; the commit
 
 ### 5b. Several independent changes from one discussion
 
-When this proposal produced more than one change and they do not depend on each other, give them separate PRs whose `depends-on` names only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
+When this proposal produced more than one change, make them sub-changes of one main change by default: one PR, shells per 4c. Give a change its own PR only when it both ships on its own and must be reviewed separately, and write why it cannot be a sub-change in its proposal.md. Separate PRs name in `depends-on` only what they really need. `opsx chain` uses exactly that field: children that depend on the same merged parent are fanned out to subagents by the parent's pane (`../../references/fan-out.md`); a chain of `depends-on` is worked one after the other in one pane.
 
 ### 6. Show final status
 
