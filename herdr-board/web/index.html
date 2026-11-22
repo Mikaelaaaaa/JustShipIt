@@ -86,6 +86,8 @@ main{flex:1;min-width:0;padding-left:max(16px,env(safe-area-inset-left,0px));pad
 .newbar.drag{outline:2px dashed var(--accent);outline-offset:4px}
 .newbar textarea{flex:1;min-width:0;font-family:var(--font-sans);font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;outline:none;resize:vertical}
 .newbar textarea:focus{border-color:var(--accent)}
+.newbar .new-name{width:220px;font-family:var(--font-mono);font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;outline:none}
+.newbar .new-name:focus{border-color:var(--accent)}
 .newbar .side{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .new-files{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .new-files li{display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--border);border-radius:var(--r);padding:0 0 0 8px}
@@ -260,7 +262,7 @@ main{flex:1;min-width:0;padding-left:max(16px,env(safe-area-inset-left,0px));pad
   </div>
   <main>
     <div id="errors" class="errors" hidden></div>
-    <div id="newbar" class="newbar" hidden><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
+    <div id="newbar" class="newbar" hidden><input id="new-name" class="new-name" maxlength="32" required aria-label="卡名" placeholder="卡名（必填，例 chat-keyboard）"><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
     <div id="repo-grants" class="repo-grants" hidden></div>
     <div id="view"><div class="empty">載入中…</div></div>
   </main>
@@ -915,20 +917,21 @@ function focusAgent(agent){
 const newRepo=()=>ui.scope==='ws'&&ui.repo?(data.repo_paths||{})[ui.repo]||null:null;
 const MAX_ATTACH=10*1024*1024;
 const ONE_LINER_MAX=200;  /* 同 herdr-board/server.py 的 ONE_LINER_MAX */
-/* 沒有檔、只有一行且不超過 ONE_LINER_MAX 字，走 /api/new（source: me，跟以前一樣）；多行、過長的一行或有檔走 /api/paste，由 server 拆出一句話並把全文存成 paste.md（/api/new 的 body 只有 64 KB） */
-function newRequest(text,files,repo){
+/* 沒有檔、只有一行且不超過 ONE_LINER_MAX 字，走 /api/new（source: me，跟以前一樣）；多行、過長的一行或有檔走 /api/paste，由 server 拆出一句話並把全文存成 paste.md（/api/new 的 body 只有 64 KB）。
+   name 是卡名，server 轉成 opsx new --name，也會是 PR 名和 branch 名 */
+function newRequest(text,files,repo,name){
   const lines=text.split(/\r\n|\r|\n/).filter(l=>l.trim());
   if(!lines.length&&!files.length)return null;
   const where=repo?{repo}:{};
-  if(lines.length===1&&!files.length&&lines[0].trim().length<=ONE_LINER_MAX)return {path:'new',body:{text:lines[0].trim(),...where}};
-  return {path:'paste',body:{text:text.trim(),files:files.map(f=>({name:f.name,data:f.data})),...where}};
+  if(lines.length===1&&!files.length&&lines[0].trim().length<=ONE_LINER_MAX)return {path:'new',body:{name,text:lines[0].trim(),...where}};
+  return {path:'paste',body:{name,text:text.trim(),files:files.map(f=>({name:f.name,data:f.data})),...where}};
 }
 function splitBySize(files){return [files.filter(f=>f.size<=MAX_ATTACH),files.filter(f=>f.size>MAX_ATTACH)];}
 let newFiles=[];  /* {name, size, data(base64)}，加進清單時就讀好 */
 /* newGen 在 closeNew 時加一，關掉之後才讀完的檔對不上就丟掉；newReading 是還在讀的批數，讀完前不准送出 */
 let newGen=0,newReading=0;
 function openNew(){$('#newbar').hidden=false;$('#new-where').textContent=newRepo()?'建在 '+ui.repo:'進待分類（範圍選到單一 repo 才直接建殼）';$('#new-text').focus();}
-function closeNew(){$('#newbar').hidden=true;$('#new-text').value='';newFiles=[];newGen++;renderNewFiles();}
+function closeNew(){$('#newbar').hidden=true;$('#new-name').value='';$('#new-text').value='';newFiles=[];newGen++;renderNewFiles();}
 function renderNewFiles(){$('#new-files').innerHTML=newFiles.map((f,i)=>`<li><span class="mono">${esc(f.name)}</span><button class="ghost sm" data-act="new-unattach" data-i="${i}" aria-label="移除 ${esc(f.name)}">×</button></li>`).join('');}
 function readBase64(file){
   return new Promise((ok,bad)=>{const r=new FileReader();r.onload=()=>ok(r.result.slice(r.result.indexOf(',')+1));r.onerror=()=>bad(r.error);r.readAsDataURL(file);});
@@ -951,10 +954,11 @@ async function addFiles(list){
 function submitNew(){
   if(newReading){toast('附件還在讀，讀完再送',true);return;}
   if(ui.busy){toast('上一個動作還在跑，輸入先留著，等一下再送',true);return;}
-  const text=$('#new-text').value,sent=newFiles.slice(),gen=newGen;
-  const req=newRequest(text,sent,newRepo());if(!req)return;
+  const text=$('#new-text').value,name=$('#new-name').value.trim(),sent=newFiles.slice(),gen=newGen;
+  const req=newRequest(text,sent,newRepo(),name);if(!req)return;
+  if(!name){toast('先填卡名：它會是卡名、PR 名和 branch 名',true);$('#new-name').focus();return;}
   const where=req.body.repo?' --repo '+req.body.repo:'';
-  const label=req.path==='new'?`opsx new${where} -- ${req.body.text}`:`opsx new${where}${req.body.files.map(f=>' --attach '+f.name).join('')}（貼上）`;
+  const label=req.path==='new'?`opsx new --name ${name}${where} -- ${req.body.text}`:`opsx new --name ${name}${where}${req.body.files.map(f=>' --attach '+f.name).join('')}（貼上）`;
   act(label,async()=>{
     const r=await api.post(req.path,req.body);
     if(gen===newGen){
@@ -1107,7 +1111,7 @@ document.addEventListener('change',e=>{
   const r=e.target.closest('[data-unfiled]');if(r&&e.target.matches('select'))ui.fileRepo[r.dataset.unfiled]=e.target.value;
 });
 document.addEventListener('keydown',e=>{
-  if(e.target.id==='new-text'){
+  if(e.target.id==='new-text'||e.target.id==='new-name'){
     if(e.isComposing)return;
     if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();submitNew();}
     else if(e.key==='Escape')closeNew();

@@ -5,7 +5,7 @@ use_fakes date
 export OPSX_TEST_NOW="2026-11-06 14:30"
 cd "$FX"   # 從 dispatch 的 worktree 跑時，cwd 不能讓 opsx new 把 fixture 的卡當成 agent 開的
 A="$(mk_opsx_repo a)"; mkdir -p "$OPSX_STATE_DIR"
-X="$(opsx new --repo "$A" -- 要捨棄的)"; Y="$(opsx new --repo "$A" -- 還在跑的)"
+X="$(opsx new --name to-drop --repo "$A" -- 要捨棄的)"; Y="$(opsx new --name running --repo "$A" -- 還在跑的)"
 CH="$A/openspec/changes"
 
 # --- 沒有理由、多行理由：退出非零，檔案都沒變 ---
@@ -38,7 +38,7 @@ assert_rc 0 opsx drop "$Y" --repo "$A" -- 停了再丟
 arch=("$CH"/archive/*-"$Y"); assert_eq "${#arch[@]}" 1 "archive/*-$Y"; assert_dir "${arch[0]}"
 
 # --- 捨棄待分類：移到 unfiled/dropped/，不刪 ---
-U="$(opsx new -- 不需要的)"
+U="$(opsx new --name not-needed -- 不需要的)"
 assert_rc 2 opsx drop "$U" -- ""
 assert_file "$OPSX_STATE_DIR/unfiled/$U.md"
 assert_rc 0 opsx drop "$U" -- 不需要
@@ -46,8 +46,8 @@ assert_no_file "$OPSX_STATE_DIR/unfiled/$U.md"
 assert_file "$OPSX_STATE_DIR/unfiled/dropped/$U.md"; assert_grep '^不需要$' "$OPSX_STATE_DIR/unfiled/dropped/$U.md"
 assert_rc 2 opsx drop nope -- 理由
 
-# --- 同一分鐘再新增、再捨棄：dropped/ 裡已有同名檔，不能蓋掉 ---
-U2="$(opsx new -- 第二個不需要的)"; assert_eq "$U2" "$U"
+# --- 同名再新增、再捨棄：dropped/ 裡已有同名檔，不能蓋掉 ---
+U2="$(opsx new --name not-needed -- 第二個不需要的)"; assert_eq "$U2" "$U"
 assert_rc 0 opsx drop "$U2" -- 也不需要
 assert_grep '^不需要的$' "$OPSX_STATE_DIR/unfiled/dropped/$U.md"
 assert_grep '^第二個不需要的$' "$OPSX_STATE_DIR/unfiled/dropped/$U-2.md"
@@ -55,20 +55,20 @@ assert_grep '^第二個不需要的$' "$OPSX_STATE_DIR/unfiled/dropped/$U-2.md"
 # --- 捨棄待分類帶著附件：資料夾跟 .md 同名；dropped/ 只剩同名資料夾也不能蓋掉 ---
 printf 'png-bytes' > "$FX/shot.png"
 export OPSX_TEST_NOW="2026-11-06 15:00"
-P="$(opsx new --attach "$FX/shot.png" -- 有附件不需要)"
+P="$(opsx new --name attach-drop --attach "$FX/shot.png" -- 有附件不需要)"
 assert_rc 0 opsx drop "$P" -- 不需要
 assert_file "$OPSX_STATE_DIR/unfiled/dropped/$P.md"
 assert_eq "$(cat "$OPSX_STATE_DIR/unfiled/dropped/$P/attachments/shot.png")" png-bytes
 assert_no_file "$OPSX_STATE_DIR/unfiled/$P.md"; assert_no_file "$OPSX_STATE_DIR/unfiled/$P"
 rm "$OPSX_STATE_DIR/unfiled/dropped/$P.md"
-P2="$(opsx new --attach "$FX/shot.png" -- 又一個)"; assert_eq "$P2" "$P"
+P2="$(opsx new --name attach-drop --attach "$FX/shot.png" -- 又一個)"; assert_eq "$P2" "$P"
 assert_rc 0 opsx drop "$P2" -- 也不要
 assert_file "$OPSX_STATE_DIR/unfiled/dropped/$P-2.md"; assert_file "$OPSX_STATE_DIR/unfiled/dropped/$P-2/attachments/shot.png"
 assert_no_file "$OPSX_STATE_DIR/unfiled/dropped/$P.md"
 
 # --- 還有 ## 併入 段的卡：拒絕，列出 id、提示先 opsx split-out，什麼都不動（併入項目不能跟著歸檔）---
 export OPSX_TEST_NOW="2026-11-06 16:00"
-M="$(opsx new --repo "$A" -- 有併入的)"
+M="$(opsx new --name has-merged --repo "$A" -- 有併入的)"
 printf '\n## 併入：2026-11-06T16:00:00+08:00 agent:foo\n\n- id: agent-20261106-1600\n- kind_of_work: planned\n- area: hooks\n\n別人的問題\n' >> "$CH/$M/inbox.md"
 before="$(snap)"
 err="$(opsx drop "$M" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
@@ -100,7 +100,7 @@ with safefile.CardLock(card):
   for _ in $(seq 100); do [ -e "$FX/held" ] && break; sleep 0.05; done
   [ -e "$FX/held" ] || fail "持鎖的 process 沒有拿到鎖"
 }
-L="$(opsx new --repo "$A" -- 鎖內重查)"
+L="$(opsx new --name recheck --repo "$A" -- 鎖內重查)"
 hold_lock "$CH/$L" merge
 opsx drop "$L" --repo "$A" -- 不要了 > "$FX/drop.out" 2>&1 &
 DROP=$!
@@ -112,7 +112,7 @@ assert_dir "$CH/$L"; assert_not_grep '^outcome: declined$' "$CH/$L/.openspec.yam
 arch=("$CH"/archive/*-"$L"); [ ! -e "${arch[0]}" ] || fail "卡不能被歸檔"
 
 # --- drop-card-lock：取得鎖時卡目錄已被搬走：非 0 退出、指出路徑、不建任何東西 ---
-L2="$(opsx new --repo "$A" -- 拿鎖前被搬走)"
+L2="$(opsx new --name moved-away --repo "$A" -- 拿鎖前被搬走)"
 hold_lock "$CH/$L2" move
 opsx drop "$L2" --repo "$A" -- 不要了 > "$FX/drop.out" 2>&1 &
 DROP=$!
@@ -136,7 +136,7 @@ PATH="$FX/slowbin:$PATH" opsx drop "$T" --repo "$A" -- 不要了 > "$FX/drop.out
 DROP=$!
 for _ in $(seq 100); do [ -e "$OPSX_TEST_ARCHIVING" ] && break; sleep 0.05; done
 [ -e "$OPSX_TEST_ARCHIVING" ] || fail "drop 沒有跑到 archive：$(cat "$FX/drop.out")"
-(cd "$W" && opsx new --kind-of-work planned --repo "$A" -- "bin/x.sh 晚到的併入") > "$FX/new.out" 2> "$FX/new.err" &
+(cd "$W" && opsx new --name late-merge --kind-of-work planned --repo "$A" -- "bin/x.sh 晚到的併入") > "$FX/new.out" 2> "$FX/new.err" &
 NEW=$!
 sleep 1
 assert_not_grep '晚到的併入' "$CH/$T/inbox.md"

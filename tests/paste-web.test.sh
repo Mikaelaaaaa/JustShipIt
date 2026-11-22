@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ＋新增送出時打哪個端點、帶什麼 body，以及 10 MB 上限（specs/board-web「收件匣 tab」）。
+# ＋新增送出時打哪個端點、帶什麼 body，以及 10 MB 上限（specs/board-web「收件匣 tab」「＋新增要填卡名」）。
 # 規則寫在網頁的 inline script 裡，這裡照 banner.test.sh 用 node 把那一段從 index.html 切出來直接執行。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 command -v node >/dev/null || fail "需要 node 才能跑 paste 規則測試"
@@ -17,22 +17,22 @@ const {newRequest, splitBySize, MAX_ATTACH} = new Function(html.slice(s, e) + ';
 const R = '/Users/me/code/a';
 const shot = {name: 'shot.png', size: 3, data: 'AAEC'};
 
-assert.deepStrictEqual(newRequest('試試看', [], R), {path: 'new', body: {text: '試試看', repo: R}}, '新增帶範圍');
-assert.deepStrictEqual(newRequest('試試看', [], null), {path: 'new', body: {text: '試試看'}}, '範圍是全部時不帶 repo');
-assert.deepStrictEqual(newRequest('  試試看 \n\n', [], null), {path: 'new', body: {text: '試試看'}}, '單行不帶檔照舊（前後空行不算第二行）');
+assert.deepStrictEqual(newRequest('試試看', [], R, 'n'), {path: 'new', body: {name: 'n', text: '試試看', repo: R}}, '新增帶範圍');
+assert.deepStrictEqual(newRequest('試試看', [], null, 'n'), {path: 'new', body: {name: 'n', text: '試試看'}}, '範圍是全部時不帶 repo');
+assert.deepStrictEqual(newRequest('  試試看 \n\n', [], null, 'n'), {path: 'new', body: {name: 'n', text: '試試看'}}, '單行不帶檔照舊（前後空行不算第二行）');
 const line200 = 'x'.repeat(200), line201 = 'x'.repeat(201), line70k = '{"a":1}'.repeat(10000);
-assert.deepStrictEqual(newRequest(line200, [], null), {path: 'new', body: {text: line200}}, '單行 200 字仍走 new');
-assert.deepStrictEqual(newRequest(`  ${line200} \n`, [], null), {path: 'new', body: {text: line200}}, '200 字的界線不算前後空白');
-assert.deepStrictEqual(newRequest(line201, [], null), {path: 'paste', body: {text: line201, files: []}}, '單行 201 字改走 paste');
-assert.deepStrictEqual(newRequest(line70k, [], R), {path: 'paste', body: {text: line70k, files: [], repo: R}}, '單行 70 KB 改走 paste 且帶範圍');
-assert.deepStrictEqual(newRequest('第一行\nhttps://example.com/x', [], null),
-  {path: 'paste', body: {text: '第一行\nhttps://example.com/x', files: []}}, '多行貼上');
-assert.deepStrictEqual(newRequest('第一行\nhttps://example.com/x', [], R),
-  {path: 'paste', body: {text: '第一行\nhttps://example.com/x', files: [], repo: R}}, '多行貼上帶範圍');
-assert.deepStrictEqual(newRequest('鍵盤蓋住', [shot], null),
-  {path: 'paste', body: {text: '鍵盤蓋住', files: [{name: 'shot.png', data: 'AAEC'}]}}, '拖進檔案：只帶 name 與 data');
-assert.deepStrictEqual(newRequest('', [shot], null),
-  {path: 'paste', body: {text: '', files: [{name: 'shot.png', data: 'AAEC'}]}}, '只有檔');
+assert.deepStrictEqual(newRequest(line200, [], null, 'n'), {path: 'new', body: {name: 'n', text: line200}}, '單行 200 字仍走 new');
+assert.deepStrictEqual(newRequest(`  ${line200} \n`, [], null, 'n'), {path: 'new', body: {name: 'n', text: line200}}, '200 字的界線不算前後空白');
+assert.deepStrictEqual(newRequest(line201, [], null, 'n'), {path: 'paste', body: {name: 'n', text: line201, files: []}}, '單行 201 字改走 paste');
+assert.deepStrictEqual(newRequest(line70k, [], R, 'n'), {path: 'paste', body: {name: 'n', text: line70k, files: [], repo: R}}, '單行 70 KB 改走 paste 且帶範圍');
+assert.deepStrictEqual(newRequest('第一行\nhttps://example.com/x', [], null, 'n'),
+  {path: 'paste', body: {name: 'n', text: '第一行\nhttps://example.com/x', files: []}}, '多行貼上');
+assert.deepStrictEqual(newRequest('第一行\nhttps://example.com/x', [], R, 'n'),
+  {path: 'paste', body: {name: 'n', text: '第一行\nhttps://example.com/x', files: [], repo: R}}, '多行貼上帶範圍');
+assert.deepStrictEqual(newRequest('鍵盤蓋住', [shot], null, 'n'),
+  {path: 'paste', body: {name: 'n', text: '鍵盤蓋住', files: [{name: 'shot.png', data: 'AAEC'}]}}, '拖進檔案：只帶 name 與 data');
+assert.deepStrictEqual(newRequest('', [shot], null, 'n'),
+  {path: 'paste', body: {name: 'n', text: '', files: [{name: 'shot.png', data: 'AAEC'}]}}, '只有檔');
 assert.strictEqual(newRequest('  \n ', [], R), null, '什麼都沒有就不送');
 
 assert.strictEqual(MAX_ATTACH, 10 * 1024 * 1024);
@@ -42,6 +42,7 @@ assert.deepStrictEqual(splitBySize([]), [[], []]);
 
 // 輸入區的元件與鍵盤規則：textarea、附檔按鈕（隱藏的多選 file input）、拖放綁在 newbar
 assert.match(html, /<textarea id="new-text"/, 'newbar 是多行文字框');
+assert.match(html, /<input id="new-name"[^>]* required/, 'newbar 有必填的卡名欄');
 assert.match(html, /<input type="file" id="new-file" multiple hidden>/, '隱藏的多選 file input');
 assert.match(html, /data-act="new-attach"/, '附檔按鈕');
 assert.match(html, /\$\('#newbar'\)\.addEventListener\('drop'/, '拖放綁在 newbar');
@@ -82,11 +83,23 @@ const m = k(...names.map(n => env[n]));
 const flush = () => new Promise(r => setImmediate(r));
 (async () => {
 
+// 卡名空的：不送、提示要填卡名、輸入留著
+m.openNew(); $('#new-text').value = '沒卡名';
+m.submitNew(); await flush();
+assert.strictEqual(posts.length, 0, '卡名空的不送');
+assert.ok(toasts.some(t => t.includes('卡名')), '提示要填卡名');
+assert.strictEqual($('#new-text').value, '沒卡名', '沒送時文字留著');
+$('#new-name').value = '  chat-keyboard ';
+m.submitNew(); await flush(); await flush();
+assert.deepStrictEqual(posts.pop(), {path: 'new', body: {name: 'chat-keyboard', text: '沒卡名'}}, 'body 帶去掉空白的卡名');
+assert.strictEqual($('#new-name').value, '', '成功後卡名也清空');
+
 // 失敗時輸入留著
-m.openNew(); $('#new-text').value = '第一行\n第二行';
+m.openNew(); $('#new-name').value = 'two-lines'; $('#new-text').value = '第一行\n第二行';
 postResult = () => { throw new Error('paste 413：太大'); };
 m.submitNew(); await flush(); await flush();
 assert.strictEqual(posts.length, 1, '有送出');
+assert.strictEqual(posts[0].body.name, 'two-lines', 'paste 也帶卡名');
 assert.strictEqual($('#new-text').value, '第一行\n第二行', '失敗時文字留著');
 assert.strictEqual($('#newbar').hidden, false, '失敗時輸入區不關');
 assert.ok(toasts.some(t => t.includes('失敗')), '失敗有提示');
@@ -100,7 +113,7 @@ assert.strictEqual($('#newbar').hidden, true, '成功後關掉');
 // 送出期間又打字、又加檔：成功後只清掉送出的那份
 let release;
 postResult = () => new Promise(r => { release = () => r({ok: true, stdout: 'me-2'}); });
-m.openNew(); $('#new-text').value = '先送的';
+m.openNew(); $('#new-name').value = 'first'; $('#new-text').value = '先送的';
 m.submitNew(); await flush();
 $('#new-text').value = '送出後才打的';
 const extra = m.addFiles([{name: 'later.png', size: 3, b64: 'BBBB'}]);
@@ -114,7 +127,7 @@ postResult = () => ({ok: true, stdout: 'me-1'});
 
 // 忙碌時不送也不清
 ui.busy = true; posts.length = 0; toasts.length = 0;
-m.openNew(); $('#new-text').value = '忙的時候貼的';
+m.openNew(); $('#new-name').value = 'busy'; $('#new-text').value = '忙的時候貼的';
 m.submitNew(); await flush();
 assert.strictEqual(posts.length, 0, '忙碌時不送');
 assert.strictEqual($('#new-text').value, '忙的時候貼的', '忙碌時輸入留著');

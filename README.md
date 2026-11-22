@@ -110,7 +110,7 @@ bash <plugin root>/bin/opsx init --global
 opsx init
 ```
 
-之後用 `opsx new -- "一句話說你要做什麼"` 開一張收件卡，在看板按派工，或在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
+之後用 `opsx new --name <卡名> -- "一句話說你要做什麼"` 開一張收件卡（卡名也會是 PR 名和 branch 名），在看板按派工，或在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
 
 | 平台 | 支援程度 |
 |------|---------|
@@ -126,7 +126,7 @@ opsx init
 |------|--------|
 | `opsx init --global` | 裝一次：CLI、狀態目錄、看板 plugin、全域設定 |
 | `opsx init` | 在目前 repo 裝 openspec 與 opsx schema |
-| `opsx new -- <一句話>` | 開一張收件卡 |
+| `opsx new --name <卡名> -- <一句話>` | 開一張收件卡 |
 | `opsx dispatch <卡>` | 派給 agent：開 worktree、pane，送出第一句 |
 | `opsx answer <卡> --gate <id> <文字>` | 回 agent 留下的 gate |
 | `opsx merge <卡>` | 核准合併（一次性，沙盒外執行） |
