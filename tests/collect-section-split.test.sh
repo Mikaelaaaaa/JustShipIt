@@ -103,4 +103,21 @@ for c in json.load(sys.stdin)["cards"]:
     if c["section"] not in seen: seen.append(c["section"])
 print(" ".join(seen))')"
 assert_eq "$order" "進行中 等待中 待指派" "cards 依 進行中 · 等待中 · 待指派 排序"
+
+# --- Unicode 行界字元不切段（card-auto-merge「併入段的兩種形狀」）：讀取端只以 \n 切行 ---
+LS=$'\342\200\250'; NEL=$'\302\205'; FF=$'\014'
+merged_line() { # <slug> <字元>：一行形狀的併入段
+  base "$1"; printf '\n## 併入：2026-11-20T10:00:00+08:00 agent:t\n\n- id: m-%s\n- kind_of_work: planned\n- type: bug\n\nfoo%sbar\n' "$1" "$2" >> "$CH/$1/inbox.md"
+}
+merged_indented() { # <slug> <字元>：縮排形狀的併入段
+  base "$1"; printf '\n## 併入：2026-11-20T10:00:00+08:00 agent:t\n\n- id: m-%s\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  foo%sbar\n' "$1" "$2" >> "$CH/$1/inbox.md"
+}
+merged_line ls-line "$LS"; merged_indented ls-ind "$LS"; merged_line ls-nel "$NEL"; merged_indented ls-ff "$FF"
+J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect rc（行界字元）: $J"
+errs="$(q "$J" errors)"
+row() { # <slug> <字元>
+  assert_eq "$(q "$(card "$J" r "$1")" merged.0.text)" "foo$2bar" "$1 的併入段一句話"
+  case "$errs" in *"$1 的併入段"*) fail "$1 不該有併入段格式錯誤：$errs" ;; esac
+}
+row ls-line "$LS"; row ls-ind "$LS"; row ls-nel "$NEL"; row ls-ff "$FF"
 echo "collect-section-split ok"

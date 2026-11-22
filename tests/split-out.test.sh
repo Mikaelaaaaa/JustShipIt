@@ -32,6 +32,7 @@ merge --kind-of-work planned --evidence "bin/x.sh 紅" -- 鉤子漏擋
 assert_grep "^- id: $ID\$" "$C/x/inbox.md"
 split x "$ID"; assert_eq "$?" 0 "拆出要退出 0：$(cat "$ERR")"
 assert_eq "$(cat "$OUT")" "$ID" "stdout 是新 slug"
+assert_not_grep 'frontmatter' "$ERR"; assert_not_grep '併進' "$ERR"   # 一行形狀沒有 carry、沒有證據行，不提醒
 assert_eq "$(dirs)" "$ID x "
 printf -- '---\ntype: bug\nsource: agent:foo\nfound: 2026-11-11\nrelated:\nkind_of_work: planned\nevidence: bin/x.sh 紅\n---\n\n## 一句話\n\n鉤子漏擋\n\n## 證據\n\n' > "$FX/want.md"
 cmp -s "$C/$ID/inbox.md" "$FX/want.md" || fail "新殼 inbox.md 形狀不對：$(diff "$FX/want.md" "$C/$ID/inbox.md")"
@@ -156,6 +157,167 @@ assert_eq "$(cat "$OUT")" src-2
 body "$C/src-2/inbox.md" > "$FX/back-body.md"
 cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
+# --- 帶 frontmatter 的縮排段原樣拆回：新殼跟來源併入前的 inbox.md 一字不差 ---
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3' 'priority: P1' 'priority_reason: 照建議：降為 P1'
+sed -i '' 's/^found: 2026-11-10$/found: 2026-11-17/; s/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+cp "$C/src/inbox.md" "$FX/src-orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^  ---$' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "帶 frontmatter 的縮排段要拆得出：$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" src-2 "src 已歸檔，拆回的殼是 src-2"
+cmp -s "$C/src-2/inbox.md" "$FX/src-orig.md" || fail "新殼要跟來源原本的 inbox.md 一字不差：$(diff "$FX/src-orig.md" "$C/src-2/inbox.md")"
+# 來源以 ## 證據\n\n 結尾（opsx new 寫的卡都是）：檔尾空行不計，拆回的是來源去掉檔尾空行再補一個 \n
+reset; card x; card src
+printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-17\nrelated:\nkind_of_work: planned\n---\n\n## 一句話\n\n證據段是空的\n\n## 證據\n\n' > "$C/src/inbox.md"
+printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-17\nrelated:\nkind_of_work: planned\n---\n\n## 一句話\n\n證據段是空的\n\n## 證據\n' > "$FX/want.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/src-2/inbox.md" "$FX/want.md" || fail "拆回的檔要是來源去掉檔尾空行加一個換行：$(diff "$FX/want.md" "$C/src-2/inbox.md")"
+
+# --- 拆回時照 - carried: 撤回 carry，刪掉 - 併進 證據行：x 回到併入前 ---
+REPO="$(basename "$E")"
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^kind_of_work: incident$' "$C/x/inbox.md"; assert_grep '^impact: prod_or_main$' "$C/x/inbox.md"
+assert_grep "^- 併進：$REPO/src · " "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "撤回 carry 要退出 0：$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"; assert_not_grep '^impact:' "$C/x/inbox.md"
+assert_not_grep 'foo.py:3' "$C/x/inbox.md"; assert_not_grep "^- 併進：$REPO/src · " "$C/x/inbox.md"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "撤回後 x/inbox.md 要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+
+# --- 人改過的值不撤：carry 寫了 P1，人改成 P0，拆回後仍是 P0 ---
+reset; card x 'priority: P2' 'priority_reason: 原理由'; card src 'priority: P1' 'priority_reason: 手動'
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^priority: P1$' "$C/x/inbox.md"
+sed -i '' 's/^priority: P1$/priority: P0/' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P0$' "$C/x/inbox.md"
+assert_grep 'priority 被人改過' "$ERR"
+# kind_of_work 被人改回 planned：不撤，stderr 指名 kind_of_work
+reset; card x; card src 'impact: prod_or_main' 'evidence: foo.py:3'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+sed -i '' 's/^kind_of_work: incident$/kind_of_work: planned/' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"
+assert_grep 'kind_of_work 被人改過' "$ERR"
+
+# --- priority、priority_reason、priority_auto 一組撤：(a) 人只改 priority，理由留著、卡仍合格 ---
+reset; card x; card src 'priority: P1' 'priority_reason: 手動'
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+sed -i '' 's/^priority: P1$/priority: P0/' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P0$' "$C/x/inbox.md"; assert_grep '^priority_reason: ' "$C/x/inbox.md"
+opsx priority x --repo "$E" > /dev/null 2> "$ERR" || fail "只改 priority 後拆回，opsx priority 要算得出：$(cat "$ERR")"
+# (b) 沒人改過：整組改回，x 跟併入前一樣（priority_auto 也回來）
+reset; card x 'priority: P2' 'priority_reason: 原理由' 'priority_auto: true'; card src 'priority: P1' 'priority_reason: 手動'
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^priority: P1$' "$C/x/inbox.md"; assert_not_grep '^priority_auto:' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "priority 整組要撤回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# (c) 人用 opsx priority 改過等級：整組不動，priority_auto 不被加回
+reset; card x 'priority: P2' 'priority_reason: 原理由' 'priority_auto: true'; card src 'priority: P1' 'priority_reason: 手動'
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+opsx priority x --set P0 --reason 人改 --repo "$E" > /dev/null 2> "$ERR" || fail "opsx priority --set 失敗：$(cat "$ERR")"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P0$' "$C/x/inbox.md"; assert_grep '^priority_reason: 人改$' "$C/x/inbox.md"
+assert_not_grep '^priority_auto:' "$C/x/inbox.md"
+
+# --- - carried: 形狀不對：建殼前就退出 1，沒有新殼、x 不變；重跑也不多建 -2 殼 ---
+badcarried() { # badcarried <carried 的值> <stderr 要含的欄位>
+  reset; card x; card src
+  opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+  sed -i '' "s/^- carried: .*/- carried: $1/" "$C/x/inbox.md"
+  grep -qF -- "- carried: $1" "$C/x/inbox.md" || fail "fixture：- carried: 沒換成 $1"
+  cp "$C/x/inbox.md" "$FX/keep.md"; local before; before="$(dirs)"
+  split x src; assert_eq "$?" 1 "$1 要退出 1：$(cat "$ERR")"
+  assert_grep '併入段 src 的 - carried:' "$ERR"; assert_grep "$2" "$ERR"
+  assert_eq "$(dirs)" "$before" "$1：沒有新殼"
+  cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "$1：x/inbox.md 不該變：$(diff "$FX/keep.md" "$C/x/inbox.md")"
+  split x src; assert_eq "$?" 1 "$1 重跑也要退出 1：$(cat "$ERR")"
+  assert_eq "$(dirs)" "$before" "$1：重跑不多建 -2 殼"
+}
+badcarried not-json JSON
+badcarried '{"set":{"kind_of_work":"incident"}}' before
+badcarried '{"set":{"source":"x"},"before":{"source":"a"}}' source
+
+# --- 拆回後用其餘帶 frontmatter 的併入段重算：(a) planned 目標併兩張 incident，拆掉先併的仍是 incident ---
+reset; card x; card src1 'impact: prod_or_main' 'evidence: foo.py:3'; card src2 'impact: prod_or_main' 'evidence: bar.py:4'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md" "$C/src2/inbox.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+split x src1; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^kind_of_work: incident$' "$C/x/inbox.md"; assert_grep '^impact: prod_or_main$' "$C/x/inbox.md"
+assert_grep '^evidence: bar.py:4$' "$C/x/inbox.md"
+opsx priority x --repo "$E" > /dev/null 2> "$ERR" || fail "拆一張 incident 後 opsx priority 要算得出：$(cat "$ERR")"
+# (b) 兩段共用 evidence 片段、各帶不同 impact：拆掉一段，evidence 仍有那個片段
+reset; card x; card src1 'impact: prod_or_main' 'evidence: shared.py:1'; card src2 'impact: data' 'evidence: shared.py:1'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md" "$C/src2/inbox.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+split x src1; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^evidence: shared.py:1$' "$C/x/inbox.md"; assert_grep '^impact: data$' "$C/x/inbox.md"
+opsx priority x --repo "$E" > /dev/null 2> "$ERR" || fail "共用 evidence 拆一段後 opsx priority 要算得出：$(cat "$ERR")"
+# (c) 只有一段：沒有其餘段可重算，x 跟併入前一樣
+reset; card x 'priority: P2' 'priority_reason: 原理由' 'priority_auto: true'
+card src 'impact: prod_or_main' 'evidence: foo.py:3' 'priority: P1' 'priority_reason: 手動'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+assert_grep '^kind_of_work: incident$' "$C/x/inbox.md"; assert_grep '^priority: P1$' "$C/x/inbox.md"
+split x src; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "只有一段時要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# (d) 兩段事實完全相同：照併入順序先拆 src1 再拆 src2，x 回到併入前
+reset; card x; card src1 'impact: prod_or_main' 'evidence: same.py:1'; card src2 'impact: prod_or_main' 'evidence: same.py:1'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md" "$C/src2/inbox.md"
+cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+split x src1; assert_eq "$?" 0 "$(cat "$ERR")"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "照併入順序拆完要回到併入前：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# (e) 人用 opsx priority 改成 P2 後拆不相干（planned、沒事實）的段：priority 仍是 P2
+reset; card x; card src1 'priority: P1' 'priority_reason: 手動'; card src2
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+opsx priority x --set P2 --reason 人改 --repo "$E" > /dev/null 2> "$ERR" || fail "opsx priority --set 失敗：$(cat "$ERR")"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^priority: P2$' "$C/x/inbox.md"; assert_grep '^priority_reason: 人改$' "$C/x/inbox.md"
+# (f) 人把 x 改回 planned 後拆不相干的段：kind_of_work 仍是 planned
+reset; card x; card src1 'impact: prod_or_main' 'evidence: foo.py:3'; card src2
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src1/inbox.md"
+opsx merge-card src1 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src1 失敗：$(cat "$ERR")"
+opsx merge-card src2 --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card src2 失敗：$(cat "$ERR")"
+sed -i '' 's/^kind_of_work: incident$/kind_of_work: planned/' "$C/x/inbox.md"
+split x src2; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_grep '^kind_of_work: planned$' "$C/x/inbox.md"
+
+# --- 算出的目標不合格（人加的 impact 靠同一條 evidence，撤回後 evidence 空了）：建殼前退出 1、什麼都不改 ---
+reset; card x; card src 'impact: prod_or_main' 'evidence: a.py:1'
+sed -i '' 's/^kind_of_work: planned$/kind_of_work: incident/' "$C/src/inbox.md"
+opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
+sed -i '' 's/^impact: prod_or_main$/impact: prod_or_main, data/' "$C/x/inbox.md"
+assert_grep '^impact: prod_or_main, data$' "$C/x/inbox.md"
+cp "$C/x/inbox.md" "$FX/keep.md"; before="$(dirs)"
+split x src; assert_eq "$?" 1 "目標不合格要退出 1：$(cat "$ERR")"
+assert_grep '目標 x ' "$ERR"; assert_grep 'evidence' "$ERR"
+assert_eq "$(dirs)" "$before" "目標不合格：沒有新殼"
+cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "目標不合格：x/inbox.md 不該變：$(diff "$FX/keep.md" "$C/x/inbox.md")"
+
+# --- 舊段（縮排、沒有 - carried:）：frontmatter 不動，只刪證據行，stderr 提醒 ---
+reset; card x 'impact: data' 'evidence: 舊證據'
+printf -- '- 併進：%s/old · source: me\n' "$REPO" >> "$C/x/inbox.md"
+indented old '  ## 一句話
+
+  舊的縮排段'
+split x old; assert_eq "$?" 0 "舊段要拆得出：$(cat "$ERR")"
+assert_grep '^impact: data$' "$C/x/inbox.md"
+assert_not_grep "^- 併進：$REPO/old · " "$C/x/inbox.md"
+assert_grep 'old.*frontmatter' "$ERR"
+
 # --- 只刪那一段 ---
 reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
 merge --kind-of-work planned -- 第一段
@@ -172,6 +334,24 @@ assert_grep '^第一段$' "$C/$ID/inbox.md"
 split x "$ID-2"; assert_eq "$?" 0 "$(cat "$ERR")"
 assert_eq "$(cat "$OUT")" "$ID-2"
 cmp -s "$C/x/inbox.md" "$FX/orig.md" || fail "拆完兩段要回到原樣：$(diff "$FX/orig.md" "$C/x/inbox.md")"
+# 檔尾最後一段沒有結尾換行：拆掉前面一段，其餘位元組不變（最後一行沒有 \n 也照樣保留）
+reset; card x
+sec2='## 併入：2026-11-11T10:41:00+08:00 agent:foo\n\n- id: nl2\n- kind_of_work: planned\n- type: bug\n\n沒有結尾換行'
+cp "$C/x/inbox.md" "$FX/want.md"; printf "\\n$sec2" >> "$FX/want.md"
+printf '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: nl1\n- kind_of_work: planned\n- type: bug\n\n第一段\n' >> "$C/x/inbox.md"
+printf "\\n$sec2" >> "$C/x/inbox.md"
+split x nl1; assert_eq "$?" 0 "$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/want.md" || fail "檔尾沒有換行時只該刪第一段：$(diff "$FX/want.md" "$C/x/inbox.md")"
+
+# --- Unicode 行界字元不影響刪段：第一段一句話含 U+2028，拆出後第二段與其餘位元組不變 ---
+reset; card x
+sec2='## 併入：2026-11-11T10:41:00+08:00 agent:foo\n\n- id: ls2\n- kind_of_work: planned\n- type: bug\n\n第二段\n'
+cp "$C/x/inbox.md" "$FX/want.md"; printf "\\n$sec2" >> "$FX/want.md"
+printf '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: ls1\n- kind_of_work: planned\n- type: bug\n\nfoo\342\200\250bar\n' >> "$C/x/inbox.md"
+printf "\\n$sec2" >> "$C/x/inbox.md"
+split x ls1; assert_eq "$?" 0 "一句話含 U+2028 要拆得出：$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/want.md" || fail "只該刪含 U+2028 的那段：$(diff "$FX/want.md" "$C/x/inbox.md")"
+assert_grep $'^foo\342\200\250bar$' "$C/ls1/inbox.md"
 
 # --- 併入後 note 在檔尾長出 ## 派工指示：拆出併入段，派工指示一字不變 ---
 reset; card x

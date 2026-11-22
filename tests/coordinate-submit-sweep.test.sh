@@ -142,4 +142,73 @@ export OPSX_TEST_AGENT_READ="$(screen woke '❯ [m4] \/opsx-workflow:apply m4')"
 wake
 grep ' ?? ' "$LOG" | grep -q 'w1:p9' || fail "stuck 要記一行 ?? 含 pane id：$(cat "$LOG")"
 assert_eq "$(jq -r '."demo/@g".last_prompt' "$DISP")" "[m4] /opsx-workflow:apply m4" "last_prompt 記在 session 條目"
+
+# --- 補了 Enter 的 pane 這輪照佔名額：上限 1，c1 補 Enter 送出，q1 不派（specs/dispatch-concurrency「名額滿了協調者不派新卡」）---
+mkcard q1
+cat > "$R/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: fq
+    status: active
+    depends-on: []
+    prs:
+      - name: q1
+        branch: feat/q1/u
+        status: pending
+        depends-on: []
+        changes:
+          - name: q1
+            status: pending
+EOF
+printf '1\n' > "$OPSX_STATE_DIR/max-working"; rm -f "$MEMO"
+E='{"mode":"autopilot","agent":"claude","pane":"w5:pAG","drive_pid":null'"$LP"'}'
+printf '{"demo/c1":%s}' "$E" > "$DISP"
+cards '[{"slug":"c1","section":"進行中","dispatch":'"$E"',"agent_status":"idle"},{"slug":"q1"}]'
+export OPSX_TEST_AGENT_READ="$SAMPLE" OPSX_TEST_AGENT_READ_ONCE="$FX/once"
+cp "$(screen ours '❯ 跑完了')" "$FX/once"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(enters)" 1 "補了 Enter：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "補了 Enter 的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+grep -qF '同時在跑 1 個 pane，達上限 1' "$LOG" || fail "要記達上限 1：$(cat "$LOG")"
+
+# --- 收尾後交給閒著的 session、送出第一句：session pane 這輪照佔名額，上限 1，q1 不派 ---
+cat > "$R/openspec/workplan.yaml" <<'EOF'
+features:
+  - name: g
+    depends-on: []
+    prs:
+      - name: m3
+        branch: feat/m3/u
+        status: pending
+        depends-on: []
+        changes:
+          - name: t3
+            status: pending
+      - name: m4
+        branch: feat/m4/u
+        status: pending
+        depends-on: [m3]
+        changes:
+          - name: t4
+            status: pending
+  - name: fq
+    status: active
+    depends-on: []
+    prs:
+      - name: q1
+        branch: feat/q1/u
+        status: pending
+        depends-on: []
+        changes:
+          - name: q1
+            status: pending
+EOF
+rm -f "$MEMO"
+printf '{"demo/@g":{"workspace":"demo","workspace_id":"w1","tab":"w1:t9","pane":"w1:p9","agent":"claude","model":"claude-opus-5-5","mode":"autopilot","worktree":"%s","started_at":"2026-11-07T10:00:00+08:00","drive_pid":null},"demo/m3":{"mode":"autopilot","agent":"claude","pane":"w1:p9","herdr_name":"g","via":"@g","feature":"g","drive_pid":null,"branch":"feat/m3/u","worktree":"%s"}}' "$R/.claude/worktrees/g" "$R/.claude/worktrees/g" > "$DISP"
+cards '[{"slug":"m3","section":"進行中","stage":"babysit","dispatch":'"$GM"',"agent_status":"idle","mr":{"url":"https://github.com/o/r/pull/8","state":"state:MERGED","head_sha":"def","conditions":{},"merged_at":"2026-11-07T12:00:00Z"}},{"slug":"m4"},{"slug":"q1"}]'
+export OPSX_TEST_AGENT_READ="$SAMPLE"; unset OPSX_TEST_AGENT_READ_ONCE
+round || fail "rc: $(cat "$FX/out")"
+assert_grep '^agent prompt g \[m4\] /opsx-workflow:apply m4$' "$OPSX_FAKE_LOG"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "交給 session 送出第一句的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+grep -qF '同時在跑 1 個 pane，達上限 1' "$LOG" || fail "要記達上限 1：$(cat "$LOG")"
+rm -f "$OPSX_STATE_DIR/max-working"
 echo ok

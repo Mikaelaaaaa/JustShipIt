@@ -4,6 +4,7 @@
 跑法：python3 -I herdr-board/tests/test_server.py（目錄名有連字號，不能用 -m unittest 的模組路徑），或 bash tests/run.sh（它會叫這支）。
 """
 import base64
+import errno
 import http.client
 import json
 import os
@@ -17,10 +18,14 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SERVER = ROOT / "herdr-board" / "server.py"
+sys.path.insert(0, str(ROOT / "herdr-board"))
+import server  # noqa: E402  讀檔函式的單元測試直接呼叫，不經 HTTP
 
 
 def b64(data: bytes) -> str:
@@ -1056,6 +1061,354 @@ class CacheInvalidationTest(unittest.TestCase):
         self.assertEqual(results, [200])
         self.req("/api/collect")
         self.assertEqual(self.collects(), 2, "動作結束後的 GET 要重跑，不能拿動作進行中開始的那次")
+
+
+def board_server(tmp: pathlib.Path, collect: dict, path_dirs: list[pathlib.Path]) -> tuple[subprocess.Popen, str, str]:
+    """起一支帶 --collect 的 server，PATH 前置 path_dirs；回 (proc, base, token)。"""
+    state = tmp / "state"
+    state.mkdir()
+    fixture = tmp / "collect.json"
+    fixture.write_text(json.dumps(collect))
+    env = dict(os.environ, OPSX_STATE_DIR=str(state), PATH=":".join([*map(str, path_dirs), os.environ["PATH"]]))
+    proc, _, port = start_server(env, fixture)
+    return proc, "http://127.0.0.1:%d" % port, (state / "board-token").read_text().strip()
+
+
+def call(base: str, path: str, token: str | None, body: dict | None = None) -> tuple[int, dict]:
+    r = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
+                               method="POST" if body is not None else "GET")
+    if token:
+        r.add_header("X-Opsx-Token", token)
+    try:
+        with urllib.request.urlopen(r, timeout=10) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode()
+        return e.code, json.loads(raw) if raw.startswith("{") else {"raw": raw}
+
+
+class CardFilesTest(unittest.TestCase):
+    """GET /api/card-files：specs/board-card-files/spec.md。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-server-files."))
+        repo = cls.tmp / "a"
+        changes = repo / "openspec" / "changes"
+        cls.card = changes / "x"
+        (cls.card / "specs" / "foo").mkdir(parents=True)
+        (cls.card / "subs" / "s1").mkdir(parents=True)
+        (cls.card / "tasks.md").write_text("- [ ] 1.1 做")
+        (cls.card / "inbox.md").write_text("inbox")
+        (cls.card / "specs" / "foo" / "spec.md").write_text("spec")
+        (cls.card / "subs" / "s1" / "inbox.md").write_text("sub")
+        (cls.card / "notes.txt").write_text("not md")
+        (cls.card / "status.json").write_text("{}")
+        (cls.card / "locked.md").write_text("locked")
+        (cls.card / "locked.md").chmod(0)
+        for name, size in (("r100.md", 100), ("r60000.md", 60000), ("r60001.md", 60001), ("r200000.md", 200000)):
+            (cls.card / name).write_text("a" * size)
+        outside = cls.tmp / "outside"
+        (outside / "foo").mkdir(parents=True)
+        (outside / "secret.md").write_text("SECRET")
+        (outside / "foo" / "spec.md").write_text("SECRET")
+        (changes / "y" / "specs").mkdir(parents=True)
+        (changes / "y" / "inbox.md").write_text("y")
+        os.symlink(outside / "secret.md", changes / "y" / "link.md")
+        os.symlink(outside, changes / "y" / "specs" / "evil")
+        os.symlink(outside, changes / "z")
+        arch = changes / "archive" / "2026-11-20-old"
+        arch.mkdir(parents=True)
+        (arch / "proposal.md").write_text("old")
+        cards = [{"repo": "a", "slug": "x", "archived": False, "path": str(cls.card) + "/"},
+                 {"repo": "a", "slug": "y", "archived": False, "path": str(changes / "y") + "/"},
+                 {"repo": "a", "slug": "z", "archived": False, "path": str(changes / "z") + "/"},
+                 {"repo": "a", "slug": "old", "archived": True, "path": str(arch) + "/"},
+                 {"repo": "a", "slug": "moved", "archived": False, "path": str(changes / "moved") + "/"},
+                 {"repo": "b", "slug": "x", "archived": False, "path": str(cls.card) + "/"}]
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(repo)}, "cards": cards}, [])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.kill()
+        cls.proc.wait()
+
+    def get(self, query, token=True):
+        return call(self.base, "/api/card-files?" + query, self.token if token else None)
+
+    def test_lists_live_card_files_in_order(self):
+        status, body = self.get("card=a/x")
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["ok"])
+        names = [f["p"] for f in body["files"]]
+        self.assertEqual(names[:2], ["inbox.md", "tasks.md"])
+        self.assertEqual(names[-1], "specs/foo/spec.md")
+        self.assertNotIn("notes.txt", names)
+        self.assertFalse(any(n.startswith("subs/") for n in names))
+        self.assertEqual(body["subs"], 1)
+        self.assertEqual(body["files"][1]["s"], len("- [ ] 1.1 做".encode()))
+
+    def test_lists_archived_card_files(self):
+        status, body = self.get("card=a/old")
+        self.assertEqual(status, 200, body)
+        self.assertEqual([f["p"] for f in body["files"]], ["proposal.md"])
+
+    def test_card_not_in_collect_is_404(self):
+        status, body = self.get("card=a/nope")
+        self.assertEqual(status, 404)
+        self.assertFalse(body["ok"])
+        self.assertIn("a/nope", body["error"])
+
+    def test_repo_not_registered_is_404(self):
+        status, body = self.get("card=b/x")
+        self.assertEqual(status, 404, body)
+        self.assertFalse(body["ok"])
+
+    def test_needs_token(self):
+        status, _ = self.get("card=a/x", token=False)
+        self.assertEqual(status, 401)
+
+    def test_reads_small_file(self):
+        status, body = self.get("card=a/x&path=tasks.md")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["t"], "- [ ] 1.1 做")
+        self.assertEqual(body["p"], "tasks.md")
+        self.assertEqual(body["s"], len("- [ ] 1.1 做".encode()))
+
+    def test_big_file_returns_only_size(self):
+        for name, big in (("r100.md", False), ("r60000.md", False), ("r60001.md", True), ("r200000.md", True)):
+            with self.subTest(name=name):
+                status, body = self.get("card=a/x&path=" + name)
+                self.assertEqual(status, 200, body)
+                if big:
+                    self.assertTrue(body.get("big"))
+                    self.assertNotIn("t", body)
+                else:
+                    self.assertNotIn("big", body)
+                    self.assertIn("t", body)
+
+    def test_missing_file_is_404(self):
+        status, body = self.get("card=a/x&path=nope.md")
+        self.assertEqual(status, 404)
+        self.assertIn("nope.md", body["error"])
+
+    def test_blocked_paths_are_400(self):
+        # NUL、清單列不出來的檔（不是 .md、在 subs/ 底下，D10）也擋
+        for path in ("../y/inbox.md", "/etc/passwd", "specs/../../y/inbox.md", "..", "specs/..", "", "a\x00b",
+                     "status.json", "notes.txt", "subs/s1/inbox.md"):
+            with self.subTest(path=path):
+                status, body = self.get("card=a/x&path=" + urllib.parse.quote(path, safe=""))
+                self.assertEqual(status, 400, body)
+                self.assertFalse(body["ok"])
+                self.assertNotIn("t", body)
+
+    def test_filesystem_errors_are_json(self):
+        """檔案系統丟的錯都回 {ok:false, error}，不讓連線斷掉（D2）。"""
+        for query, want in (("card=a/x&path=tasks.md/x.md", 404),   # 中間一段是檔案：NotADirectoryError
+                            ("card=a/x&path=locked.md", 400),       # 權限 000：PermissionError
+                            ("card=a/x&path=" + "a" * 300 + ".md", 400),   # 路徑段太長：ENAMETOOLONG
+                            ("card=a/moved", 404),                  # 卡目錄被搬走（例如剛歸檔）
+                            ("card=a/moved&path=inbox.md", 404)):
+            with self.subTest(query=query):
+                status, body = self.get(query)
+                self.assertEqual(status, want, body)
+                self.assertFalse(body["ok"])
+                self.assertTrue(body["error"])
+
+    def test_symlinks_are_refused(self):
+        for query in ("card=a/y&path=link.md", "card=a/y&path=specs/evil/spec.md", "card=a/z", "card=a/z&path=secret.md"):
+            with self.subTest(query=query):
+                status, body = self.get(query)
+                self.assertEqual(status, 400, body)
+                self.assertNotIn("SECRET", json.dumps(body))
+
+    def test_symlink_is_not_listed(self):
+        status, body = self.get("card=a/y")
+        self.assertEqual(status, 200, body)
+        self.assertEqual([f["p"] for f in body["files"]], ["inbox.md"])
+
+    def test_bad_card_is_400(self):
+        for card in ("../x", "a", "a/X", "a/x/y"):
+            with self.subTest(card=card):
+                status, _ = self.get("card=" + urllib.parse.quote(card, safe=""))
+                self.assertEqual(status, 400)
+
+    def test_plain_subdirectory_is_readable(self):
+        status, body = self.get("card=a/x&path=specs/foo/spec.md")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["t"], "spec")
+
+
+class CardFileFunctionsTest(unittest.TestCase):
+    """list_card_files、read_card_file 在 card_dir 之後才出錯的情況（HTTP 測試的卡目錄在 card_dir 就擋掉，走不到這裡）。"""
+
+    def setUp(self):
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-cardfile-fn."))
+        self.card = self.tmp / "x"
+        (self.card / "specs" / "foo").mkdir(parents=True)
+        (self.card / "specs" / "locked").mkdir()
+        (self.card / "inbox.md").write_text("inbox")
+        (self.card / "specs" / "foo" / "spec.md").write_text("spec")
+        (self.card / "specs" / "locked" / "spec.md").write_text("hidden")
+        (self.card / "specs" / "locked").chmod(0)
+
+    def tearDown(self):
+        (self.card / "specs" / "locked").chmod(0o755)
+        shutil.rmtree(self.tmp)
+
+    def test_card_dir_gone_before_walk_is_404(self):
+        with self.assertRaises(server.CardFileError) as cm:
+            server.list_card_files(self.tmp / "gone")
+        self.assertEqual(cm.exception.status, 404)
+
+    def test_unreadable_subdirectory_is_skipped(self):
+        got = server.list_card_files(self.card)
+        self.assertEqual([f["p"] for f in got["files"]], ["inbox.md", "specs/foo/spec.md"])
+
+    def test_file_gone_or_swapped_at_open(self):
+        """lstat 通過之後、os.open 之前檔案被刪或換成符號連結。"""
+        for err, want in ((FileNotFoundError(errno.ENOENT, "gone"), 404), (OSError(errno.ELOOP, "loop"), 400)):
+            with self.subTest(err=err), mock.patch.object(server.os, "open", side_effect=err):
+                with self.assertRaises(server.CardFileError) as cm:
+                    server.read_card_file(self.card, "inbox.md")
+                self.assertEqual(cm.exception.status, want)
+
+
+class ArchiveTest(unittest.TestCase):
+    """POST /api/archive：specs/board-actions/spec.md「歸檔已合併的卡」。假的 openspec 記錄 cwd 與參數。"""
+
+    MERGED = {"url": "u", "merged_at": "2026-11-20T10:00:00Z"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-server-archive."))
+        cls.repo = cls.tmp / "a"
+        (cls.repo / "openspec" / "changes").mkdir(parents=True)
+        shim_dir = cls.tmp / "bin"
+        shim_dir.mkdir()
+        cls.log = cls.tmp / "openspec.log"
+        cls.fail = cls.tmp / "openspec.fail"
+        shim = shim_dir / "openspec"
+        shim.write_text("#!/usr/bin/env bash\n"
+                        f'printf "%s|%s\\n" "$(pwd -P)" "$*" >> "{cls.log}"\n'
+                        f'if [ -f "{cls.fail}" ]; then echo boom >&2; exit 1; fi\n'
+                        'echo archived\n')
+        shim.chmod(0o755)
+        live = {"agent": "claude", "pane": "w1:p1"}
+        cards = [
+            {"repo": "a", "slug": "ok", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None},
+            {"repo": "a", "slug": "busy", "archived": False, "mr": cls.MERGED, "dispatch": live, "agent_status": "working"},
+            {"repo": "a", "slug": "idle", "archived": False, "mr": cls.MERGED, "dispatch": live, "agent_status": "idle"},
+            {"repo": "a", "slug": "gonepane", "archived": False, "mr": cls.MERGED, "dispatch": live, "agent_status": "unknown"},
+            {"repo": "a", "slug": "open", "archived": False, "mr": {"url": "u", "merged_at": None}, "dispatch": None, "agent_status": None},
+            {"repo": "a", "slug": "nomr", "archived": False, "mr": None, "dispatch": None, "agent_status": None},
+            {"repo": "a", "slug": "done", "archived": True, "mr": None, "dispatch": None, "agent_status": None},
+            # 合併後又有 commit、opsx late 開了 gate：歸檔會讓 gate 從看板消失
+            {"repo": "a", "slug": "gated", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None,
+             "open_gates": [{"id": "late-abc", "opened_at": "2026-11-21T10:00:00+08:00"}]},
+            # dispatch.json 的條目被 stop 掉：collect 把它當 null，但 coordinate 仍會收尾
+            {"repo": "a", "slug": "stopped", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None},
+            # 主卡自己沒 gate，子 change 還開著 gate（D17 顯示成等你）
+            {"repo": "a", "slug": "subgated", "archived": False, "mr": cls.MERGED, "dispatch": None, "agent_status": None, "session": "a/f"},
+        ]
+        sessions = [{"repo": "a", "feature": "f", "mains": [{"slug": "subgated", "subs": [
+            {"slug": "s1", "open_gates": [{"id": "g1", "opened_at": "2026-11-21T10:00:00+08:00"}], "waiting": {"type": "等待決定"}}]}]}]
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards, "sessions": sessions,
+                                                               "unmatched_agents": [{"name": "scratch", "pane": "p7", "coordinator": False}]}, [shim_dir])
+        # coordinate 只收尾 dispatch.json 有條目的卡（bin/lib/coordinate.py one_round）
+        (cls.tmp / "state" / "dispatch.json").write_text(json.dumps({
+            "a/busy": {"pane": "w1:p1"}, "a/idle": {"pane": "w1:p1"}, "a/gonepane": {"pane": "w1:p9"},
+            "a/stopped": {"pane": "w1:p8", "mode": "stopped"}}))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.kill()
+        cls.proc.wait()
+
+    def setUp(self):
+        self.log.write_text("")
+        if self.fail.exists():
+            self.fail.unlink()
+
+    def archive(self, slug, repo=None, token=True):
+        return call(self.base, "/api/archive", self.token if token else None, {"slug": slug, "repo": str(repo or self.repo)})
+
+    def test_archives_merged_card_without_pane(self):
+        status, body = self.archive("ok")
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["ok"], body)
+        self.assertEqual(self.log.read_text().strip(), "%s|archive ok -y" % self.repo.resolve())
+
+    def test_conditions(self):
+        # 只有 dispatch.json 沒條目的卡給歸檔（D19）：pane 不在（gonepane）、條目已 stop（stopped）都留給 coordinate
+        for slug, want in (("ok", 200), ("busy", 422), ("open", 422), ("nomr", 422), ("gonepane", 422), ("idle", 422), ("gated", 422),
+                           ("stopped", 422), ("subgated", 422)):
+            with self.subTest(slug=slug):
+                self.log.write_text("")
+                status, body = self.archive(slug)
+                self.assertEqual(status, want, body)
+                called = self.log.read_text().strip() != ""
+                self.assertEqual(called, want == 200)
+                if want == 422:
+                    self.assertFalse(body["ok"])
+                    self.assertTrue(body["stderr"])
+
+    def test_missing_or_archived_card_is_422(self):
+        for slug in ("gone", "done"):
+            with self.subTest(slug=slug):
+                status, body = self.archive(slug)
+                self.assertEqual(status, 422, body)
+                self.assertIn(slug, body["stderr"])
+                self.assertEqual(self.log.read_text(), "")
+
+    def test_openspec_failure_is_reported(self):
+        self.fail.write_text("")
+        status, body = self.archive("ok")
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body["ok"])
+        self.assertIn("boom", body["stderr"])
+
+    def test_bad_fields_are_400(self):
+        status, _ = self.archive("Bad Slug")
+        self.assertEqual(status, 400)
+        status, _ = self.archive("ok", repo="/tmp")
+        self.assertEqual(status, 400)
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_needs_token(self):
+        status, _ = self.archive("ok", token=False)
+        self.assertEqual(status, 401)
+
+
+class ArchiveWhileCoordinatorRunsTest(unittest.TestCase):
+    """協調者 pane 開著也照樣能歸檔從沒派過的卡：coordinate 把那種卡留給人（D19），不看協調者 pane 在不在。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-server-archive-coord."))
+        cls.repo = cls.tmp / "a"
+        (cls.repo / "openspec" / "changes").mkdir(parents=True)
+        shim_dir = cls.tmp / "bin"
+        shim_dir.mkdir()
+        cls.log = cls.tmp / "openspec.log"
+        cls.log.write_text("")
+        shim = shim_dir / "openspec"
+        shim.write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$*" >> "{cls.log}"\n')
+        shim.chmod(0o755)
+        cards = [{"repo": "a", "slug": "ok", "archived": False, "mr": ArchiveTest.MERGED, "dispatch": None, "agent_status": None}]
+        coordinator = {"name": "Opsx coordinator session duties", "pane": "w9:pM", "agent_status": "idle", "coordinator": True}
+        cls.proc, cls.base, cls.token = board_server(cls.tmp, {"generated_at": "t", "repo_paths": {"a": str(cls.repo)}, "cards": cards,
+                                                               "sessions": [], "unmatched_agents": [coordinator]}, [shim_dir])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.kill()
+        cls.proc.wait()
+
+    def test_never_dispatched_card_archives_while_coordinator_pane_is_open(self):
+        status, body = call(self.base, "/api/archive", self.token, {"slug": "ok", "repo": str(self.repo)})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.log.read_text().strip(), "archive ok -y")
 
 
 if __name__ == "__main__":

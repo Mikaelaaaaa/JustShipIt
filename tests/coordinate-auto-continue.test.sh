@@ -86,6 +86,15 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(memo_get _usage_limit seen_at)" "" "停住訊息在後不記暫停：$(cat "$MEMO")"
 assert_eq "$(count '^opsx dispatch q1 ')" 1 "停住訊息在後照常派卡：$(cat "$LOG")"
 
+# --- 送了繼續的 pane 這輪照佔名額：上限 1，c1 被叫醒，q1 不派（specs/dispatch-concurrency「名額滿了協調者不派新卡」） ---
+rm -f "$MEMO"; printf '%s\n' "$STOP" > "$AR"; printf '1\n' > "$OPSX_STATE_DIR/max-working"
+cards "[$(c1),{\"slug\":\"q1\"}]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(conts)" 1 "停住的 pane 送一次繼續：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx dispatch q1 ')" 0 "送了繼續的 pane 佔名額：$(cat "$OPSX_FAKE_LOG")"
+grep -qF '同時在跑 1 個 pane，達上限 1' "$LOG" || fail "要記達上限 1：$(cat "$LOG")"
+rm -f "$OPSX_STATE_DIR/max-working"
+
 # --- 上限訊息在停住訊息之後仍算上限（反例） ---
 rm -f "$MEMO"; printf '%s\nUsage limit reached again · limit resets 7pm\n' "$STOP" > "$AR"
 round || fail "rc: $(cat "$FX/out")"

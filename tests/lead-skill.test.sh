@@ -117,9 +117,11 @@ for s in 'leave ① out only when nothing is pending' 'starting with `!`' '下�
 done
 for s in 'no pane is working and ① has no open gate' 'priority level, then workplan order' 'P2 included' \
   'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
-  'While any pane is working, dispatch nothing extra'; do
+  'While any pane is working, dispatch nothing extra' 'Keep the number of working panes below max-working'; do
   case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
 done
+# 名額只算工作中的 pane（specs/dispatch-concurrency）：idle、blocked、done 不佔名額，留著 live pane 的說法會跟協調者數得不一樣
+case "$D9" in *'live pane count'*) fail "職責 9 要說工作中的 pane 數，不是 live pane count — $D9" ;; esac
 for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
   'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
   case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac

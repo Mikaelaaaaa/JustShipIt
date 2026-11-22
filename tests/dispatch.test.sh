@@ -600,19 +600,19 @@ out="$(opsx dispatch held --agent claude --mode autopilot 2>&1)"; [ $? -ne 0 ] |
 echo "$out" | grep -qF '.claude/worktrees/c' || fail "要說佔著的 worktree: $out"
 [ ! -d "$R/.claude/worktrees/held" ] || fail "被佔時不能開 worktree"
 # --- 人手動派，名額已滿只警告（specs/dispatch-concurrency：人手動派名額已滿只警告）---
-# cap_state <活著的 pane 數>：dispatch.json 加 8 個沒停的條目 cap1…cap8（worktree 是 $FX/capwt/capN），
-# herdr 只回前 n 個的 agent（idle，cwd 在各自的 worktree 裡）
+# cap_state <有 agent 的 pane 數> [agent_status]：dispatch.json 加 8 個沒停的條目 cap1…cap8（worktree 是 $FX/capwt/capN），
+# herdr 只回前 n 個的 agent（狀態預設 working，cwd 在各自的 worktree 裡）
 cap_state() {
-  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" "$FX/capwt" <<'PY'
+  python3 -I - "$OPSX_STATE_DIR/dispatch.json" "$FX/cap-agents.json" "$1" "$FX/capwt" "${2:-working}" <<'PY'
 import json, os, sys
-path, agents_path, n, wtroot = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+path, agents_path, n, wtroot, status = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
 d = json.load(open(path))
 for i in range(1, 9):
     wt = os.path.join(wtroot, "cap%d" % i)
     os.makedirs(wt, exist_ok=True)
     d["Acmecorp-CS/cap%d" % i] = {"mode": "autopilot", "agent": "claude", "pane": "w9:cap%d" % i, "drive_pid": None, "worktree": wt}
 json.dump(d, open(path, "w"))
-agents = [{"agent": "claude", "agent_status": "idle", "pane_id": "w9:cap%d" % i, "cwd": os.path.join(wtroot, "cap%d" % i)} for i in range(1, n + 1)]
+agents = [{"agent": "claude", "agent_status": status, "pane_id": "w9:cap%d" % i, "cwd": os.path.join(wtroot, "cap%d" % i)} for i in range(1, n + 1)]
 json.dump({"id": "cli:agent:list", "result": {"agents": agents, "type": "agent_list"}}, open(agents_path, "w"))
 PY
 }
@@ -631,6 +631,45 @@ out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-y --agent 
 assert_eq "$rc" 0 "名額沒滿照派: $out"
 echo "$out" | grep -qF '已有' && fail "名額沒滿不警告: $out"
 assert_eq "$(jq -r 'has("Acmecorp-CS/cap-y") | tostring' "$OPSX_STATE_DIR/dispatch.json")" true "名額沒滿照寫條目"
+# 閒著的 pane 不佔名額：8 個 pane 的 agent 都是 idle，不警告，也不是數不出名額
+mkdir -p "$R/openspec/changes/cap-i"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-i/.openspec.yaml"
+cap_state 8 idle
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-i --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "8 個 idle pane 手動派照派: $out"
+echo "$out" | grep -qF '已有' && fail "idle 的 pane 不佔名額，不警告: $out"
+echo "$out" | grep -qF '數不出' && fail "idle 的 pane 要真的數過名額: $out"
+# 在跑自己背景工作的 idle pane 照佔名額：8 個 idle pane 都停在等背景工作、2 小時內，警告 8/8
+mkdir -p "$R/openspec/changes/cap-b" "$OPSX_STATE_DIR/stop-said"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-b/.openspec.yaml"
+now="$(date +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do printf '等背景工作（bash tests/run.sh）\n%s\n' "${now%??}:${now: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"; done
+cap_state 8 idle
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-b --agent claude --mode interactive 2>&1)"; rc=$?
+assert_eq "$rc" 0 "背景工作佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "在跑背景工作的 idle pane 要佔名額: $out"
+# 停住超過 2 小時、子 change 的 subagent 還在跑：照佔名額，跟協調者一樣找得到卡的 repo
+mkdir -p "$R/openspec/changes/cap-s2"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-s2/.openspec.yaml"
+old="$(date -v-130M +%Y-%m-%dT%H:%M:%S%z)"; fresh="$(date -v-1M +%Y-%m-%dT%H:%M:%S%z)"
+for i in 1 2 3 4 5 6 7 8; do
+  printf '等背景 subagent（子 change s1）\n%s\n' "${old%??}:${old: -2}" > "$OPSX_STATE_DIR/stop-said/Acmecorp-CS-cap$i"
+  mkdir -p "$R/openspec/changes/cap$i/subs/s1"
+  printf '{"worker":"subagent-s1","step":1,"total":3,"at":"%s"}' "${fresh%??}:${fresh: -2}" > "$R/openspec/changes/cap$i/subs/s1/status.json"
+done
+cap_state 8 idle
+# 這個 repo 不在 OPSX_CODE_ROOT 底下，跟 collect 一樣要登記在 sources.toml 才找得到
+printf '[[source]]\npath = "%s"\n' "$R" > "$OPSX_STATE_DIR/sources.toml"
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-s2 --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "子 change subagent 佔滿名額手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "子 change 的 subagent 還在跑的 idle pane 要佔名額: $out"
+rm -rf "$OPSX_STATE_DIR/stop-said"
+# sources.toml 寫壞：跟協調者一樣只看 root 底下的 repo 照數，不是整個不數
+mkdir -p "$R/openspec/changes/cap-t"; printf 'schema: opsx\nkind: dev\n' > "$R/openspec/changes/cap-t/.openspec.yaml"
+printf 'not [toml\n' > "$OPSX_STATE_DIR/sources.toml"
+cap_state 8
+out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-t --agent claude --mode interactive 2>&1)"; rc=$?
+rm -f "$OPSX_STATE_DIR/sources.toml"
+assert_eq "$rc" 0 "sources.toml 壞了手動派照派: $out"
+echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "sources.toml 壞了也要數名額: $out"
 # herdr agent list 失敗：印一行數不出名額到 stdout（看板成功時只顯示 stdout），照派
 cap_state 8
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket refused' opsx dispatch cap-z --agent claude --mode interactive 2>/dev/null)"; rc=$?
@@ -679,16 +718,16 @@ cap_add "{\"Acmecorp-CS/@capf\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"p
 out="$(OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" opsx dispatch cap-s --agent claude --mode interactive 2>&1)"; rc=$?
 assert_eq "$rc" 0 "session pane 佔滿名額手動派照派: $out"
 echo "$out" | grep -qxF 'dispatch: 已有 8/8 個 pane' || fail "成員全停的 session pane 要佔名額: $out"
-# 協調者與手動派數到同一個數：上限 3；已歸檔、agent blocked 的卡，成員全停的 session 條目，一張活卡。協調者的 collect 只掃到另一個 repo 的 card-new
+# 協調者與手動派數到同一個數：上限 3；已歸檔的卡、成員全停的 session 條目、一張活卡，三個 agent 都 working；另兩張活卡的 agent idle、blocked 不佔名額。協調者的 collect 只掃到另一個 repo 的 card-new
 printf '3\n' > "$OPSX_STATE_DIR/max-working"
-CC="$FX/cc"; mkdir -p "$CC/openspec/changes/card-new" "$R/openspec/changes/archive/2026-11-17-same-ar" "$FX/capwt/sa" "$FX/capwt/sf" "$FX/capwt/sl" "$FX/coordbin"
+CC="$FX/cc"; mkdir -p "$CC/openspec/changes/card-new" "$R/openspec/changes/archive/2026-11-17-same-ar" "$FX/capwt/sa" "$FX/capwt/sf" "$FX/capwt/sl" "$FX/capwt/si" "$FX/capwt/sb" "$FX/coordbin"
 printf -- '- [ ] 1.1 x\n' > "$CC/openspec/changes/card-new/tasks.md"
 printf 'created: 2026-11-07\n\nfeatures:\n  - name: cc\n    prs:\n      - name: card-new\n        status: pending\n        depends-on: []\n        changes:\n          - name: card-new\n            status: pending\n' > "$CC/openspec/workplan.yaml"
 printf '{"repo_paths":{"cc":"%s"},"cards":[{"repo":"cc","slug":"card-new","kind":"dev","stage":"apply","section":"待指派","archived":false,"waiting":null,"open_gates":[],"dispatch":null,"agent_status":null,"mr":null,"path":"%s/openspec/changes/card-new"}],"errors":[]}' "$CC" "$CC" > "$FX/cc-collect.json"
 printf '#!/usr/bin/env bash\nexec bash "%s/opsx" "$@"\n' "$FAKES" > "$FX/coordbin/opsx"; chmod +x "$FX/coordbin/opsx"
 cap_state 0
-cap_add "{\"Acmecorp-CS/same-ar\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sa\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sa\"},\"Acmecorp-CS/@samef\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-m1\":{\"mode\":\"stopped\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"via\":\"@samef\",\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-live\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sl\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sl\"}}" \
-  "[{\"agent\":\"claude\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:sa\",\"cwd\":\"$FX/capwt/sa\",\"foreground_cwd\":\"$FX/capwt/sa\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sf\",\"cwd\":\"$FX/capwt/sf\",\"foreground_cwd\":\"$FX/capwt/sf\"},{\"agent\":\"claude\",\"agent_status\":\"idle\",\"pane_id\":\"w9:sl\",\"cwd\":\"$FX/capwt/sl\",\"foreground_cwd\":\"$FX/capwt/sl\"}]"
+cap_add "{\"Acmecorp-CS/same-ar\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sa\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sa\"},\"Acmecorp-CS/@samef\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-m1\":{\"mode\":\"stopped\",\"agent\":\"claude\",\"pane\":\"w9:sf\",\"via\":\"@samef\",\"worktree\":\"$FX/capwt/sf\"},\"Acmecorp-CS/same-live\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sl\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sl\"},\"Acmecorp-CS/same-idle\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:si\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/si\"},\"Acmecorp-CS/same-blocked\":{\"mode\":\"autopilot\",\"agent\":\"claude\",\"pane\":\"w9:sb\",\"drive_pid\":null,\"worktree\":\"$FX/capwt/sb\"}}" \
+  "[{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sa\",\"cwd\":\"$FX/capwt/sa\",\"foreground_cwd\":\"$FX/capwt/sa\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sf\",\"cwd\":\"$FX/capwt/sf\",\"foreground_cwd\":\"$FX/capwt/sf\"},{\"agent\":\"claude\",\"agent_status\":\"working\",\"pane_id\":\"w9:sl\",\"cwd\":\"$FX/capwt/sl\",\"foreground_cwd\":\"$FX/capwt/sl\"},{\"agent\":\"claude\",\"agent_status\":\"idle\",\"pane_id\":\"w9:si\",\"cwd\":\"$FX/capwt/si\",\"foreground_cwd\":\"$FX/capwt/si\"},{\"agent\":\"claude\",\"agent_status\":\"blocked\",\"pane_id\":\"w9:sb\",\"cwd\":\"$FX/capwt/sb\",\"foreground_cwd\":\"$FX/capwt/sb\"}]"
 PATH="$FX/coordbin:$PATH" OPSX_FAKE_LOG="$FX/cc.log" OPSX_TEST_COLLECT_JSON="$FX/cc-collect.json" OPSX_TEST_HERDR_AGENTS="$FX/cap-agents.json" \
   bash "$OPSX_ROOT/bin/opsx" coordinate > "$FX/cc-out" 2>&1 || fail "coordinate 要跑完: $(cat "$FX/cc-out")"
 grep -qF '同時在跑 3 個 pane，達上限 3' "$OPSX_STATE_DIR/coordinator.log" || fail "協調者要記同時在跑 3 個 pane，達上限 3: $(cat "$OPSX_STATE_DIR/coordinator.log")"
