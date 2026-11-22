@@ -481,6 +481,20 @@ mkdir -p "$WP/openspec/changes/archive/2026-11-01-old-card"
 assert_eq "$(wnew --name old-card --type 功能 -- 跟歸檔的卡同名)" old-card-2
 git -C "$WP" branch -q feat/old-branch/mika
 assert_eq "$(wnew --name old-branch --type 功能 -- 跟分支同名)" old-branch-2
+git -C "$WP" branch -q feat/old-two
+assert_eq "$(wnew --name old-two --type 功能 -- 跟兩段的分支同名)" old-two-2 "有 feat/old-two 時建不出 feat/old-two/<user>"
+s="$(wnew --name fa --type 功能 -- 跟 feature 同名)"; assert_eq "$s" fa-2 "$(cat "$FX/wp.err")"
+assert_eq "$(where "$WP" fa-2 | cut -f3)" "feat/fa-2/mika" "workplan 多一個 PR fa-2"
+assert_not_grep '沒掛進' "$FX/wp.err"
+WX="$(mk_opsx_repo wx)"
+printf 'features:\n  - name: fx\n    status: active\n    prs:\n      - name: px\n        branch: feat/px/t\n        status: pending\n        changes:\n          - name: cx\n            status: pending\n' > "$WX/openspec/workplan.yaml"
+assert_eq "$(opsx new --name cx --type 功能 --repo "$WX" -- 跟 change 同名 2> "$FX/wx.err")" cx-2 "只有 change 叫 cx 也算占用：$(cat "$FX/wx.err")"
+# workplan 讀不了（PR 的 changes 寫成 flow list）：照樣建殼、退出 0，stderr 說 workplan 讀不了，不印 Traceback
+WF="$(mk_opsx_repo wf)"
+printf 'features:\n  - name: ff\n    status: active\n    prs:\n      - name: pf\n        branch: feat/pf/t\n        status: pending\n        changes: [p, q]\n' > "$WF/openspec/workplan.yaml"
+s="$(opsx new --name x --type 功能 --repo "$WF" -- workplan 壞了 2> "$FX/wf.err")"; assert_eq "$?" 0 "$(cat "$FX/wf.err")"
+assert_eq "$s" x; assert_file "$WF/openspec/changes/x/inbox.md"
+assert_grep 'workplan' "$FX/wf.err"; assert_not_grep 'Traceback' "$FX/wf.err"
 WN="$(mk_opsx_repo wn)"; wp_fixture "$WN" ""
 s="$(opsx new --name no-milestone --type 功能 --repo "$WN" -- 沒設目前階段)"
 assert_eq "$(where "$WN" "$s")" "$s	-	feat/$s/mika" "沒有 current_milestone 就不寫 milestone"
