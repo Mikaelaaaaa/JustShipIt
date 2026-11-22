@@ -4,6 +4,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 F="$OPSX_ROOT/skills/lead/SKILL.md"
 assert_file "$F"
 
+# babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
+grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
+grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
+
 # 五塊依序出現
 line_of() { grep -nF -- "$1" "$F" | head -1 | cut -d: -f1; }
 prev=0
@@ -49,7 +54,7 @@ ASK="$(awk '/^## 怎麼問 gate/{f=1;next} f&&/^## /{exit} f' "$F")"
 heading_of() { grep -n "^$1\$" "$F" | head -1 | cut -d: -f1; }
 n_duties="$(heading_of '## Duties')"; n_ask="$(heading_of '## 怎麼問 gate')"; n_report="$(heading_of '## Report format')"
 [ -n "$n_ask" ] && [ "$n_ask" -gt "$n_duties" ] && [ "$n_ask" -lt "$n_report" ] \
-  || fail "「## 怎麼問 gate」要在 ## Duties（$n_duties）與 ## Report format（$n_report）之間，現在在 ${n_ask:-沒有}"
+  || fail "「## 怎麼問 gate」要在 ## Duties（${n_duties}）與 ## Report format（${n_report}）之間，現在在 ${n_ask:-沒有}"
 for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 題' '卡名' '例子' \
   'opsx answer' '原文' 'Other' '重講' '不代答' \
   'without the `(Recommended)`' 'at most 12 characters' \
@@ -58,10 +63,29 @@ for s in 'AskUserQuestion' 'recommended option first' '(Recommended)' '最多 4 
   'sketch' 'cards' '沒裝' 'enabledPlugins' 'opsx init --global' 'user settings' 'card pane'; do
   case "$ASK" in *"$s"*) ;; *) fail "怎麼問 gate 段缺：$s" ;; esac
 done
+# init 合併 coordinator-settings.json，手加的 enabledPlugins 會留著（specs/opsx-lead「不再叫人重加 enabledPlugins」）
+case "$ASK" in *'add it again'*|*'drops'*) fail "怎麼問 gate 段不能再叫人重加 enabledPlugins" ;; esac
 # needs: run 的 gate 不進跳卡、給指令
 NR="$(printf '%s\n' "$ASK" | grep -F 'needs: run')"
 case "$NR" in *'stays out of the pop-up'*指令*) ;; *) fail "needs: run 那行要寫 stays out of the pop-up 並給指令：$NR" ;; esac
 case "$NR" in *'goes in the pop-up'*) fail "needs: run 的 gate 不能進跳卡：$NR" ;; esac
+# by: coordinator 的 needs: run 題歸協調者代跑、照實貼回；沒標 by 的仍給使用者指令（coordinator-run-owned）
+RUN="$(printf '%s\n' "$DUTIES" | grep -F 'by: coordinator' | grep -F 'opsx answer')"
+for s in 'worktree' 'exit code' 'block ①'; do
+  case "$RUN" in *"$s"*) ;; *) fail "代跑段缺：$s — $RUN" ;; esac
+done
+case "$NR" in *'no `by: coordinator`'*'stays out of the pop-up'*) ;; *) fail "給使用者指令的只限沒標 by 的 needs: run：$NR" ;; esac
+# 跑之前重讀 status；失敗、被拒或不是單次指令都不 answer，刪掉 by 那行交給使用者（design D12、D13）
+case "$RUN" in *'re-read'*'status:'*'still `open`'*) ;; *) fail "代跑前要重讀 status、還 open 才跑：$RUN" ;; esac
+case "$RUN" in *'exits non-zero, do not run `opsx answer`'*"delete the gate's \`by: coordinator\` line"*) ;; *) fail "失敗不 answer、刪 by：$RUN" ;; esac
+case "$RUN" in *'not one command'*'delete its `by: coordinator` line'*) ;; *) fail "不是單次指令也刪 by：$RUN" ;; esac
+# force、+ refspec、推別人的 branch、刪除、合併不跑；回結果開頭寫「協調者代跑：」（design D16、D17）
+for s in 'force' '`+` refspec' "another card's branch" 'delete' 'merge'; do
+  case "$RUN" in *"never run"*"$s"*) ;; *) fail "代跑段不跑的清單缺：$s — $RUN" ;; esac
+done
+case "$RUN" in *'"協調者代跑：<指令> → exit 0'*) ;; *) fail "回結果開頭要寫「協調者代跑：」：$RUN" ;; esac
+FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
+case "$FG" in *'`by: coordinator`'*) ;; *) fail "duty 2 開頭要寫明代跑結果是例外：$FG" ;; esac
 # 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
 RR="$(printf '%s\n' "$ASK" | grep -F 'status: open')"
 for s in 'needs: run' 'waits-on' 'subs/' '--sub'; do
@@ -75,6 +99,83 @@ case "$ASK" in *'不用 `compare` to choose'*) ;; *) fail "怎麼問 gate 段要
 # 職責 2 指向這段
 printf '%s\n' "$DUTIES" | grep '^2\. ' | grep -qF '怎麼問 gate' || fail "職責 2 要指向「怎麼問 gate」段"
 
+# 職責 8–11（specs/opsx-lead「① 一直追要使用者做的事」「可授權的 approval gate 給一次性授權指令」「閒時派待指派」
+# 「收件匣派去 explore」「寫 skill 的卡派工時要求 skill-creator」）：用編號切出那一條，別條的字不算。
+# 比對整句，反例的那句也要在，單字會被別處的字滿足（working 在 max-working 裡）
+duty() { printf '%s\n' "$DUTIES" | grep "^$1\. "; }
+D1="$(duty 1)"; D8="$(duty 8)"; D9="$(duty 9)"; D10="$(duty 10)"; D11="$(duty 11)"
+# 協調者的 report 待你決定通知跟 Stop hook 的那行是同一件事；處理完的判準；職責 9 只派沒有條目的卡
+for s in '[<card>] report 待你決定' 'the same item as the hook'; do
+  case "$D1" in *"$s"*) ;; *) fail "職責 1 缺：$s — $D1" ;; esac
+done
+case "$D8" in *'`waiting.type` is no longer `report 待你決定`'*) ;; *) fail "職責 8 缺 report 待你決定何時算處理完 — $D8" ;; esac
+case "$D9" in *'Take only a card that has no dispatch.json entry'*) ;; *) fail "職責 9 要是一句「只派沒有條目的卡」 — $D9" ;; esac
+case "$D9" in *'whose dispatch.json entry is not `mode: stopped`'*) fail "職責 9 不能留舊的那句，會跟新規則矛盾 — $D9" ;; esac
+for s in 'leave ① out only when nothing is pending' 'starting with `!`' '下一輪' 'until it is gone' \
+  'what it unblocked has moved' '`action:` is push, mr, install or delete' '--grant repo'; do
+  case "$D8" in *"$s"*) ;; *) fail "職責 8 缺：$s — $D8" ;; esac
+done
+for s in 'no pane is working and ① has no open gate' 'priority level, then workplan order' 'P2 included' \
+  'only a card whose workplan dependencies are all merged' 'mode: stopped' 'max-working' \
+  'While any pane is working, dispatch nothing extra' 'Keep the number of working panes below max-working'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
+done
+# 名額只算工作中的 pane（specs/dispatch-concurrency）：idle、blocked、done 不佔名額，留著 live pane 的說法會跟協調者數得不一樣
+case "$D9" in *'live pane count'*) fail "職責 9 要說工作中的 pane 數，不是 live pane count — $D9" ;; esac
+for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
+  'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
+  case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
+done
+case "$D10" in *'P2 included'*) fail "職責 10 不能派 P2 收件匣卡：$D10" ;; esac
+for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv' 'agents/*.md' \
+  'evaluation loop' 'only changes code gets no such note'; do
+  case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
+done
+# 授權指令由使用者自己答：職責 2 的不代答不變，Duties 裡沒有自動採用
+duty 2 | grep -qF 'answer none yourself' || fail "職責 2 要保留 answer none yourself"
+case "$DUTIES" in *自動採用*) fail "Duties 不能有「自動採用」" ;; esac
+
+# 流量控管（specs/opsx-lead「每輪依序看四欄」「coordinate 放棄的卡列進 ①」「有 open gate 時，跳窗不擋住同一輪的其他欄」
+# 「載入後開 10 分鐘一輪」「這個 session 已有流量控管的 loop 時不開第二個」「跳窗開著時不搶著跑」
+# 「context 壓縮後不把舊的 ?? 行列進 ①」「同一個 gate 的 ?? 行在兩輪都出現時不輸出」「用量上限暫停時，等待中的卡不列進 ①」
+# 「沒事不輸出」「① 少了一項時輸出目前的 ①」「有處理掉的事就回報」「這一輪不列 forge 上的 open MR」）：只切職責 19 那一條
+D19="$(duty 19)"
+[ -n "$D19" ] || fail "找不到職責 19（流量控管）"
+for s in 'Flow control' '`opsx collect`' '待處理, then 等待中, then 待指派, then 收件匣' \
+  'list the scheduled tasks of this session with CronList; when none has the prompt `職責 19 流量控管：跑一輪`, start `/loop 10m 職責 19 流量控管：跑一輪`' \
+  'pop-up is open' 'waits until the pop-up returns' 'never open a second pop-up' \
+  'open the pop-up only after the 等待中, 待指派 and 收件匣 columns are done' \
+  'never push a pane yourself' 'lost its --settings' 'redispatches a dead one' \
+  'read only the latest coordinate run in `$OPSX_STATE_DIR/coordinator.log`, from the last `== coordinator 開始` line to its `== 結束` line' \
+  'list each `??` line from it in block ①' 'unless its gate is already there from 待處理' \
+  'Compare block ① by card and reason, never by the timestamps' \
+  'outputs nothing' 'not even a line saying so' \
+  'handled nothing and block ① is the same as in your last output' 'what coordinate already pushed does not count as handled' \
+  'When block ① differs from your last output, by an item added or gone, output the current block ①' \
+  'fully handled that the user does not need to know about gets no reply' 'report it in block ④ together with the current block ①' \
+  'duty 14 does not run in it' \
+  '待處理 by duties 2 and 8' '待指派 by duty 9' '收件匣 by duty 10'; do
+  case "$D19" in *"$s"*) ;; *) fail "職責 19 缺：$s — $D19" ;; esac
+done
+# 三欄照職責 2、9、10：職責 19 不另訂派工上限、不代答；推 pane 是 coordinate 的事；等協調者是 collect 給任何閒著 pane 的預設標籤，不是 coordinate 放棄
+for s in 'opsx merge' 'glab mr merge' 'gh pr merge' 'CronCreate' 'max-working' 'P2' 'Recommended' 'opsx answer' 'opsx dispatch' \
+  'herdr pane send-keys' 'herdr pane read' 'herdr agent prompt' 'send-text' 'opsx relaunch' '「繼續」' \
+  'since your last round' '等協調者' 'confirmation screen' 'with this duty as its prompt' 'pop-up first' 'heartbeat'; do
+  case "$D19" in *"$s"*) fail "職責 19 不能有：$s — $D19" ;; esac
+done
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
+# 職責 2：opsx-workflow 的 decision 由 opsx coordinate 照建議答並列在 ④，其餘 gate 轉給使用者（specs/opsx-lead「opsx repo 的決定題由 coordinate 照建議答」「其他 gate 仍不代答」）
+D2="$(grep -E '^2\. ' "$F")"; [ -n "$D2" ] || fail "缺職責 2"
+for k in 'opsx-workflow' 'decision' '照建議' 'ponytail' '④' 'Every other gate is the user'"'"'s' \
+  'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' '①'; do
+  case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
+done
+case "$D2" in *"Every gate is the user's"*) fail "職責 2 不該再寫每個 gate 都是使用者的" ;; esac
+# ④ 的資料來源是 decisions.tsv（D14）；另開卡題的範圍判斷只在其他 repo（D13）
+for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event' 'In other repos, a gate that asks whether to open another card'; do
+  case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
+done
+case "$D2" in *"lists what it answered in block ④"*) fail "職責 2 不能寫成 opsx coordinate 自己列 ④" ;; esac
 echo ok

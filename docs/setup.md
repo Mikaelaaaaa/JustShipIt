@@ -5,7 +5,7 @@
 ## 安裝（Claude Code 2.1.275+）
 
 ```
-/plugin install opsx-workflow --marketplace Mikaelaaaaa/opsx-workflow
+/plugin install opsx-workflow --marketplace Mikaelaaaaa/JustShipIt
 ```
 
 或本機路徑：`claude plugin marketplace add <本機 clone 路徑> && claude plugin install opsx-workflow@opsx-workflow`。
@@ -19,7 +19,11 @@
 
 標準設定加了 `pnpm docs:api` 與 `pnpm docs:api *` 的沙盒排除之後，之前裝過的機器要再跑一次 `opsx init --global`；沒跑的話 `opsx init --check` 會報缺 `sandbox.excludedCommands: pnpm docs:api`，agent 跑 `pnpm docs:api` 仍在沙盒裡、tsx 回 `listen EPERM`。
 
-herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx`，第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
+herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx`，第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。主控 session 的設定另外讓 `opsx dispatch *` 在沙盒外跑（建 worktree 要寫 `.git/worktrees`，沙盒內唯讀），使用者層不放；升級後要在沙盒外重跑 `opsx init --global` 才拿得到，已在跑的協調者要關掉、用 `opsx lead` 重開才會讀到新設定，重寫會蓋掉手加的 `enabledPlugins`；裝好後在協調者裡手動驗下面三件事。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
+
+- `gh pr view <任一 PR>` 能跑：`--settings` 沒蓋掉使用者層的排除清單。
+- `opsx dispatch <測試卡> …` 真的建出 `.claude/worktrees/<測試卡>`：主控 session 自己的排除規則有生效。
+- `opsx dispatch x; touch <repo>/.git/worktrees/opsx-probe && echo OUTSIDE`：`.git/worktrees` 在沙盒內唯讀，只有沙盒外寫得進去。印出 `OUTSIDE` 表示 `;` 後面那段也在沙盒外跑：排除規則不會拆開串接的指令，串接的整串都在沙盒外。驗完刪掉探針檔 `<repo>/.git/worktrees/opsx-probe`。結果：未實測。
 
 裝了 Orca（PATH 上有 `orca`）時，`opsx init` 會用 `orca repo add --path <repo 根目錄>` 把 repo 登記進 Orca，已登記就說已有。卡的 worktree 放在 `.claude/worktrees/<slug>`，Orca 把它算成內建來源 `.claude/worktrees/*`，這個來源預設隱藏、CLI 改不到：要在 Orca 側欄把它設成顯示一次（也可以設成全域預設），之後卡的 worktree 才會出現在側欄、點了就開。opsx 不設 `--external-worktree-visibility`，免得別的 session 的暫存 worktree 也出現。沒有 `orca` 就略過；Orca 沒開、或在 Claude 沙盒內跑 init（orca 會 EPERM）時只警告一行，init 照樣成功，Orca 開著時在一般 terminal 重跑 `opsx init` 就好。
 
@@ -36,7 +40,7 @@ herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 
 資料全是投影（`opsx collect`：`openspec/changes/*/`、`~/.local/state/opsx/`、`herdr agent list`、`glab mr view`），看板自己不存狀態。
 
 - 網頁：herdr 裡叫 action `open-board`（`opsx init --global` 已 `herdr plugin link`），或 `bash herdr-board/scripts/open-board.sh`。
-  首頁四段 待處理 / 進行中 / 待指派 / 已完成，另有收件匣 tab（見下）；按鈕背後是 `opsx answer`（回 gate、三種授權答案）、`opsx dispatch`、`opsx merge`（寫一次性核准，叫 agent `/babysit merge`，閘門只放行那一次）、`opsx stop`。
+  五個頁面：`#board` 看板（總覽四格，加六欄 待處理 / 進行中 / 等待中 / 待指派 / 收件匣 / 已完成）、`#card/<repo>/<slug>` 卡片細節（動作、session 樹、卡內檔案）、`#changes` 全部卡、`#archived` 已歸檔、`#log` 紀錄；篩選條件寫在 hash 的 `?` 之後。進行中只放 apply 之後、pane 正在工作的卡；pane 沒在工作的（等 CI、等協調者、等別張卡合併、等背景工作）放等待中；還沒到 apply 的一律在待指派。按鈕背後是 `opsx answer`（回 gate、三種授權答案）、`opsx dispatch`、`opsx merge`（寫一次性核准，叫 agent `/babysit merge`，閘門只放行那一次）、`opsx stop`；已合併、沒有活 pane 的卡另有「歸檔」，跑 `openspec archive <slug> -y`（有 pane 的留給協調者收尾）。
 - 右側 pane：herdr 裡叫 action `open-pane`，在按鍵的 pane 右邊以 split 開 pane `board`（`python3 herdr-board/tui.py`）；這個 tab 已經開著就跳過去，不疊第二個。同一份清單，↑↓ 選、Enter 跳 pane、i / d 展開收件匣 / 已完成、q 關；不回 gate、不派工。
 - 快捷鍵：herdr 的鍵綁 action，在 `~/.config/herdr/config.toml` 加兩段（prefix 是你 herdr 的前綴鍵）：
   ```toml
@@ -51,7 +55,7 @@ herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 
   command = "opsx-board.open-pane"
   ```
 - 對原型看畫面：`python3 herdr-board/server.py --collect herdr-board/tests/fixtures/collect-sample.json`，開 `http://127.0.0.1:8791/#token=$(cat ~/.local/state/opsx/board-token)`。
-- 收件匣 tab：沒派出、還沒 explore 的卡（explore 過才到首頁待指派），依 inbox.md 的 `source` 分組，加上沒有 repo 的「待分類」。每個按鈕都有對應的子命令，終端機做得到同一件事：
+- 收件匣欄：沒派出、還沒 explore 的卡（explore 過才到待指派欄），依 inbox.md 的 `source` 分組，加上沒有 repo 的「待分類」。每個按鈕都有對應的子命令，終端機做得到同一件事：
   - `opsx new [--repo <path>] -- <一句話>`：＋新增。範圍選到單一 repo 時建在那裡（slug `me-<YYYYMMDD-HHMM>`），否則寫進 `~/.local/state/opsx/unfiled/` 待分類。
   - `opsx file <slug> --repo <path>`：待分類選 repo 建卡。
   - `opsx drop <slug> [--repo <path>] -- <理由>`：捨棄，理由必填；收件卡歸檔並標 `outcome: declined`，待分類移到 `unfiled/dropped/`。

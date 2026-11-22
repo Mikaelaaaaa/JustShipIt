@@ -117,7 +117,10 @@ $missing
     confirmed="$(sed -n 's/^確認: *//p' "$d/report.md" | head -1)"
     head_sha="$(git -C "$(hook_cwd)" rev-parse HEAD 2>/dev/null)"
     # 確認: <sha> 之後這個 branch 自己沒有新的一般 commit（只合併了 base 分支，merge commit 與它帶進來的別人的 commit 不算）就視同確認過
-    if [ "$last_commit" -gt "$report_ts" ] && { [ -z "$confirmed" ] || ! confirmed_covers_head "$confirmed" "$head_sha"; }; then
+    # archive 站到這裡只會是沒 MR 的卡：HEAD 相對 <primary remote>/main 沒有自己的 commit 時，HEAD 較新只是快轉到了較新的 main，沒有東西要重審。
+    # 看 HEAD 而不是 workplan 的 branch：session 可能在另一個 branch 上 commit
+    if { [ "$stage" != archive ] || [ "$(git -C "$(hook_cwd)" rev-list --count "$(primary_remote "$(hook_cwd)")/main..HEAD" 2>/dev/null)" != 0 ]; } \
+      && [ "$last_commit" -gt "$report_ts" ] && { [ -z "$confirmed" ] || ! confirmed_covers_head "$confirmed" "$head_sha"; }; then
       printf '%s' "review|opsx：$slug 在 report.md 之後又有新 commit，review 沒涵蓋到。再跑一次 /opsx-workflow:review $slug 再停。"
       return 0
     fi
@@ -194,7 +197,7 @@ write_auto_gate() { # <dir> <slug> <站>；站是 facts 時問的是事實欄位
 }
 
 # 放行不等於這一站做完（真做完時 hook 會擋，導向下一站）：只報停在哪、為什麼。
-# 印「push|原因」或「quiet|原因」。等待類不推：gate 由 coordinate 的 gate 事件送，MR 能合併由「可以合併」送，其餘只是狀態，看板看得到。
+# 印「push|原因」或「quiet|原因」。等待類不推：gate 由 coordinate 的 gate 事件送，MR 能合併由「可以合併」送、合不了由「MR 卡住」送，其餘只是狀態，看板看得到。
 # 站放行而沒有要擋的條件要推：autopilot 下沒有別的通知蓋得到它
 wait_reason() { # <dir> <站>
   if [ "$(st_open_gates_blocking "$1")" -gt 0 ]; then printf 'quiet|等人答 gate（%s 站）' "$2"
@@ -206,23 +209,37 @@ wait_reason() { # <dir> <站>
   fi
 }
 
-# coordinate 只在 MR ready 時送「可以合併」，MR 合不了時沒有別的通知，要推。只有 ready、CI 還在跑、查不到 MR 狀態不推
+# MR 卡住只記不推：由 coordinate 送（它在 agent 停了之後還會再看），兩邊都推會重複。
+# MR 全綠但卡沒過（邏輯表舊、review 項沒處理）coordinate 不送，這裡要推。
+# 升級前寫的 MR 快取沒有 stuck 欄位，分不出卡住沒有，當查不到
 babysit_reason() {
-  local blocked=""
-  [ "$mr_rc" -eq 0 ] && blocked="$(printf '%s' "$mr_out" | jq -r '
-    select(.error == null and .conditions != null) |
-    [ (if .pipeline_status == "failed" then " CI 紅"
-       elif (.conditions.pipeline | not) and ((.pipeline_status // "") | IN("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled") | not)
-       then " " + (.pipeline_status // "CI") else empty end),
-      (if .conditions.no_conflicts then empty else "衝突" end),
-      (if .conditions.not_draft then empty else " draft" end),
-      (if .conditions.threads then empty else "要求修改" end),
-      (if .conditions.opened then empty else "已關閉" end)
-    ] | .[0] // empty' 2>/dev/null)"
-  # 原因前面的空白跟著原因走：英文前面空一格，中文直接接「卡在」
-  if [ -n "$blocked" ]; then printf 'push|babysit 做完，MR 卡在%s' "$blocked"
-  else printf 'quiet|babysit 一輪做完，等 MR 合併'
-  fi
+  local stuck="?" card
+  [ "$mr_rc" -eq 0 ] && stuck="$(printf '%s' "$mr_out" | jq -r 'if .error != null or (has("stuck") | not) then "?" else .stuck // "" end' 2>/dev/null || printf '?')"
+  case "$stuck" in
+    "?") printf 'quiet|babysit 一輪做完，查不到 MR 狀態' ;;
+    "")
+      card="$(ready_card_blocker)"
+      if [ -n "$card" ]; then printf 'push|babysit 做完，%s' "$card"
+      else printf 'quiet|babysit 一輪做完，等 MR 合併'
+      fi ;;
+    # 英文開頭的原因前面空一格，中文直接接「卡在」；coordinate.py 的 spaced 用同一條規則
+    [A-Za-z]*) printf 'quiet|babysit 做完，MR 卡在 %s' "$stuck" ;;
+    *) printf 'quiet|babysit 做完，MR 卡在%s' "$stuck" ;;
+  esac
+}
+
+# MR 全綠，但邏輯表不是 MR head 產的、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
+# 印 mergeready.card_blockers 的第一條；判斷跟 collect 共用。MR JSON 讀不懂或沒有 python 時印空字串，照原本不推（hook 不能以非 0 結束）
+ready_card_blocker() {
+  printf '%s' "$mr_out" | OPSX_SLUG="$slug" OPSX_DIR="$d" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
+import json, os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import mergeready
+mr = json.load(sys.stdin)
+d = os.environ["OPSX_DIR"]
+with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
+    report = f.read()
+got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, os.path.isfile(os.path.join(d, "logic-map.md")), mr.get("head_sha"))
+print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
 
 # 停住紀錄：每次放行都換成這次的原因與時間，推不推都記，看板（opsx collect 的 stopped）讀它；擋停時刪掉

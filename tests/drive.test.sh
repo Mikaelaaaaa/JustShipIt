@@ -289,6 +289,20 @@ unset OPSX_TEST_PANE_TEXT
 out="$(PATH="$FX/sleepbin:$PATH" OPSX_DRIVE_POLL=7 OPSX_DRIVE_MAX=3 opsx drive retry-backoff 2>&1)"; assert_eq "$?" 0 "drive babysit 睡完: $out"
 assert_grep '^agent prompt retry-backoff /opsx-workflow:babysit retry-backoff --wait$' "$OPSX_FAKE_LOG"
 assert_eq "$(sleep_without_wait)" 0 "babysit 的 sleep 之後要先 agent wait: $(cat "$OPSX_FAKE_LOG")"
+# babysit 只在 prompt 送進 agent 時等 poll；herdr 錯誤已退避睡過就不再睡。數第一次與第二次送出 /babysit 之間的 sleep
+# 每列：<prompt 錯誤碼，ok 是成功>:<blocked 後 --until working 的 wait 結果，- 是不呼叫>:<sleep 行數>
+for row in ok:-:1 boom:-:1 agent_prompt_stalled:-:1 timeout:-:1 agent_blocked:boom:1 agent_blocked:ok:0; do
+  IFS=: read -r pcode wcode want <<< "$row"
+  reset_apply; printf '## 1\n\n- [x] 1.1 a\n' > "$C/tasks.md"
+  printf '{"phase":"apply","step":8,"total":8,"label":"x","tests":"green","at":"2026-11-05T15:00:00+08:00"}' > "$C/status.json"
+  printf '# report\n\n## MR\nhttps://gitlab.example.com/acmecorp/Acmecorp-CS/-/merge_requests/431\n' > "$C/report.md"
+  printf '%s\n' "$pcode" > "$FX/perr"
+  if [ "$wcode" = - ]; then : > "$FX/werr"; else printf 'ok\n%s\n' "$wcode" > "$FX/werr"; fi
+  out="$(PATH="$FX/sleepbin:$PATH" OPSX_TEST_ON_PROMPT="$FX/noop.sh" OPSX_TEST_PROMPT_ERR="$FX/perr" OPSX_TEST_WAIT_ERR="$FX/werr" OPSX_DRIVE_POLL=7 OPSX_DRIVE_MAX=2 opsx drive retry-backoff 2>&1)"; assert_eq "$?" 0 "drive babysit $row: $out"
+  assert_eq "$(grep -c '^agent prompt retry-backoff /opsx-workflow:babysit retry-backoff --wait$' "$OPSX_FAKE_LOG")" 2 "babysit $row 要送兩次: $(cat "$OPSX_FAKE_LOG")"
+  assert_eq "$(awk '/^agent prompt retry-backoff \/opsx-workflow:babysit/ {n++} n == 1 && /^sleep 7$/ {c++} END {print c + 0}' "$OPSX_FAKE_LOG")" "$want" "babysit $row 兩次送出之間的 sleep 數: $(cat "$OPSX_FAKE_LOG")"
+  assert_eq "$(sleep_without_wait)" 0 "babysit $row 的 sleep 之後要先 agent wait: $(cat "$OPSX_FAKE_LOG")"
+done
 # herdr 回錯誤時 herdr_step 退避睡 poll 秒，睡完也要先重等；迴圈頂端的 wait 失敗不算 settled
 printf '{"Acmecorp-CS/retry-backoff":{"mode":"drive","pane":"p42","grants":[]}}' > "$OPSX_STATE_DIR/dispatch.json"
 reset_apply; printf 'boom\n' > "$FX/perr"

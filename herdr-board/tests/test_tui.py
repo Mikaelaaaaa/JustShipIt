@@ -3,6 +3,7 @@
 跑法：python3 -I herdr-board/tests/test_tui.py
 """
 import curses
+import datetime
 import importlib.util
 import os
 import pathlib
@@ -50,9 +51,18 @@ class RowsTest(unittest.TestCase):
         slugs = [r["card"]["slug"] for r in rows if r["kind"] == "card"]
         self.assertEqual(slugs, ["ask1", "ask2", "run1", "ready1"], "待處理在最上，已完成收起")
         headers = [r["section"] for r in rows if r["kind"] == "header"]
-        self.assertEqual(headers, ["待處理", "進行中", "待指派", "收件匣", "已完成"])
+        self.assertEqual(headers, ["待處理", "進行中", "等待中", "待指派", "收件匣", "已完成"])
         collapsed = {r["section"]: r["collapsed"] for r in rows if r["kind"] == "header"}
         self.assertTrue(collapsed["收件匣"] and collapsed["已完成"], "收件匣與已完成預設收起")
+
+    def test_waiting_section_between_running_and_ready(self):
+        data = dict(DATA, cards=DATA["cards"] + [card("wait1", "等待中", pane="p6", status={"phase": "babysit", "step": "1", "total": "1", "label": "x"})])
+        rows = tm.rows(data, done_open=False)
+        slugs = [r["card"]["slug"] for r in rows if r["kind"] == "card"]
+        self.assertEqual(slugs, ["ask1", "ask2", "run1", "wait1", "ready1"], "等待中在進行中與待指派之間")
+        counts = {r["section"]: r["count"] for r in rows if r["kind"] == "header"}
+        self.assertEqual((counts["進行中"], counts["等待中"]), (1, 1), "等待中的卡不算在進行中")
+        self.assertEqual(next(r["mark"] for r in rows if r["kind"] == "card" and r["card"]["slug"] == "wait1"), "◌")
 
     def test_inbox_open_lists_inbox_before_done(self):
         slugs = [r["card"]["slug"] for r in tm.rows(DATA, done_open=True, inbox_open=True) if r["kind"] == "card"]
@@ -90,6 +100,14 @@ class RowsTest(unittest.TestCase):
         line = tm._line(c)
         self.assertIn("停住：等 reviewer（review 站）", line)
         self.assertIn("10:05", line)
+
+    def test_card_line_stopped_date_when_not_today(self):
+        tz = datetime.timezone(datetime.timedelta(hours=8))
+        today = datetime.datetime.now(tz).replace(hour=9, minute=7, second=0, microsecond=0).isoformat()
+        base = dict(card("s5", "待指派"), agent_status=None)
+        self.assertIn("停住：等 reviewer 09:07", tm._line(dict(base, stopped={"reason": "等 reviewer", "at": today})), "今天的只有時:分")
+        old = {"reason": "等 reviewer", "at": "2026-11-10T14:03:00+08:00"}
+        self.assertIn("停住：等 reviewer 11/10 14:03", tm._line(dict(base, stopped=old)), "不是今天的加月/日")
 
     def test_card_line_working_hides_stopped(self):
         stopped = {"reason": "等 reviewer（review 站）", "at": "2026-11-16T10:05:00+08:00"}
@@ -132,7 +150,7 @@ class SessionRowsTest(unittest.TestCase):
     def test_session_replaces_its_mains(self):
         rows = tm.rows(SDATA, done_open=False)
         i = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "進行中")
-        j = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "待指派")
+        j = next(i for i, r in enumerate(rows) if r["kind"] == "header" and r["section"] == "等待中")
         names = [r["session"]["feature"] if r["kind"] == "session" else r["card"]["slug"] for r in rows[i + 1:j]]
         self.assertEqual(names, ["fb", "solo"], "進行中有 fb 一行與 solo 一行，沒有 bt")
         self.assertEqual(rows[i]["count"], 2, "區塊計數含 session")

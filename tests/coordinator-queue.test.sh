@@ -33,11 +33,15 @@ assert_eq "$(cat "$Q")" "[c] 停住：等人答 gate" "排進佇列一行"
 look() { # <期望結果> <說明>：其餘條件由呼叫前設好的環境變數決定
   : > "$OPSX_FAKE_LOG"; rm -f "$Q"
   local got rc; got="$(say '[x] 一則')"; rc=$?
-  assert_eq "$got" "$1" "$2"
+  assert_eq "$got" "${1/lost/unavailable}" "$2"
   case "$1" in
     sent) assert_eq "$rc" 0 "$2 的 rc"; assert_eq "$(prompts)" 1 "$2 要送" ;;
     queued) assert_eq "$rc" 0 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_eq "$(cat "$Q")" "[x] 一則" "$2 排進佇列" ;;
-    unavailable) assert_eq "$rc" 1 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_no_file "$Q" ;;
+    unavailable) assert_eq "$rc" 1 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_no_file "$Q"
+      assert_not_grep '^notification show' "$OPSX_FAKE_LOG" ;;
+    # 名字對不到活著的 pane：命令列版自己發桌面錯誤，發出回 3
+    lost) assert_eq "$rc" 3 "$2 的 rc"; assert_eq "$(prompts)" 0 "$2 不送"; assert_no_file "$Q"
+      assert_grep '^notification show \[opsx\] 協調者 opsx-coordinator 對不到活著的 pane（.*） --body \[x\] 一則 --sound request$' "$OPSX_FAKE_LOG" ;;
   esac
 }
 # 一般場景：實跑樣本（2026-11-16 協調者 pane w9:p2，--format ansi，輸入框空、裡面是 dim 的提示字）
@@ -56,7 +60,7 @@ reset; { printf '❯ 舊的一句\n\n'; cat "$SAMPLE"; } > "$FX/old"; OPSX_TEST_
 reset; printf 'Do you want to proceed?\n  1. Yes\n  2. No\n' > "$FX/dialog"; OPSX_TEST_AGENT_READ="$FX/dialog" look queued "沒有 ❯ 開頭的行"
 reset; OPSX_TEST_AGENT_READ_FAIL=1 look queued "agent read 失敗"
 reset; OPSX_TEST_AGENT_GET_RAW='{"result":{"agent":{"agent_status":"idle"}}}' look queued "agent get 讀不出 pane"
-reset; OPSX_TEST_AGENT_GET_ERR=agent_not_found look unavailable "agent get 回 agent_not_found"
+reset; OPSX_TEST_AGENT_GET_ERR=agent_not_found look lost "agent get 回 agent_not_found"
 # herdr 本身叫不通（不是協調者不在）：不排隊，交回呼叫者照原本的方式重試，免得之後跟重試的那一則重複送
 reset; got="$(OPSX_TEST_AGENT_GET_ERR=socket_unreachable say '[x] 一則')"; rc=$?
 assert_eq "$got" error "agent get 其他錯誤的結果"; assert_eq "$rc" 1 "agent get 其他錯誤的 rc"
