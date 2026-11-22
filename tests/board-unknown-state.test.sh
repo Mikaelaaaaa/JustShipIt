@@ -36,8 +36,9 @@ const rs = html.indexOf(RS), re = html.indexOf(RE);
 if (rs < 0 || re < rs) throw new Error(`index.html 找不到 ${RS} 到 ${RE} 的範圍`);
 const fnSrc = name => { const a = html.indexOf(`function ${name}(`); return html.slice(a, html.indexOf('\n}', a) + 2); };
 const joinDot = new Function(fnSrc('joinDot') + 'return joinDot;')();
-const row = (data, c) => new Function('esc', 'bot', 'herdrWhy', 'priorityBadge', 'data', 'ui', 'key', 'since', 'PHASE_LABEL', 'COND', 'joinDot',
-  html.slice(rs, re) + ';return rowRunning;')(esc, bot, herdrWhy, () => '', data, {sel: null}, () => 'k', () => '1m', {}, [], joinDot)(c);
+const nw = new Function(html.slice(html.indexOf('const nw='), html.indexOf('\n', html.indexOf('const nw='))) + ';return nw;')();
+const row = (data, c) => new Function('esc', 'bot', 'herdrWhy', 'priorityBadge', 'data', 'ui', 'key', 'since', 'PHASE_LABEL', 'COND', 'joinDot', 'nw',
+  html.slice(rs, re) + ';return rowRunning;')(esc, bot, herdrWhy, () => '', data, {sel: null}, () => 'k', () => '1m', {}, [], joinDot, nw)(c);
 const running = card({title: 't', repo: 'r', stage: 'apply', status: null, mr: null, agent_status: null});
 const why = 'herdr agent list 失敗：socket gone';
 assert.ok(row({errors: [{source: 'herdr', message: why}]}, running).includes(`title="${why}"`), 'title 要帶 errors 的 herdr 原文');

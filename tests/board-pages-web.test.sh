@@ -163,8 +163,9 @@ assert.ok(chg.archivedHtml([], c => '').includes('沒有符合的卡'));
 // ---------- 看板欄的卡 ----------
 const constOf = name => new Function(html.slice(html.indexOf(`const ${name}=`), html.indexOf(';', html.indexOf(`const ${name}=`)) + 1) + `return ${name};`)();
 const joinDot = new Function(fn('joinDot') + '\n};return joinDot;')();
-const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', 'joinDot', fn('rowAttn') + '\n};return rowAttn;')(
-  esc, constOf('WAIT_BADGE'), constOf('GRANT_OF'), () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, joinDot);
+const nw = new Function(html.slice(html.indexOf('const nw='), html.indexOf('\n', html.indexOf('const nw='))) + ';return nw;')();
+const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', 'joinDot', 'nw', fn('rowAttn') + '\n};return rowAttn;')(
+  esc, constOf('WAIT_BADGE'), constOf('GRANT_OF'), () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, joinDot, nw);
 // Scenario 授權待處理的按鈕：按「這張卡」送 grant card
 const grantRow = rowAttn({slug: 'g', title: 'g', repo: 'r', waiting: {type: '等待授權', gate_id: 'g1', question: 'push?', options: ['這次', '這張卡', '這個 repo 永遠', '拒絕']}});
 const grantBtn = label => (new RegExp(`<button[^>]*>${label}</button>`).exec(grantRow) || [''])[0];
@@ -288,7 +289,7 @@ assert.ok(/<button[^>]*id="sync-btn"[^>]*data-act="sync">立即同步<\/button>/
 const plain = s => s.replace(/ /g, ' ');
 for (const [parts, want] of [[['a', '', 'b'], 'a · b'], [['', 'b'], 'b'], [['a', ''], 'a'], [[], '']])
   assert.strictEqual(plain(joinDot(parts)), want, JSON.stringify(parts));
-assert.ok(!/\s·\s/.test(joinDot(['a', 'b']).replace(/ /g, '')), '點兩側是不換行空格，折行時不落單');
+assert.strictEqual(joinDot(['a', 'b']), 'a' + String.fromCharCode(0xa0) + '· b', '點前是不換行空格、點後是一般空格：只能在點後折行，點不會落在行首');
 const mergeNoSha = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: ''}, waiting: {type: '可以合併'}});
 assert.ok(!/·\s*<\/div>/.test(mergeNoSha) && !mergeNoSha.includes('class="sep"'), '沒有 sha 時「五個條件都通過」後面沒有落單的點：' + mergeNoSha);
 const recRow = rowAttn({slug: 'g', title: 'g', repo: 'r', waiting: {type: '等待授權', gate_id: 'g1', question: 'push?', recommended: '這張卡', options: ['這次', '拒絕']}});
@@ -358,5 +359,25 @@ const narrow = css.slice(css.indexOf('@media (max-width:900px)'));
 assert.ok(narrow.includes('#new-open,#sync-btn{font-size:0') && narrow.includes('#new-open::before') && narrow.includes('#sync-btn::before'), '窄版新增與同步是圖示按鈕');
 assert.ok(narrow.includes('#stamp{display:none}') && narrow.includes('.coord{font-size:0'), '窄版協調者與更新於收成一個點');
 assert.ok(fn('renderTop').includes("$('#coord').title="), '協調者點的 tooltip 帶狀態與更新時間');
+
+// ---------- 第 3 輪瀏覽器檢查（browser-review-3.md） ----------
+// 1 總覽四格同高：2×2 時兩列也一樣高
+assert.ok(rule('.ov').includes('grid-auto-rows:1fr'), '總覽每一列同高：' + rule('.ov'));
+// 2 卡片 meta 只在「·」處換行：每段包在不換行的 span 裡
+assert.ok(rule('.nw').includes('white-space:nowrap'), '.nw 不換行');
+for (const r of ['rowAttn', 'rowRunning', 'rowReady', 'rowDone', 'rowInbox'])
+  assert.ok(/<div class="m">\$\{joinDot\(\[nw\(/.test(fn(r)), r + ' 的 meta 每段包 nw()');
+assert.strictEqual(nw('agent:review'), '<span class="nw">agent:review</span>');
+assert.strictEqual(nw(''), '', '空段不包，joinDot 才丟得掉');
+// 3 細節頁不露絕對路徑：顯示 repo · openspec/changes/…，完整路徑放 title
+const plSrc = html.slice(html.indexOf('function cardPathLabel('), html.indexOf('\n}', html.indexOf('function cardPathLabel(')) + 2);
+const cardPathLabel = new Function('esc', plSrc + 'return cardPathLabel;')(esc);
+const lbl = cardPathLabel({repo: 'acme-web', path: '/home/someone/code/acme-web/openspec/changes/team-invites-email/'});
+assert.ok(lbl.includes('>acme-web · openspec/changes/team-invites-email<'), '顯示 repo 相對路徑：' + lbl);
+assert.ok(lbl.includes('title="/home/someone/code/acme-web/openspec/changes/team-invites-email/"'), '完整路徑在 title');
+assert.ok(!lbl.includes('>/home/'), '畫面上的字不含絕對路徑');
+assert.ok(cardPathLabel({repo: 'a', path: '/x/a/openspec/changes/archive/2026-11-20-old/'}).includes('>a · openspec/changes/archive/2026-11-20-old<'), '已歸檔卡也是相對路徑');
+assert.strictEqual(cardPathLabel({repo: 'a', path: null}), '', '沒有 path 不畫');
+assert.ok(fn('cardActs').includes('${cardPathLabel(c)}') && !fn('cardActs').includes("esc(c.path||'')"), '操作列用 cardPathLabel，不印絕對路徑');
 JS
 echo ok
