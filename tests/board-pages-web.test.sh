@@ -152,7 +152,7 @@ const arch = [
   {repo: 'a', slug: 'older', title: '更舊', archived: true, path: '/c/a/openspec/changes/archive/2026-10-01-older', mr: null, priority: null, dispatch: null},
 ];
 const ah = chg.archivedHtml(arch, c => '#card/a/' + c.slug);
-assert.ok(ah.includes('每個 repo 只列最近 30 張'), '頁首寫明上限');
+assert.ok(ah.includes('title="每個 repo 只列最近 30 張"'), '各 repo 的數字 title 寫明上限');
 assert.strictEqual((ah.match(/class="arow"/g) || []).length, 2, '列出這 2 張');
 assert.ok(ah.indexOf('2026-11-01') < ah.indexOf('2026-10-01'), '新歸檔的在上');
 assert.strictEqual(chg.archivedAt(arch[0]), '2026-11-01', '歸檔時間取自 archive/ 目錄名');
@@ -162,8 +162,9 @@ assert.ok(chg.archivedHtml([], c => '').includes('沒有符合的卡'));
 
 // ---------- 看板欄的卡 ----------
 const constOf = name => new Function(html.slice(html.indexOf(`const ${name}=`), html.indexOf(';', html.indexOf(`const ${name}=`)) + 1) + `return ${name};`)();
-const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', fn('rowAttn') + '\n};return rowAttn;')(
-  esc, constOf('WAIT_BADGE'), constOf('GRANT_OF'), () => '', () => '', () => '', () => '', c => c.slug, {sel: null});
+const joinDot = new Function(fn('joinDot') + '\n};return joinDot;')();
+const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', 'joinDot', fn('rowAttn') + '\n};return rowAttn;')(
+  esc, constOf('WAIT_BADGE'), constOf('GRANT_OF'), () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, joinDot);
 // Scenario 授權待處理的按鈕：按「這張卡」送 grant card
 const grantRow = rowAttn({slug: 'g', title: 'g', repo: 'r', waiting: {type: '等待授權', gate_id: 'g1', question: 'push?', options: ['這次', '這張卡', '這個 repo 永遠', '拒絕']}});
 const grantBtn = label => (new RegExp(`<button[^>]*>${label}</button>`).exec(grantRow) || [''])[0];
@@ -185,8 +186,19 @@ const unfiled = fn('rowUnfiled');
 assert.ok(!unfiled.includes('data-act="dispatch"') && !unfiled.includes('data-act="explore"'), '待分類列沒有指派與先 explore');
 // Scenario 同步進行中不算錯
 assert.ok(fn('syncNow').includes("if(r.status===409)toast('同步進行中');"), '409 顯示同步進行中，不是錯誤 toast');
-// Scenario 沒有孤兒就沒有那一行
-assert.ok(fn('colExtra').includes('(orph.length?`<div class="extra"><h4>孤兒 pane'), '沒有孤兒不畫那一行');
+// Scenario 沒有孤兒就沒有那一行（孤兒與沒對到卡的 agent 收在看板底下預設收合的「其他 pane」區塊）
+const stray = new Function('esc', 'joinDot', 'ui', 'AGENT_WORD', 'ORPHAN_WHY',
+  fn('rowUnmatched') + '\n}\n' + fn('rowOrphan') + '\n}\n' + fn('strayHtml') + '\n};return strayHtml;')(esc, joinDot, {strayOpen: false}, {idle: '閒置'}, {archived: '卡已歸檔'});
+assert.strictEqual(stray([], []), '', '都沒有：不畫區塊');
+const orphOnly = stray([], [{repo: 'a', slug: 'x', pane: 'w1:p3', agent_status: 'idle', reason: 'archived'}]);
+assert.ok(orphOnly.includes('孤兒 pane 1') && orphOnly.includes('data-act="reap"') && orphOnly.includes('data-act="reap-all"'), '孤兒列有關閉與全部關閉：' + orphOnly);
+assert.ok(!orphOnly.includes('沒對到卡'), '沒有沒對到卡的 agent 不畫那一段');
+assert.ok(orphOnly.startsWith('<details class="stray" id="stray">'), '預設收合：' + orphOnly);
+const unOnly = stray([{name: 'scratch', pane: 'p7', agent_status: 'idle'}], []);
+assert.ok(unOnly.includes('沒對到卡的 agent 1') && unOnly.includes('data-act="pane-id"') && !unOnly.includes('孤兒 pane'), '沒有孤兒不畫那一段：' + unOnly);
+assert.ok(!/color:var\(--danger\)|class="[^"]*err/.test(unOnly + orphOnly), '其他 pane 不用紅字');
+assert.ok(fn('strayLists').includes('!a.orphan&&!a.coordinator'), '協調者不進其他 pane 區塊');
+assert.ok(fn('pageBoard').includes('${strayHtml(un,orph)}') && !fn('colExtra').includes('unmatched_agents'), '其他 pane 在看板最底下，不在進行中欄');
 // Scenario 欄的卡數：欄標題的數字是欄內卡數（收件匣另加待分類）
 assert.ok(fn('pageBoard').includes("const n=list.length+(s.name==='收件匣'?(data.unfiled||[]).length:0);"), '欄的卡數');
 // 頂列的全域動作
@@ -255,5 +267,78 @@ assert.ok(fn('render').includes("r.page==='board'?ui.drawer:null"), '抽屜開�
 assert.ok(fn('render').includes("if(r.page!=='board')ui.drawer=null;"), '離開看板頁抽屜關閉');
 // 其他頁照舊直接進細節頁
 assert.ok(html.includes("openCard(btn.dataset.key);return;}") && fn('overview').includes('cardHref(c)'), '紀錄與總覽連結照舊進細節頁');
+// 抽屜的標題列：標題在最上，右側「開啟細節 →」文字連結與 ✕
+const head = open.slice(open.indexOf('<header'), open.indexOf('</header>'));
+assert.ok(head.includes('X 卡') && head.includes('class="link" data-act="drawer-detail">開啟細節 →') && head.includes('aria-label="關閉抽屜"'), '標題、開啟細節與關閉在同一列：' + head);
+
+// ---------- 版面不靠說明文字 ----------
+// 欄頭沒有副標、頁面沒有大標與說明行；更新於只在頂列
+assert.ok(constOf('SECTIONS').every(s => !('hint' in s)), '欄沒有副標');
+assert.ok(!fn('pageBoard').includes('class="hint"') && !/class="ph"/.test(html) && !/\.ph p/.test(html), '沒有欄副標、頁首說明行');
+assert.ok(!fn('pageBoard').includes('更新於') && html.includes('id="stamp"'), '更新於只在頂列');
+assert.ok(!fn('inboxBody').includes('上次同步'), '收件匣欄頂沒有上次同步那行');
+// 上次同步移到「立即同步」按鈕的 title
+const syncTitle = new Function('ago', fn('syncTitle') + '\n};return syncTitle;')(() => '5 分鐘');
+assert.strictEqual(syncTitle(null), '上次同步 還沒跑過 · GitLab · GitHub · shortcut');
+assert.ok(syncTitle({at: 'x', created: 2, updated: 1, errors: 1, first_error: 'gitlab 401'}).startsWith('上次同步 5 分鐘前 · 新建 2 · 更新 1 · 錯誤 1：gitlab 401'), '同步摘要');
+assert.ok(fn('renderTop').includes('sb.title=syncTitle(ls)'), '頂列把摘要放進同步按鈕的 title');
+assert.ok(/<button[^>]*id="sync-btn"[^>]*data-act="sync">立即同步<\/button>/.test(html), '同步按鈕在頂列');
+
+// joinDot：分隔點只在兩段非空之間（Examples）
+const plain = s => s.replace(/ /g, ' ');
+for (const [parts, want] of [[['a', '', 'b'], 'a · b'], [['', 'b'], 'b'], [['a', ''], 'a'], [[], '']])
+  assert.strictEqual(plain(joinDot(parts)), want, JSON.stringify(parts));
+assert.ok(!/\s·\s/.test(joinDot(['a', 'b']).replace(/ /g, '')), '點兩側是不換行空格，折行時不落單');
+const mergeNoSha = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: ''}, waiting: {type: '可以合併'}});
+assert.ok(!/·\s*<\/div>/.test(mergeNoSha) && !mergeNoSha.includes('class="sep"'), '沒有 sha 時「五個條件都通過」後面沒有落單的點：' + mergeNoSha);
+const recRow = rowAttn({slug: 'g', title: 'g', repo: 'r', waiting: {type: '等待授權', gate_id: 'g1', question: 'push?', recommended: '這張卡', options: ['這次', '拒絕']}});
+assert.ok(recRow.includes('<div class="q">push?</div><div class="l2">建議：這張卡</div>'), '建議另起一行，不用點接在問題後：' + recRow);
+
+// 短時間：月/日 時:分，用本機時區組 Date 測，跟跑測試的機器時區無關
+const {shortTime, timeHtml} = new Function('esc', fn('shortTime') + '\n}\n' + fn('timeHtml') + '\n};return {shortTime, timeHtml};')(esc);
+assert.strictEqual(shortTime(new Date(2026, 10, 21, 9, 10)), '11/21 09:10');
+assert.strictEqual(shortTime(new Date(2026, 0, 5, 23, 7)), '01/05 23:07');
+const th = timeHtml('2026-11-21T09:10:00+08:00');
+assert.ok(th.includes('title="2026-11-21T09:10:00+08:00"') && th.includes('>' + shortTime(new Date('2026-11-21T09:10:00+08:00')) + '</time>'), '完整值在 title：' + th);
+assert.ok(timeHtml('2026-11-18').includes('>11/18</time>'), '只有日期的不加時間（不被當成 UTC 午夜）');
+assert.strictEqual(timeHtml(''), '');
+assert.strictEqual(timeHtml('不是時間'), '不是時間', '解析不了照原文');
+
+// 協調者狀態：頂列右側，有 pane 才能點；沒有就灰字「協調者未開」
+const coord = new Function('esc', 'COORDINATOR', 'AGENT_WORD', fn('coordHtml') + '\n};return coordHtml;')(esc, constOf('COORDINATOR'), constOf('AGENT_WORD'));
+const cOn = coord([{name: 'scratch', pane: 'p7', agent_status: 'idle'}, {name: 'lead', pane: 'w1:p1', agent_status: 'working', coordinator: true}]);
+assert.ok(cOn.startsWith('<button class="coord on"') && cOn.includes('data-act="pane-id"') && cOn.includes('data-agent="opsx-coordinator"') && cOn.includes('協調者 執行中'), '協調者在跑：' + cOn);
+assert.ok(cOn.includes('aria-label='), '協調者按鈕有 aria-label');
+const cUnknown = coord([{name: 'lead', pane: 'w1:p1', agent_status: 'unknown', coordinator: true}]);
+assert.ok(!cUnknown.includes('unknown') && cUnknown.includes('協調者 不在 herdr'), 'unknown 換成白話：' + cUnknown);
+const cNoPane = coord([{name: 'lead', pane: null, agent_status: 'idle', coordinator: true}]);
+assert.ok(!cNoPane.includes('data-act') && cNoPane.includes('協調者 閒置'), '沒有 pane 不能點：' + cNoPane);
+const cOff = coord([{name: 'scratch', pane: 'p7', agent_status: 'idle'}]);
+assert.ok(cOff.includes('協調者未開') && !cOff.includes('data-act') && !/danger|err/.test(cOff), '沒有協調者：灰字協調者未開：' + cOff);
+assert.ok(coord(undefined).includes('協調者未開'), '舊 collect 沒有 unmatched_agents');
+assert.ok(fn('renderTop').includes("$('#coord').innerHTML=data.generated_at?coordHtml(data.unmatched_agents):''"), '頂列畫協調者狀態');
+
+// MR 條件 5/5（卡在 pipeline）不用紅色滿格：進度條不染色，卡住的是琥珀小標
+const rr = fn('rowRunning');
+assert.ok(!rr.includes('danger') && !/<i class="\$\{stuck/.test(rr), '進度條不因 MR 卡住變紅');
+assert.ok(rr.includes('<span class="badge warn">MR 卡在'), 'MR 卡住用琥珀小標');
+assert.ok(!/\.prog \.bar i\.warn/.test(html), '沒有紅色進度條的 CSS');
+// 進度列：階段＋條＋n/m 一行，說明另起一行
+assert.ok(rr.includes('<div class="prog">') && rr.includes('</div>${s.label?`<div class="l2">'), '說明不在進度條那一行');
+
+// 收件卡：只露「指派」，其餘收進 ⋯（<details> 鍵盤可開），data-act 照舊
+const ri = fn('rowInbox');
+assert.ok(ri.includes('<details class="more"') && ri.includes('<summary aria-label="更多動作"'), '⋯ 選單是 details/summary');
+for (const t of ['prioCtl(c)', 'data-act="explore"', 'mergeCtl(c,data.cards)', 'dropCtl(k)']) assert.ok(ri.slice(ri.indexOf('<details')).includes(t), '⋯ 裡有 ' + t);
+assert.ok(ri.indexOf('data-act="dispatch">指派') < ri.indexOf('${menu}'), '主按鈕指派露在外面');
+assert.ok(html.includes("if(e.target.closest('details'))return;"), '點 ⋯ 不開抽屜');
+
+// 細節頁：狀態標籤只有一個；session 用功能圖示，不再寫第二個「功能」
+assert.ok(!pc.includes('功能 ${esc(c.session'), 'session 標籤不寫「功能」');
+assert.ok(pc.includes('const status=(w?') && (pc.match(/\$\{status\}/g) || []).length === 1, '狀態只放一個');
+// 缺資料是灰字一次：列檔失敗不再畫只有錯誤的文件卡；沒有 pane、紀錄讀不到不用紅字
+assert.ok(pc.includes("const doc=L&&!L.ok?'':"), '列檔失敗不畫文件卡');
+assert.ok(!files.fileTabsHtml({ok: false, error: '卡目錄不在了'}, null, p => p).includes('err'), '文件 tab 的列檔失敗是灰字');
+assert.ok(!/<div class="note err">\$\{esc\(o\.error\)\}/.test(pc) && !/<div class="note err">\$\{esc\(tlErr\)\}/.test(pc), '最後輸出與紀錄讀不到是灰字');
 JS
 echo ok

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# 看板的等級徽章與首頁進度列（workplan-priority/priority-board「卡顯示等級」，progress-dashboard/board-web「首頁進度列」「點進度數字篩卡」）。
-# 顯示邏輯寫在網頁的 inline script 裡，這裡用 node 把 priorityBadge 與進度列的函式從 index.html 切出來直接執行。
-# 進度行的 HH:MM 是本地時間，固定 TZ 讓預期字串（+08:00）在每台機器上都一樣。
+# 看板的等級徽章、總覽各 repo 的 milestone 小字與進度分類篩選（workplan-priority/priority-board「卡顯示等級」，specs/board-pages「總覽」「篩選 popover 與 chips」）。
+# 顯示邏輯寫在網頁的 inline script 裡，這裡用 node 把 priorityBadge 與進度相關的函式從 index.html 切出來直接執行。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 command -v node >/dev/null || fail "需要 node 才能跑等級徽章測試"
 
@@ -18,7 +17,7 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp
 const h0 = html.indexOf('const hhmm=');
 if (h0 < 0) throw new Error('index.html 找不到 const hhmm=');
 const hhmmSrc = html.slice(h0, html.indexOf('\n', h0));
-const {priorityBadge, progressLine, toggleProgressClass, notDispatchedNames, PROGRESS_LABEL, PRIO_HINT} = new Function('esc', hhmmSrc + html.slice(s, e) + ';return {priorityBadge, progressLine, toggleProgressClass, notDispatchedNames, PROGRESS_LABEL, PRIO_HINT};')(esc);
+const {priorityBadge, toggleProgressClass, notDispatchedNames, PROGRESS_LABEL, PRIO_HINT} = new Function('esc', hhmmSrc + html.slice(s, e) + ';return {priorityBadge, toggleProgressClass, notDispatchedNames, PROGRESS_LABEL, PRIO_HINT};')(esc);
 // 進度分類的篩選是篩選條件的 pc（specs/board-pages「篩選 popover 與 chips」）：篩選段一起切進來
 const F0 = html.indexOf('/* 篩選 start */'), F1 = html.indexOf('/* 篩選 end */');
 if (F0 < 0 || F1 < F0) throw new Error('index.html 找不到標記 篩選 start / end');
@@ -48,48 +47,22 @@ assert.strictEqual(priorityBadge({repo: 'r', slug: 'c', priority: null}, true), 
 // 理由跳脫
 assert.ok(!priorityBadge({priority: {level: 'P2', reason: '<b>x</b>', overridden: false}}, true).includes('<b>x'), '理由要跳脫');
 
-// 進度列（progress-dashboard/board-web「首頁進度列」）。預期字串與 TUI 的 progress_text 共用，兩邊逐字相同
 const text = h => h.replace(/<[^>]*>/g, '');
-const lines = h => h.split('<span class="ms"').slice(1).map(l => text('<span class="ms"' + l));
 const p = {milestone: '1.0', goal: '能開單出貨', remaining: 5, mergeable: 1, testing: 1, developing: 1, waiting_on_you: 1, not_dispatched: 1, not_dispatched_planned: ['web-x'], at: '2026-11-11T14:30:00+08:00'};
-const one = progressLine({r: p}, ['r']);
-assert.deepStrictEqual(lines(one), ['進度 14:30 · 1.0：剩 5 張 · 可合併 1 · 測試中 1 · 開發中 1 · 等你 1 · 還沒派 1'], `有 milestone 的進度行：${one}`);
-assert.ok(one.includes('title="能開單出貨"'), `goal 放進 milestone 名的 title：${one}`);
-for (const k of ['mergeable', 'testing', 'developing', 'waiting_on_you', 'not_dispatched'])
-  assert.match(one, new RegExp(`<button class="link[^"]*" data-act="progress-filter" data-class="${k}"`), `${k} 的數字可點：${one}`);
-
-// 沒有 milestone
-const none = lines(progressLine({r: {...p, milestone: null, goal: null, remaining: 4}}, ['r']));
-assert.deepStrictEqual(none, ['進度 14:30 · 進行中 4 張 · 可合併 1 · 測試中 1 · 開發中 1 · 等你 1 · 還沒派 1'], `沒有 milestone 的進度行：${none}`);
-assert.ok(!none[0].includes('剩'));
-
-// 範圍是全部：有值的 repo 各一行，行首 repo 名
-const all = lines(progressLine({r: p, s: {...p, milestone: 'v2'}}, ['r', 's', 't']));
-assert.strictEqual(all.length, 2, `兩行：${all}`);
-assert.ok(all[0].startsWith('r 進度 14:30 · 1.0：') && all[1].startsWith('s 進度 14:30 · v2：'), `行首 repo 名：${all}`);
-// 範圍內只剩一個有值的 repo：不加 repo 名
-assert.ok(lines(progressLine({r: p, s: p}, ['r']))[0].startsWith('進度 '), '單一 repo 不加 repo 名');
-
-// collect 沒有 progress、範圍內的 repo 都沒有值
-assert.strictEqual(progressLine(undefined, ['r']), '', '舊 collect 沒有 progress 欄位');
-assert.strictEqual(progressLine({}, ['r']), '');
-assert.strictEqual(progressLine({r: p}, ['t']), '');
-
-// 頂列不再有還差幾張；舊的 milestoneLine 已移除
-assert.ok(!text(one).includes('還差'), '進度行不含還差');
+// 舊的 milestoneLine 與首頁進度列（progressLine、可點的進度數字）已移除，進度分類改用篩選 popover 的「進度」
 assert.ok(!html.includes('milestoneLine') && !html.includes('還差'), 'index.html 不再畫還差幾張');
-assert.ok(html.includes('<div class="milestones">${progressLine(data.progress,scopeRepos())}</div>'), '總覽各 repo 格呼叫 progressLine');
+assert.ok(!html.includes('function progressLine(') && !html.includes('data-act="progress-filter"'), '首頁進度列已移除');
+// 總覽各 repo 格：repo 名右側小字寫 milestone 剩幾張，不再列整串進度連結（點進度分類改用篩選 popover 的「進度」）
+const msSrc = html.slice(html.indexOf('function milestoneHint('), html.indexOf('\n}', html.indexOf('function milestoneHint(')) + 2);
+const milestoneHint = new Function('esc', msSrc + 'return milestoneHint;')(esc);
+assert.strictEqual(milestoneHint({...p, milestone: '團隊邀請', remaining: 4}), `<small class="ms" title="${esc(p.goal)}">團隊邀請 剩 4</small>`);
+assert.strictEqual(milestoneHint({...p, milestone: null}), '', '沒有 milestone 不寫');
+assert.strictEqual(milestoneHint(undefined), '', '舊 collect 沒有 progress');
+assert.ok(html.includes('${esc(r)}${milestoneHint((data.progress||{})[r])}</span>'), '總覽各 repo 格在 repo 名右側呼叫 milestoneHint');
+assert.ok(!html.includes('<div class="milestones">'), '各 repo 格不再列進度連結串');
 
-// 跳脫
-const bad = progressLine({'<r>': {...p, milestone: '<b>m</b>', goal: '"g"'}, s: p}, ['<r>', 's']);
-assert.ok(!bad.includes('<b>m') && !bad.includes('<r>') && !bad.includes('"g"'), `字串要跳脫：${bad}`);
 
-// 等你非 0 用警示色，0 不用
-const wait = n => progressLine({r: {...p, waiting_on_you: n}}, ['r']).match(/<button[^>]*data-class="waiting_on_you"[^>]*>/)[0];
-assert.ok(wait(2).includes('badge warn'), `等你 2 要警示色：${wait(2)}`);
-assert.ok(!wait(0).includes('warn'), `等你 0 不要警示色：${wait(0)}`);
-
-// 點數字篩卡（board-web「點進度數字篩卡」）：篩選條件的 pc，chip 可點掉
+// 進度分類篩選（specs/board-pages「篩選 popover 與 chips」）：篩選條件的 pc，chip 可點掉
 const mk = (slug, progress_class, more) => ({repo: 'r', slug, title: slug, kind: 'dev', priority: null, dispatch: null, waiting: null, progress_class, ...more});
 const cards = [mk('a', 'mergeable'), mk('b', 'testing'), mk('c', null)];
 const pick = f => cards.filter(c => matchF(f, facetOf(c), [])).map(c => c.slug);
@@ -116,7 +89,6 @@ assert.deepStrictEqual(notDispatchedNames({r: p, s: {...p, not_dispatched_planne
 assert.deepStrictEqual(notDispatchedNames({r: p, s: {...p, not_dispatched_planned: ['s-y']}}, ['r', 's', 't']), ['web-x', 's-y']);
 assert.deepStrictEqual(notDispatchedNames(undefined, ['r']), []);
 assert.ok(html.includes("F.pc==='not_dispatched'?notDispatchedNames(data.progress,scopeRepos())"), '篩還沒派時待指派欄畫還沒建殼的項目');
-assert.ok(html.includes("a==='progress-filter'){F.pc=toggleProgressClass(F.pc,btn.dataset.class);applyF(true)"), '點數字切換篩選並寫進 hash');
 
 // 篩選中各欄的卡：帶 session 的主 change 卡照常出現，收件匣裡符合的卡也在；範圍條件同時套用
 const home = [

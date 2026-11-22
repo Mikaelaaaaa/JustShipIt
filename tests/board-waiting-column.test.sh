@@ -41,8 +41,9 @@ assert.ok(board.includes('沒有卡'), '欄裡沒有卡時顯示空字');
 // report 待你決定的列：標籤、問題、開啟 pane，沒有合併與照建議
 assert.ok(/WAIT_BADGE=\{[^}]*'report 待你決定'/.test(html), 'WAIT_BADGE 要有 report 待你決定');
 const WAIT_BADGE = new Function(html.slice(html.indexOf('const WAIT_BADGE='), html.indexOf(';', html.indexOf('const WAIT_BADGE=')) + 1) + 'return WAIT_BADGE;')();
-const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui',
-  body('rowAttn') + ';return rowAttn;')(esc, WAIT_BADGE, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null});
+const joinDot = new Function(body('joinDot') + ';return joinDot;')();
+const rowAttn = new Function('esc', 'WAIT_BADGE', 'GRANT_OF', 'pendBadge', 'priorityBadge', 'bot', 'since', 'key', 'ui', 'joinDot',
+  body('rowAttn') + ';return rowAttn;')(esc, WAIT_BADGE, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, joinDot);
 const row = rowAttn({slug: 'm', title: 'm', repo: 'r', mr: {url: 'u', head_sha: 'abc'},
   waiting: {type: 'report 待你決定', question: 'report.md 有留給人決定的項目', options: ['開啟 pane']}});
 assert.ok(row.includes('report 待你決定') && row.includes('report.md 有留給人決定的項目'), '列上要有標籤與問題：' + row);
@@ -52,8 +53,8 @@ assert.ok(!row.includes('data-act="stop"'), '不能有停止按鈕：' + row);
 assert.ok(!row.includes('照建議'), '不能有照建議');
 
 // 待指派列：已派出的卡給開啟 pane、不給指派；沒派出的照舊給指派
-const rowReady = new Function('esc', 'KIND', 'pendBadge', 'priorityBadge', 'since', 'stoppedLine', 'key', 'ui', 'paneStage', 'bot',
-  body('rowReady') + ';return rowReady;')(esc, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, paneStage, () => '');
+const rowReady = new Function('esc', 'KIND', 'pendBadge', 'priorityBadge', 'since', 'stoppedLine', 'key', 'ui', 'paneStage', 'bot', 'joinDot',
+  body('rowReady') + ';return rowReady;')(esc, {}, () => '', () => '', () => '', () => '', c => c.slug, {sel: null}, paneStage, () => '', joinDot);
 const live = rowReady({slug: 'g', title: 'g', repo: 'r', kind: 'dev', stage: 'grill', dispatch: {pane: 'p1'}});
 assert.ok(live.includes('pane 在 grill') && live.includes('data-act="pane"'), '已派出的卡有 pane 在 grill 與開啟 pane：' + live);
 assert.ok(!live.includes('data-act="dispatch"'), '已派出的卡不給指派：' + live);
