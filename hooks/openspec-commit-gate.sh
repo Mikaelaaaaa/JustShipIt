@@ -230,7 +230,13 @@ if [ -n "$raw_m" ]; then
           case "$ch" in \'|\") q="$ch" ;; \;|\&|\||$'\n') break ;; esac
         fi
       done
-      commit_args="${rest_a:0:i}" ;;
+      commit_args="${rest_a:0:i}"
+      # heredoc 的本體是這個 commit 的輸入（git commit -F - <<EOF），接到結束那一行為止
+      hd_re="<<-?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
+      if [[ "$commit_args" =~ $hd_re && "${rest_a:i:1}" = $'\n' ]]; then
+        w="${BASH_REMATCH[1]}"; b=$'\n'"${rest_a:i+1}"
+        case "$b" in *$'\n'"$w"*) commit_args+="${b%%$'\n'"$w"*}" ;; esac
+      fi ;;
   esac
 fi
 if [[ "$commit_args" == *'[no-change]'* ]]; then

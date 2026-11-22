@@ -203,7 +203,8 @@ for c in "git log --grep='[no-change]'; git commit -m x" "git commit -m x; echo 
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別的命令裡的 [no-change] 不算：${c}｜$(reason "$out")"
   reason "$out" | grep -q '對不到' || fail "deny 要說 branch 對不到卡（${c}）: $(reason "$out")"
 done
-for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 'git commit -m "a; b [no-change]"' "git add f && git commit -m '[no-change] x'"; do
+out="$(cgin "$R" $'git commit -F - <<\'EOF\'\nx\nEOF\necho [no-change]')"; assert_eq "$(decision "$out")" deny "heredoc 結束之後的 [no-change] 不算: $(reason "$out")"
+for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 'git commit -m "a; b [no-change]"' "git add f && git commit -m '[no-change] x'" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF' $'git commit -F - <<EOF\nfix: y\n\n[no-change]\nEOF'; do
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "commit 訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
   reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
 done
