@@ -94,6 +94,9 @@ assert_eq "$(decide_in opsx-workflow '{"question": "兩張卡要不要合併？"
 assert_eq "$(decide_in opsx-workflow '{"question": "衝突怎麼處理？", "recommended": "git merge origin/main 再解衝突"}')" "('answer', 'git merge origin/main 再解衝突')" "分支合併照建議答"
 # 其他 repo 的決定題留給人（邊界：名字只是開頭相同）
 assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommended": "用 A"}')" "('human', 'decision')" "opsx-workflow-fork 不算"
+# 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
+assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-pick')" "兩張主 change 的 split gate 交人"
+assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '
 import ast, sys
