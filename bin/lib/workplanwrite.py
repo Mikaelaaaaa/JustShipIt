@@ -273,6 +273,11 @@ def attach(top: str, slug: str, parent: str, user: str, kind: str, branch: str =
         raise WorkplanError(got["error"])
     into, milestone = placement(plan["features"], got["level"], parent.split("--")[0],
                                 plan["current"] if orphan_milestone is None else orphan_milestone)
+    # 撞名要在寫覆寫之前擋下：_add 也會擋，但那時 inbox 已經改了，失敗的卡會留著 P2 覆寫
+    new = {("PR", slug), ("change", slug)} | ({("feature", slug)} if into is None else set())
+    taken = new & _existing(chain.load_workplan(os.path.join(top, "openspec", "workplan.yaml")))
+    if taken:
+        raise WorkplanError("workplan 已經有 %s" % "、".join("%s %s" % n for n in sorted(taken)))
     if got["level"] == "P2" and not fm.get("priority"):
         priority.set_override(inbox, "P2", "自動掛進 workplan，維持 P2", True)
     if not branch:
