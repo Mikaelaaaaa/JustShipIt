@@ -32,9 +32,13 @@ import workplanwrite  # noqa: E402
 # 討論卡：派工指示有一條含這句。開卡端寫的是「做到 propose 完成就停（留在待指派），不要 apply」，檔裡只放前半句，括號裡改了也認得
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
     PROPOSE_STOP = _f.read().strip()
+# 協調者補的收件匣卡：派工指示是 PROPOSE_STOP 接這個記號，propose 完照記號放掉 pane
+AUTOFILL_MARK = "協調者補卡"
 MAX_DISPATCH = 6
 # 同時工作中的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
+# 可派待指派的下限預設值，低於它才從收件匣補卡；<state>/inbox-floor 可改
+DEFAULT_INBOX_FLOOR = 2
 # 只有工作中的 pane 佔派工名額；idle、blocked、done 的 pane 在等人或做完一段，不擋派工
 LIVE_AGENT = ("working",)
 REDISPATCH_MINUTES = 10
@@ -110,6 +114,9 @@ class Round:
         self.stages = {}
         self.woken_cards = set()
         self.max_working = None
+        self.inbox_floor = None
+        # dispatch_new 這輪派成功的卡 key：補卡算可派存量時扣掉
+        self.dispatched_now = set()
         # 這輪開始時工作中的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
         self.busy_panes = set()
         self.opened = 0
@@ -139,6 +146,7 @@ class Round:
 
     def load(self):
         self.max_working = read_max_working(os.path.join(self.state, "max-working"))
+        self.inbox_floor = read_inbox_floor(os.path.join(self.state, "inbox-floor"))
         rc, out, err = self.run(["opsx", "collect"])
         if rc != 0:
             raise CoordinateError("opsx collect 失敗（rc %d）：%s" % (rc, err[:300]))
@@ -1120,8 +1128,59 @@ class Round:
                 continue
             # P0 不受上限擋，但它開的 pane 照佔名額
             self.opened += 1
+            self.dispatched_now.add(key)
             self.memo["_parked"].pop(key, None)
         return n
+
+    def ready(self, c, top):
+        """待指派裡現在就能派的卡：有 tasks.md、沒有 MR、P0/P1、依賴都合了、沒有活的條目（人停的條目也不活）。"""
+        entry = self.dispatch_file.get(card_key(c))
+        if c["section"] != "待指派" or c["mr"] or not os.path.isfile(os.path.join(c["path"], "tasks.md")):
+            return False
+        if entry and (chain.session_alive(entry) or entry.get("mode") == "stopped"):
+            return False
+        got = self.level(top, c["slug"])
+        if "error" in got or got["level"] == "P2":
+            return False
+        return not deps_unmerged(c["slug"], self.workplan(top), read_features(os.path.join(top, "openspec", "workplan.yaml")))
+
+    def fill_inbox(self, cards, repo_paths, n):
+        """可派存量（這輪開始時可派的待指派，扣掉 dispatch_new 這輪派出的）低於下限時，從收件匣補判過重複的 P0/P1 卡去做到 propose。
+        n 接著 dispatch_new、dispatch_features 的這輪派數。P0 不看下限與名額但照佔名額；補出的 P0 也算進補到下限的張數。"""
+        stock = sum(1 for c in cards if card_key(c) not in self.dispatched_now and self.ready(c, repo_paths[c["repo"]]))
+        picks = []
+        for i, c in enumerate(cards):
+            key, top = card_key(c), repo_paths[c["repo"]]
+            if c["section"] != "收件匣" or stops_at_propose(c) or not c["dedup_checked"] or key in self.dispatch_file:
+                continue
+            if not AGENT_NAME.match(c["slug"]):
+                self.log("-- %s 不是合法的 agent 名，不補" % key)
+                continue
+            got = self.level(top, c["slug"])
+            if "error" in got or got["level"] == "P2":
+                continue
+            picks.append(((priority.LEVELS.index(got["level"]), c["since"] or "", c["slug"]), i, c))
+        filled = 0
+        for (lv, _, _), _, c in sorted(picks):
+            key, top = card_key(c), repo_paths[c["repo"]]
+            p0 = lv == priority.LEVELS.index("P0")
+            if not p0 and stock + filled >= self.inbox_floor:
+                break
+            if not p0 and n >= MAX_DISPATCH:
+                self.log("-- 這輪派滿 %d 張，收件匣 %s 下輪補" % (MAX_DISPATCH, key))
+                break
+            if not p0 and self.slots_used() >= self.max_working:
+                self.log("-- 同時在跑 %d 個 pane，達上限 %d，收件匣 %s 下輪補" % (self.slots_used(), self.max_working, key))
+                break
+            note = "%s（%s）" % (PROPOSE_STOP, AUTOFILL_MARK)
+            rc, _, err = self.act(["opsx", "dispatch", c["slug"], "--agent", "claude", "--mode", "autopilot", "--kind", c["kind"], "--repo", top, "--note", note])
+            if not p0:
+                n += 1
+            if rc != 0:
+                self.log("?? %s 補卡派不出去：%s" % (key, one_line(err)[:200]))
+                continue
+            self.opened += 1
+            filled += 1
 
     def branch_holder(self, top, slug):
         """workplan 裡這張卡的 PR 分支被別的 worktree checkout 時，回那棵 worktree 的路徑。
@@ -1158,7 +1217,7 @@ class Round:
     def dispatch_features(self, repo_paths, n):
         """feature 的 depends-on 都合了、還有沒合的 PR、session 條目不存在或不活：開一個 session（opsx dispatch --feature）。
         條目是 stopped 的不開：coordinate 自己關 session 時會拿掉條目，留下的 stopped 只會是人停的。
-        n 是這輪單卡派掉的張數；每輪上限與同時上限跟單卡派一樣算，開成的 session 佔一個 pane。"""
+        n 是這輪單卡派掉的張數；每輪上限與同時上限跟單卡派一樣算，開成的 session 佔一個 pane。回傳加上這裡派數的 n。"""
         for repo, top in sorted(repo_paths.items()):
             prs = self.workplan(top)
             status = {p.get("name"): p.get("status") for p in prs}
@@ -1225,6 +1284,7 @@ class Round:
                 if not p0:
                     n += 1
                 self.opened += 1
+        return n
 
     def feature_members(self, repo, name, plan):
         """feature_plan 的卡分成 (單卡派過的卡, 交給 session 的卡)。人停的成員 dispatch --feature 會跳過，也不在後者。"""
@@ -1324,8 +1384,17 @@ def live_panes(entries, agents, own_work):
 
 def read_max_working(path):
     """同時工作中的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
+    return read_positive(path, DEFAULT_MAX_WORKING)
+
+
+def read_inbox_floor(path):
+    """可派待指派的下限（fill_inbox）；沒有檔是預設值，內容不合法就拒跑。"""
+    return read_positive(path, DEFAULT_INBOX_FLOOR)
+
+
+def read_positive(path, default):
     if not os.path.exists(path):
-        return DEFAULT_MAX_WORKING
+        return default
     with open(path, encoding="utf-8") as f:
         raw = f.read().strip()
     if not re.fullmatch(r"[0-9]+", raw) or int(raw) < 1:
@@ -1717,7 +1786,7 @@ def one_round(state, dry):
         except DispatchFieldError as e:
             r.bad_dispatch(c, e)
     if not paused:
-        r.dispatch_features(repo_paths, r.dispatch_new(live, repo_paths))
+        r.fill_inbox(live, repo_paths, r.dispatch_features(repo_paths, r.dispatch_new(live, repo_paths)))
     r.act(["opsx", "reap"])   # 失敗 act 已經記 log；孤兒的判斷與關閉條件都在 opsx reap
     r.save()
     r.log("== 結束：%d 張卡，收尾 %d 張" % (len(live), len(done)))

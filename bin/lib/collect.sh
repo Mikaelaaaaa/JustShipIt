@@ -10,6 +10,7 @@
 #         not_dispatched_planned[], at}}（每個 repo 一份；沒設 current_milestone 或 workplan 壞了時 milestone、goal 為 null，數全部活的 main change）}
 # 每張卡：{repo, slug, title, kind, stage, section, since, waiting, open_gates[{id, opened_at}], dispatch, status, agent_status, mr,
 #        source, upstream, stale, priority{level, reason, overridden}（已歸檔或算不出來時 null）,
+#        dedup_checked（inbox frontmatter 的判過重複記號，opsx dedup 寫；沒有或空值時 null）,
 #        notes[{at, text}]（inbox.md ## 派工指示，舊的在前）,
 #        merged[{id, when, source, text, kind_of_work, type 或 area, evidence?}]（inbox.md 的 ## 併入： 段，依檔案順序；已歸檔的卡是 []）,
 #        logic_map（卡目錄 logic-map.md 的全文，已歸檔的卡也讀；沒有檔時 null，讀不了時 null 並記一筆 errors）,
@@ -238,7 +239,7 @@ def one_liner(inbox):
     return m.group(1).strip() if m else None
 
 def frontmatter(inbox, key):
-    m = re.search(r"^%s:\s*(.*)$" % key, inbox, re.M)
+    m = re.search(r"^%s:[ \t]*(.*)$" % key, inbox, re.M)
     return m.group(1).strip() or None if m else None
 
 # 段落範圍跟 note.sh 的 note_append 寫入時認的一樣，兩邊認定不同就會寫得進去、看板看不到
@@ -426,6 +427,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "grants_repo": grants.get(c["repo"]), "path": d,
         "source": frontmatter(inbox, "source"), "upstream": frontmatter(inbox, "upstream"), "stale": frontmatter(inbox, "stale") == "true",
         "priority": priority_of(c["repo"], c["slug"], c["archived"], os.path.join(d, "inbox.md")),
+        "dedup_checked": frontmatter(inbox, "dedup_checked"),
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
