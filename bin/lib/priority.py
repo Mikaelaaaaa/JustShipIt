@@ -139,6 +139,10 @@ def load_plan(top: str) -> dict:
         wp = chain.load_workplan(path) if os.path.exists(path) else {}
     except UnicodeDecodeError as e:
         raise WorkplanUnreadable("workplan 不是 UTF-8：%s（%s）" % (path, e)) from e
+    except OSError as e:
+        raise WorkplanUnreadable("workplan 讀不了：%s（%s）" % (path, e)) from e
+    if not isinstance(wp, dict):
+        raise PriorityError("workplan 頂層要是 mapping（features: …），收到「%s」" % type(wp).__name__)
     features = mapping_list(wp.get("features"), "features")
     for f in features:
         for pr in mapping_list(f.get("prs"), "feature %s 的 prs" % f.get("name")):
