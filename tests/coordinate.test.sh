@@ -1946,10 +1946,10 @@ rm -f "$MEMO"
 
 # --- 協調者不在時退回桌面的排隊事件也去重（正例） ---
 cards '[]'
-printf '[r/a] MR 卡在衝突：舊\n[r/a] MR 卡在衝突：新\n' > "$CQ"
+printf '[r/a] MR 卡在衝突：url\n[r/a] MR 卡在衝突：url\n' > "$CQ"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 1 "排隊事件退回一則桌面通知：$(cat "$OPSX_FAKE_LOG")"
-assert_grep '^notification show .* --body \[r/a\] MR 卡在衝突：新 --sound request$' "$OPSX_FAKE_LOG"
+assert_eq "$(grep '^notification show' "$OPSX_FAKE_LOG")" "notification show [opsx] 排隊的 1 則事件 · 協調者 opsx-coordinator 對不到活著的 pane（在它的 pane 重開 session，或跑 opsx lead） --body [r/a] MR 卡在衝突：url --sound request" "標題的則數是去重後的"
 assert_no_file "$CQ"
 rm -f "$MEMO"
 

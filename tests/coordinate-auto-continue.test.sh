@@ -41,6 +41,13 @@ rm -f "$MEMO"; : > "$OPSX_FAKE_LOG"
 printf '  ⎿  Interrupted\n%s\n\n──── c1 session ─\n❯\n────\n  ⏵⏵ auto mode on\n' "$STOP" > "$AR"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(conts)" 1 "上框線帶標題的 pane 也送一次繼續：$(cat "$OPSX_FAKE_LOG")"
+# 送出後的檢查讀得出輸入框、框裡已不是「繼續」才清掉 last_prompt；讀不出輸入框時會留著
+assert_eq "$(jq -r '."demo/c1".last_prompt' "$DISP")" null "帶標題的輸入框讀得出，送出確認後清掉 last_prompt"
+# 輸入框下方另有帶標題的橫線：輸入框照樣從 ❯ 找到
+rm -f "$MEMO"; : > "$OPSX_FAKE_LOG"
+printf '  ⎿  Interrupted\n%s\n\n──── c1 session ─\n❯\n────\n  ⏵⏵ auto mode on\n──── Tasks ─\n  ◯ x\n' "$STOP" > "$AR"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(conts)" 1 "輸入框下方有帶標題的橫線也送一次繼續：$(cat "$OPSX_FAKE_LOG")"
 
 # --- 送繼續的節流：一般場景（3 分鐘、30 分鐘）；邊界（9 分 59 秒、10 分鐘）用判斷式驗，一輪的 now 在測試算時刻之後才取 ---
 throttle() { # <幾分鐘前> <次數>
