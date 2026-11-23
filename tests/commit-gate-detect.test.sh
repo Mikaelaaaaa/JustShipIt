@@ -217,6 +217,10 @@ for c in $'cat > f <<\'EOF\'\nhello\nEOF\ngit commit -m \'[no-change] x\'' "opsx
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "旁邊有寫檔或回 gate，訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
   reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
 done
+# opsx answer 下一行的 commit 訊息照算；bash 讀成 heredoc 資料的假 commit 訊息不算（反斜線續行讓 perl 與 bash 對 heredoc 結尾的判斷不同）
+out="$(cgin "$R" $'opsx answer c --grant push\ngit commit -m \'[no-change] x\'')"; assert_eq "$(decision "$out")" allow "opsx answer 下一行 commit 的 [no-change] 放行: $(reason "$out")"
+reason "$out" | grep -q 'bypass.log' || fail "opsx answer 下一行的放行要提到 bypass.log: $(reason "$out")"
+out="$(cgin "$R" $'cat > f <<EOF\na\\\nEOF\ngit commit -m \'[no-change] x\'\nEOF\ngit commit -m real')"; assert_eq "$(decision "$out")" deny "續行 heredoc 裡的假 commit 訊息不算: $(reason "$out")"
 # -F 檔案的內容不算；-F - 的 heredoc 照算
 printf '[no-change] x' > "$R/msg.txt"
 out="$(cgin "$R" 'git commit -F msg.txt')"; assert_eq "$(decision "$out")" deny "-F 檔案裡的 [no-change] 不算: $(reason "$out")"

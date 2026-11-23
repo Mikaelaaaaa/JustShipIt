@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # 讀 stdin 的 Bash 指令原文，印出「第三級比對用的文字」：只把三種容器的資料部分換成空字串，其餘一字不動。
-# hooks/_lib.sh 的 cmd_l3text 呼叫它。三種容器（grill D1）：
+# hooks/_lib.sh 的 cmd_l3text 與 cmd_l3commit 呼叫它。三種容器（grill D1）：
 #   1. git commit 的 -m / --message 字串
 #   2. opsx answer 的引號字串引數（答案文字）
 #   3. cat 或 tee 的寫檔 heredoc 本體
@@ -87,10 +87,11 @@ sub heredoc_container {
     return ($opener . $1 . "\n", pos($$sref));
 }
 
-# --commit-only：三種容器照樣認（heredoc 本體裡長得像 commit 的行才不會被當成 commit 掃），但只有 commit 訊息扣成空字串，其餘整段原樣留著
+# --commit-only：不認 opsx answer（它的引數可以跨換行，會吞掉下一行真的 commit，照一般字元掃就好）；
+# heredoc 照樣認但整段原樣留著，本體裡長得像 commit 的行才不會被當成 commit 掃；只有 commit 訊息扣成空字串
 sub container_at {
     my ($sref, $i, $heredocs_ok) = @_;
-    for my $recognise (\&commit_container, \&answer_container, ($heredocs_ok ? \&heredoc_container : ())) {
+    for my $recognise (\&commit_container, ($COMMIT_ONLY ? () : \&answer_container), ($heredocs_ok ? \&heredoc_container : ())) {
         pos($$sref) = $i;
         my ($text, $end) = $recognise->($sref);
         next unless defined $text;
@@ -115,7 +116,7 @@ sub scan {
         my $c = substr $s, $i, 1;
         if ($at_cmd && $c !~ /\s/) {
             my ($text, $end) = container_at(\$s, $i, $heredocs_ok);
-            if (defined $text) { $out .= $text; $i = $end; $at_cmd = $COMMIT_ONLY && $text =~ /\n\z/ ? 1 : 0; next }
+            if (defined $text) { $out .= $text; $i = $end; $at_cmd = $COMMIT_ONLY && $text =~ /\n\z/ && $text !~ /\\\n/ ? 1 : 0; next }
         }
         my ($copied, $next);
         if ($c eq '\\') { ($copied, $next) = (substr($s, $i, 2), $i + 2) }

@@ -445,6 +445,10 @@ assert_eq "$(containers "$AFTER")" $'cat > f <<\'EOF\'\nEOF\ngit commit -m \'[no
 assert_eq "$(containers "$AFTER" --commit-only)" $'cat > f <<\'EOF\'\nx\nEOF\ngit commit -m ""' "containers: --commit-only 時 heredoc 之後的 commit 訊息照扣"
 CONT=$'cat > f <<EOF\na\\\nEOF\ncat > g <<X\nEOF\ngit push --force origin main\nX\n'
 case "$(containers "$CONT")" in *'git push --force origin main'*) ;; *) fail "containers: 不帶參數時續行 heredoc 後的 push 行被吞掉" ;; esac
+# --commit-only：opsx answer 不跨換行吞掉下一行的 commit；續行 heredoc 之後的假 commit 訊息不能被扣
+assert_eq "$(containers $'opsx answer c --grant push\ngit commit -m \'[no-change] x\'' --commit-only)" $'opsx answer c --grant push\ngit commit -m ""' "containers: --commit-only 時 opsx answer 下一行的 commit 訊息照扣"
+CONT2=$'cat > f <<EOF\na\\\nEOF\ngit commit -m \'[no-change] x\'\nEOF\ngit commit -m real'
+assert_eq "$(containers "$CONT2" --commit-only)" "$CONT2" "containers: --commit-only 時續行 heredoc 之後的假 commit 訊息不扣"
 if printf 'ls' | perl "$H/cmd-containers.pl" --bogus >/dev/null 2>&1; then fail "containers: 不認得的參數要失敗"; fi
 
 # 白名單容器的「容器本身」不能變成繞過口（review 第 2 輪）：已授權 push 串在前面時閘門會明確 allow，所以每個都要 deny
