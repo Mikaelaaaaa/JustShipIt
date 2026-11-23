@@ -80,8 +80,9 @@ while [[ "$rest_cd" =~ $cd_re ]]; do
   rest_cd="${rest_cd#*"${BASH_REMATCH[0]}"}"
 done
 # 緊接在 git commit 前面的 env -C <dir>、env --chdir[= ]<dir> 跟 git -C 一樣，排在前面的 cd 之後；目錄在第 6 組
-env_c_re="(^|[;&|({]|"$'\n'")[[:space:]]*(${nv_re})*env([[:space:]]+[^;&|]*)?[[:space:]]+(-C|--chdir)(=|[[:space:]]+)(${dtok})([[:space:]]+[^;&|]*)?\$"
-if [[ "$before" =~ $env_c_re ]]; then
+# 只對同一個命令的 git 生效：env 那段不跨換行，git 前面也不能是分隔符
+env_c_re="(^|[;&|({]|"$'\n'")[[:blank:]]*(${nv_re})*env([[:blank:]]+[^;&|"$'\n'"]*)?[[:blank:]]+(-C|--chdir)(=|[[:blank:]]+)(${dtok})([[:blank:]]+[^;&|"$'\n'"]*)?\$"
+if [[ "${m0:0:1}" == [[:blank:]] && "$before" =~ $env_c_re ]]; then
   check_dir "${BASH_REMATCH[6]}"; cd_dirs+=("${BASH_REMATCH[6]}")
 fi
 # CDPATH 會改變相對 cd 的落點；GIT_DIR、GIT_WORK_TREE、GIT_COMMON_DIR 直接換掉 repo，都讀不出來
@@ -214,32 +215,24 @@ if [ -n "$bad_dirs" ]; then
   deny "opsx commit 閘門：指令裡的目錄（${bad_dirs# }）讀不出 commit 實際作用的 repo：含空白、引號、變數、~ 或萬用字元，或 --git-dir 不是 <repo>/.git，或 cd -。改用不含空白的字面路徑（git -C /abs/path commit 或 cd /abs/path && git commit）。"
 fi
 
-# [no-change] 要在這個 git commit 自己的參數裡：從 commit 之後掃到第一個不在引號裡的 ; & | 或換行
-# commit 緊接分隔符時（git commit;）沒有參數
-commit_args=''
-if [ -n "$raw_m" ]; then
-  case "$raw_m" in
-    *[\;\&\|\)]|*$'\n') ;;
-    *)
-      rest_a="${raw#*"$raw_m"}"; q=''
-      for ((i = 0; i < ${#rest_a}; i++)); do
-        ch="${rest_a:i:1}"
-        if [ -n "$q" ]; then
-          [ "$ch" = "$q" ] && q=''
-        else
-          case "$ch" in \'|\") q="$ch" ;; \;|\&|\||$'\n') break ;; esac
-        fi
-      done
-      commit_args="${rest_a:0:i}"
-      # heredoc 的本體是這個 commit 的輸入（git commit -F - <<EOF），接到結束那一行為止
-      hd_re="<<-?[[:space:]]*[\"']?([A-Za-z_][A-Za-z0-9_]*)"
-      if [[ "$commit_args" =~ $hd_re && "${rest_a:i:1}" = $'\n' ]]; then
-        w="${BASH_REMATCH[1]}"; b=$'\n'"${rest_a:i+1}"
-        case "$b" in *$'\n'"$w"*) commit_args+="${b%%$'\n'"$w"*}" ;; esac
-      fi ;;
-  esac
+# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3text：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
+# （它也扣 opsx answer 的答案與 cat、tee 寫檔 heredoc，那兩種寫法照舊算數）
+nc_in_msg=0
+l3="$(cmd_l3text "$cmd")" || l3="$cmd"
+nc_cmd="${cmd//\[no-change\]/}"; nc_l3="${l3//\[no-change\]/}"
+[ $(( ${#cmd} - ${#nc_cmd} )) -gt $(( ${#l3} - ${#nc_l3} )) ] && nc_in_msg=1
+# -F -、--file=- 讀的 heredoc 本體也是訊息：結尾行要整行相同，<<- 先去掉行首 tab；找不到結尾行就不算
+hd_re="^([^;&|]*[[:blank:]])?(-F[[:blank:]]*-|--file[=[:blank:]]+-)([[:blank:]][^;&|]*)?<<(-?)[[:blank:]]*[\"'\\\\]?([A-Za-z_][A-Za-z0-9_]*)"
+case "$raw_m" in *[\;\&\|\)]|*$'\n'|'') hd_line='' ;; *) hd_line="${raw#*"$raw_m"}" ;; esac
+if [ "$nc_in_msg" = 0 ] && [[ "$hd_line" == *$'\n'* && "${hd_line%%$'\n'*}" =~ $hd_re ]]; then
+  hd_tab="${BASH_REMATCH[4]}"; hd_end="${BASH_REMATCH[5]}"; hd_hit=0
+  while IFS= read -r ln; do
+    [ "$hd_tab" = - ] && ln="${ln#"${ln%%[!$'\t']*}"}"
+    if [ "$ln" = "$hd_end" ]; then nc_in_msg="$hd_hit"; break; fi
+    [[ "$ln" == *'[no-change]'* ]] && hd_hit=1
+  done <<< "${hd_line#*$'\n'}"
 fi
-if [[ "$commit_args" == *'[no-change]'* ]]; then
+if [ "$nc_in_msg" = 1 ]; then
   mkdir -p "$OPSX_STATE_DIR"
   printf '%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$(repo_name)" "$(branch)" "$(printf '%s' "$cmd" | tr '\n' ' ' | cut -c1-200)" | opsx_append "$OPSX_STATE_DIR/bypass.log"
   ctx PreToolUse "opsx：[no-change] 逃生口放行，記在 $OPSX_STATE_DIR/bypass.log"; exit 0

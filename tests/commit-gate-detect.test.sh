@@ -199,12 +199,12 @@ for p in "$R|git config --get Alias.ci" "$R|git config --get include.path" "$N|g
   c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; [ "$(decision "$out")" != deny ] || fail "不該擋：${c}｜$(reason "$out")"
 done
 # [no-change] 只認那個 git commit 自己的參數
-for c in "git log --grep='[no-change]'; git commit -m x" "git commit -m x; echo '[no-change]'" 'echo [no-change] && git commit -m x' "git commit -m x | tee '[no-change]'"; do
+for c in "git log --grep='[no-change]'; git commit -m x" "git commit -m x; echo '[no-change]'" 'echo [no-change] && git commit -m x' "git commit -m x | tee '[no-change]'" "git commit;echo '[no-change]'" "git commit -m x && echo '[no-change]'" $'git commit -m x\necho [no-change]' "echo 'git commit [no-change]'; git commit -m x" 'git commit -m x # [no-change]' $'git commit -m wip <<EOF\n[no-change]\nEOF' $'git commit -F - <<-EOF\n\tfix: x\n\tEOF\necho [no-change]' $'git commit -F - <<EOF\nx\nEOF\necho <<EOF\n[no-change]\nEOF' "git -c alias.ci=commit ci -m '[no-change] x'"; do
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別的命令裡的 [no-change] 不算：${c}｜$(reason "$out")"
   reason "$out" | grep -q '對不到' || fail "deny 要說 branch 對不到卡（${c}）: $(reason "$out")"
 done
 out="$(cgin "$R" $'git commit -F - <<\'EOF\'\nx\nEOF\necho [no-change]')"; assert_eq "$(decision "$out")" deny "heredoc 結束之後的 [no-change] 不算: $(reason "$out")"
-for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 'git commit -m "a; b [no-change]"' "git add f && git commit -m '[no-change] x'" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF' $'git commit -F - <<EOF\nfix: y\n\n[no-change]\nEOF'; do
+for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 'git commit -m "a; b [no-change]"' "git add f && git commit -m '[no-change] x'" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF' $'git commit -F - <<EOF\nfix: y\n\n[no-change]\nEOF' $'git commit -m "$(cat <<\'EOF\'\nfix: 27" monitor\n\n[no-change]\nEOF\n)"' $'git commit -F - <<-EOF\n\t[no-change] docs\n\tEOF' $'git commit -F - <<\\EOF\n[no-change] x\nEOF' $'git commit -F - <<"EOF"\n[no-change] x\nEOF' $'git commit -F - <<\'EOF\' && git push\n[no-change] chore\nEOF' $'git commit --file=- <<E\nfix: y\nExplained: [no-change]\nE'; do
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "commit 訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
   reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
 done
@@ -215,7 +215,9 @@ done
 for c in "env -C $FX/wt git commit -m x" "command -- cd $FX/wt && git commit -m x" "env -C $N git commit -m x"; do
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "改目錄到卡或 N 照那裡判：${c}｜$(reason "$out")"
 done
-# 環境變數指到有 workplan 的 repo：session 沒有 workplan 也擋
+# env -C 只對同一個命令的 git 生效：換行之後的 git commit 不受前一行的 env -C 影響
+out="$(cgin "$R" "env -C $N true"$'\n'"git commit -m x")"; assert_eq "$(decision "$out")" deny "前一行的 env -C 不改這個 commit 的目錄: $(reason "$out")"
+out="$(cgin "$FX/wt" "env -C $R true"$'\n'"git commit -m x")"; assert_eq "$(decision "$out")" allow "前一行的 env -C 不改這個 commit 的目錄（卡的 worktree）: $(reason "$out")"# 環境變數指到有 workplan 的 repo：session 沒有 workplan 也擋
 for p in "GIT_DIR|GIT_DIR=$R/.git git commit -m x" "CDPATH|CDPATH=$FX cd Acmecorp-AI && git commit -m x" "GIT_DIR|cd $FX && GIT_DIR=Acmecorp-AI/.git git commit -m x" "GIT_COMMON_DIR|env GIT_COMMON_DIR=$R/.git git commit -m x" "CDPATH|CDPATH=/nonexistent-opsx:$FX cd Acmecorp-AI && git commit -m x"; do
   c="${p#*|}"; out="$(cgin "$N" "$c")"; assert_eq "$(decision "$out")" deny "變數指到 R 要擋：${c}｜$(reason "$out")"
   reason "$out" | grep -q "${p%%|*}" || fail "deny 要點名 ${p%%|*}: $(reason "$out")"
