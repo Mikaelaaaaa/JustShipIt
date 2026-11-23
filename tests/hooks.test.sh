@@ -426,6 +426,21 @@ mkdir -p "$FX/noperl-l3"
 printf '#!/usr/bin/env bash\ncase "$1" in *cmd-containers.pl) exit 1 ;; esac\nexec %s "$@"\n' "$(command -v perl)" > "$FX/noperl-l3/perl"; chmod +x "$FX/noperl-l3/perl"
 out="$(PATH="$FX/noperl-l3:$PATH" gg Bash "$(cmdj 'ls')")"; assert_eq "$(decision "$out")" deny "grant: 只有 cmd-containers.pl 失敗也要 deny"
 
+# 容器扣除：不帶參數三種容器都扣；--commit-only 只扣 commit 訊息，其他容器原樣留著
+containers() { printf '%s' "$1" | perl "$H/cmd-containers.pl" "${@:2}"; }
+ANS=$'opsx answer c \'[no-change]\' && git commit -m x'
+CAT=$'cat > f <<\'EOF\'\n[no-change]\nEOF\ngit commit -m x'
+assert_eq "$(containers "$ANS")" 'opsx answer c "" && git commit -m x' "containers: 不帶參數扣 opsx answer"
+assert_eq "$(containers "$CAT")" $'cat > f <<\'EOF\'\nEOF\ngit commit -m x' "containers: 不帶參數扣 heredoc 本體"
+assert_eq "$(containers "git commit -m '[no-change] x'")" 'git commit -m ""' "containers: 不帶參數扣 commit 訊息"
+assert_eq "$(containers "$ANS" --commit-only)" "$ANS" "containers: --commit-only 不扣 opsx answer"
+assert_eq "$(containers "$CAT" --commit-only)" "$CAT" "containers: --commit-only 不扣 heredoc 本體"
+assert_eq "$(containers "git commit -m '[no-change] x'" --commit-only)" 'git commit -m ""' "containers: --commit-only 照扣 commit 訊息"
+# heredoc 本體裡長得像 commit 的行不能被當成 commit 扣掉
+FAKE=$'cat > f <<\'EOF\'\ngit commit -m \'[no-change]\'\nEOF\ngit commit -m x'
+assert_eq "$(containers "$FAKE" --commit-only)" "$FAKE" "containers: --commit-only 不掃 heredoc 本體裡的假 commit"
+if printf 'ls' | perl "$H/cmd-containers.pl" --bogus >/dev/null 2>&1; then fail "containers: 不認得的參數要失敗"; fi
+
 # 白名單容器的「容器本身」不能變成繞過口（review 第 2 輪）：已授權 push 串在前面時閘門會明確 allow，所以每個都要 deny
 deny3() { local cmd out; cmd="$(cat)"; out="$(gg Bash "$(cmdj "$cmd")")"; assert_eq "$(decision "$out")" deny "$1"; }
 allow3() { local cmd out; cmd="$(cat)"; out="$(gg Bash "$(cmdj "$cmd")")"; assert_eq "$out" "" "$1"; }
