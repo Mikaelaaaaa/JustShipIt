@@ -77,11 +77,11 @@ def collect(opsx, root):
 
 
 def protected_panes(cards, dispatch):
-    """還有活卡的 pane。活卡：沒歸檔、不是 split、dispatch.json 不是 stopped。代管卡（via）的活也算協調它的那個 pane。"""
+    """還有活卡的 pane。活卡：沒歸檔、不是 split、dispatch.json 不是 stopped 也沒被 opsx release 放掉。代管卡（via）的活也算協調它的那個 pane。"""
     live = {"%s/%s" % (c["repo"], c["slug"]) for c in cards if not c["archived"] and c["stage"] != "split"}
     panes = set()
     for key, e in dispatch.items():
-        if key not in live or e.get("mode") == "stopped":
+        if key not in live or e.get("mode") == "stopped" or e.get("released_at"):
             continue
         panes.add(str(e.get("pane")))
         if e.get("via"):
@@ -164,7 +164,8 @@ def main():
         for o in orphans:
             if o["pane"] in protected:
                 r.skip(o, "pane %s 上還有活著的卡，不關" % o["pane"])
-            elif o["agent_status"] != "idle":
+            # 放掉的 pane 是 propose 做完才放的，agent 停在 done 也是做完了
+            elif o["agent_status"] != "idle" and not (o["reason"] == "released" and o["agent_status"] == "done"):
                 r.skip(o, "pane %s 的 agent 是 %s，這輪不關" % (o["pane"], o["agent_status"]))
             else:
                 r.close(o)
