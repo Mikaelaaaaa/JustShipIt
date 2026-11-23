@@ -43,6 +43,11 @@ assert_eq "$(said)" "babysit 做完，邏輯表有沒經過決定的項目沒處
 printf '寫回: 2026-11-23 · D10\n' >> "$C/gates.md"
 rm -rf "$STOP_STATE"; sg >/dev/null
 assert_eq "$(said)" "babysit 一輪做完，等 MR 合併" "標記過、gate 已寫回的項不擋"
+# gates.md 寫到一半、結尾切在中文字中間：當沒有 gates.md，標記不算處理過，照樣推
+# LC_ALL=C：UTF-8 locale 下 macOS awk 數 open gate 時就先失敗，到不了這段
+printf '\xe4\xbd' >> "$C/gates.md"
+rm -rf "$STOP_STATE"; LC_ALL=C sg >/dev/null
+assert_eq "$(said)" "babysit 做完，邏輯表有沒經過決定的項目沒處理" "讀不了的 gates.md 當沒有 gates.md"
 rm -f "$C/gates.md"
 # 表寫到一半、結尾切在中文字中間：跟 collect 一樣當沒有表，推表過期，不吞掉
 printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：\xe4\xbd' > "$C/logic-map.md"

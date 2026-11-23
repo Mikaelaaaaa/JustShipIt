@@ -250,8 +250,11 @@ if os.path.isfile(map_path):
 gates_path = os.path.join(d, "gates.md")
 gates_text = ""
 if os.path.isfile(gates_path):
-    with open(gates_path, encoding="utf-8") as f:
-        gates_text = f.read()
+    try:
+        with open(gates_path, encoding="utf-8") as f:
+            gates_text = f.read()
+    except UnicodeDecodeError:
+        gates_text = ""  # 寫到一半的 gates.md 當沒有，標記都不算處理過，照樣推
 got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, map_text, gates_text, mr.get("head_sha"))
 print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
