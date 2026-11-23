@@ -249,6 +249,14 @@ for p in "allow|$FX/wt|git -c alias.ci=commit ci -m x" "deny|$R|git -c alias.ci=
   assert_eq "$(decision "$out")" "$want" "單一別名 commit 照目錄判：${c}｜$(reason "$out")"
   reason "$out" | grep -q '兩個 Bash 呼叫' && fail "單一 commit 不能算成兩個（${c}）: $(reason "$out")"
 done
+# 引號裡提到 git -c alias. 不能讓後面子程序裡的 cd 被跳過
+out="$(cgin "$R" "echo \"git -c alias.x\"; bash -c \"cd $FX/wt\"; git commit -m x")"; assert_eq "$(decision "$out")" deny "引號裡的別名字樣不能蓋掉子程序 cd: $(reason "$out")"
+reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
+# 換行分開的兩個 commit 也算兩個；非 commit 的一次性別名照算一個 commit（D6）
+for p in "$R|git -C /tmp -c alias.ci=commit ci -m a"$'\n'"git -c alias.ci=commit ci -m b" "$R|git commit -m a"$'\n'"git -c alias.ci=commit ci -m b" "$FX/wt|git -c alias.st=status st; git commit -m x" "$FX/wt|git commit -m x && git -c alias.st=status st"; do
+  c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫（${c}）: $(reason "$out")"
+done
 # command -p（可重複、合寫）、command --、command -p --、builtin -- 之後是命令位置
 for pre in 'command -p' 'command -p --' 'command --' 'builtin --' 'command -pp' 'command -p -p'; do
   c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後的 cd 要照目錄判：${c}｜$(reason "$out")"

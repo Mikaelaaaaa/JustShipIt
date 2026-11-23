@@ -16,7 +16,7 @@ opt="(${valued})[[:space:]]+${tok}|--[a-z][a-z-]*(=${tok})?|-[A-Za-z]"
 commit_re="${git_word}(([[:space:]]+(${opt}))*)[[:space:]]+commit([[:space:];&|)]|\$)"
 # git 設定的鍵不分大小寫；include.path 與 includeIf.<條件>.path 讀進另一份設定檔，檔裡可以有別名，一樣當別名寫入
 alias_key='([Aa][Ll][Ii][Aa][Ss]\.|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]([Ii][Ff]\.[^[:space:];&|]*)?\.[Pp][Aa][Tt][Hh])'
-alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+${alias_key}"
+alias_re="${git_word}([[:space:]]+[^;&|"$'\n'"]*)?[[:space:]]-c[[:space:]]+${alias_key}"
 # 找 commit：一般寫法或一次性別名。同一個 git 兩種都比中時，最長的那段吃掉整個呼叫，只算一個
 find_re="(${commit_re})|(${alias_re})"
 # command 與 builtin 之後是命令位置：command 只收全是 p 的選項（-v、-V 只印描述，不執行），可接 --
@@ -94,7 +94,8 @@ env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
 bad_env=''
 [[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
 # 子程序（( )、$( )、反引號、sh -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來（雙引號裡的 $( ) 沒有括號，sh -c 的內容被攤平成外層的 cd），
-# 所以看原文第一個 commit 之前那段；commit 訊息在 commit 之後，不受影響
+# 所以看原文最後一個 commit 之前那段：引號裡提到的 commit 字樣排在前面時，不能把要看的範圍截短。
+# 只有一個 commit 時，commit 訊息在它之後，不受影響
 sub_re='(\(|`|(^|[^[:alnum:]_])(ba|z|k|da)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]+-[[:alnum:]]*c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
 # 原文寫 git "commit" 或 -c "alias.ci=commit" 時對不上，改在去掉引號字元的原文上找
@@ -102,7 +103,12 @@ raw="$cmd"
 [[ "$raw" =~ $find_re ]] || raw="${cmd//[\"\']/}"
 raw_m=''; raw_before=''
 if [[ "$raw" =~ $find_re ]]; then
-  raw_m="${BASH_REMATCH[0]}"; raw_before="${raw%%"$raw_m"*}"
+  raw_m="${BASH_REMATCH[0]}"
+  rest_raw="$raw"
+  while [[ "$rest_raw" =~ $find_re ]]; do
+    last_m="${BASH_REMATCH[0]}"; rest_raw="${rest_raw#*"$last_m"}"
+  done
+  raw_before="${raw%"$last_m$rest_raw"}"
 fi
 sub_cd=0
 [[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
