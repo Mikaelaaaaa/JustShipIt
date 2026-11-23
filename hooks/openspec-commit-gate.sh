@@ -9,25 +9,28 @@ sk="$(cmd_skeleton "$cmd")" || deny "opsx commit 閘門：perl 執行失敗，�
 # git 的寫法：反引號、$(…)、\git、絕對路徑都算；git 與 commit 之間可以夾全域選項：-c k=v、-C <dir>（可重複）、--git-dir[=]<d>、--work-tree[=]<d>、--namespace[=]<n>、--no-pager 這類不帶值的長選項。
 # 值可以含反斜線跳脫的字元（\ 加任一字元算同一個字），這樣跳脫空白的路徑也讀得到、交給 unreadable_dir 擋。
 # -c alias.<名>=… 可以把任何字變成 commit，只要出現就當成 commit 處理（寧可誤擋）。
-git_word='(^|[^[:alnum:]_./-])(\\|/[^[:space:];&|()`$]*/)?git'
+git_word='(^|[^[:alnum:]_./-])(\\|[^[:space:];&|()`$]*/)?git'
 tok='(\\.|[^[:space:]\\])+'
 valued='-C|-c|--git-dir|--work-tree|--namespace|--super-prefix|--config-env|--exec-path'
 opt="(${valued})[[:space:]]+${tok}|--[a-z][a-z-]*(=${tok})?|-[A-Za-z]"
-commit_re="${git_word}(([[:space:]]+(${opt}))*)[[:space:]]+commit([[:space:]]|\$)"
-alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+alias\\."
+commit_re="${git_word}(([[:space:]]+(${opt}))*)[[:space:]]+commit([[:space:];&|)]|\$)"
+# git 設定的鍵不分大小寫；include.path 與 includeIf.<條件>.path 讀進另一份設定檔，檔裡可以有別名，一樣當別名寫入
+alias_key='([Aa][Ll][Ii][Aa][Ss]\.|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]([Ii][Ff]\.[^[:space:];&|]*)?\.[Pp][Aa][Tt][Hh])'
+alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+${alias_key}"
 # 在 git 設定寫入別名（git config alias.ci …）：別名的值可以用 bash 與 git 的引號、跳脫寫成 commit（com\mit、'c""ommit'、!f() { git commit; }），
 # 之後用別名 commit 時骨架裡沒有 commit，閘門看不到，所以任何別名的寫入在設定當下就擋（--get、--unset、--list 這類讀取與刪除不擋）。
 # 看骨架：commit 訊息之類引號裡只是提到這串字，不是在命令位置，不算
-persist_re='(^|[[:space:];&|(])(\\|/[^[:space:];&|()`$]*/)?git[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?alias\.[[:alnum:]_.-]+[[:space:]]+[^[:space:];&|#]'
+persist_re="${git_word}[[:space:]]([^;&|]*[[:space:]])?config[[:space:]]([^;&|]*[[:space:]])?${alias_key}[^[:space:];&|]*[[:space:]]+[^[:space:];&|#]"
 readonly_re='(^|[[:space:]])--(get|get-all|get-regexp|unset|unset-all|list)([[:space:]]|$)'
 # --config-env 與 GIT_CONFIG_* 賦值也能寫入別名；值在環境變數裡讀不出來，出現就當別名寫入（寧可誤擋）
 # 賦值只在命令位置算：export 這類設定指令不用管後面有沒有 git，前綴賦值與 env 要在同一個指令裡接著 git
-cfg_re='GIT_CONFIG_(COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)='
+cfg_re='GIT_CONFIG_(COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_[0-9]+|VALUE_[0-9]+)='
 nv_re='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+'
 pre_re="(^|[;&|({]|"$'\n'")[[:space:]]*((then|do|else|elif|if|while|until|time|command|builtin|!)[[:space:]]+)*"
 env_alias_re="(${git_word}([[:space:]]+[^;&|]*)?[[:space:]]--config-env([[:space:]=]|\$))"
 env_alias_re+="|(${pre_re}(export|declare|typeset|readonly|local)[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*(${nv_re})*${cfg_re})"
-env_alias_re+="|(${pre_re}(env[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*)?(${nv_re})*${cfg_re}[^;&|]*${git_word})"
+# env 的選項可以帶值（env -u HOME），env 與賦值之間不逐個解析
+env_alias_re+="|(${pre_re}(env([[:space:]]+[^;&|]*)?[[:space:]]+)?(${nv_re})*${cfg_re}[^;&|]*${git_word})"
 is_alias=0
 # 唯讀旗標只看 config 與 alias. 之間那一段（BASH_REMATCH[4]）；alias.<名> 後面沒有值就只是讀
 if [[ "$sk" =~ $persist_re ]]; then
@@ -40,6 +43,9 @@ if [[ "$sk" =~ $commit_re ]]; then
   m0="${BASH_REMATCH[0]}"; opts="${BASH_REMATCH[3]}"
 elif [[ "$sk" =~ $alias_re ]]; then
   m0="${BASH_REMATCH[0]}"; opts=''
+  # 一次性別名的作用 repo 也照 git 的 -C、--git-dir 算：從這個 git 起，取到子命令之前的全域選項
+  pre="${sk%%"$m0"*}"; from="${sk:${#pre}}"
+  [[ "$from" =~ ^${git_word}(([[:space:]]+(${opt}))*) ]] && opts="${BASH_REMATCH[3]}"
 elif [ "$is_alias" != 1 ]; then
   exit 0
 fi
@@ -61,7 +67,7 @@ before=" ${sk%%"$m0"*}"
 # 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過，目錄在第 8 組
 # ( 不算命令開頭：子程序裡的 cd 不改外層目錄，由 sub_cd 擋
 dtok='(\\.|[^[:space:];&|)<>\\])+'
-asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|command[[:space:]]+|builtin[[:space:]]+'
+asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|command[[:space:]]+|builtin[[:space:]]+|command[[:space:]]+--[[:space:]]+|builtin[[:space:]]+--[[:space:]]+'
 cd_re="(^|[;&|{)]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?([[:space:];&|)<>]|\$)"
 cd_dirs=()
 rest_cd="$before"
@@ -73,6 +79,12 @@ while [[ "$rest_cd" =~ $cd_re ]]; do
   fi
   rest_cd="${rest_cd#*"${BASH_REMATCH[0]}"}"
 done
+# 緊接在 git commit 前面的 env -C <dir>、env --chdir[= ]<dir> 跟 git -C 一樣，排在前面的 cd 之後；目錄在第 6 組
+# 只對同一個命令的 git 生效：env 那段不跨換行，git 前面也不能是分隔符
+env_c_re="(^|[;&|({]|"$'\n'")[[:blank:]]*(${nv_re})*env([[:blank:]]+[^;&|"$'\n'"]*)?[[:blank:]]+(-C|--chdir)(=|[[:blank:]]+)(${dtok})([[:blank:]]+[^;&|"$'\n'"]*)?\$"
+if [[ "${m0:0:1}" == [[:blank:]] && "$before" =~ $env_c_re ]]; then
+  check_dir "${BASH_REMATCH[6]}"; cd_dirs+=("${BASH_REMATCH[6]}")
+fi
 # CDPATH 會改變相對 cd 的落點；GIT_DIR、GIT_WORK_TREE、GIT_COMMON_DIR 直接換掉 repo，都讀不出來
 env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
 bad_env=''
@@ -81,9 +93,13 @@ bad_env=''
 # 所以看原文第一個 commit 之前那段；commit 訊息在 commit 之後，不受影響
 sub_re='(\(|`|(^|[^[:alnum:]_])(ba|z|k|da)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]+-[[:alnum:]]*c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
-raw_m=''
-[[ "$cmd" =~ $commit_re ]] && raw_m="${BASH_REMATCH[0]}"
-raw_before="${cmd%%"$raw_m"*}"
+# 原文寫 git "commit" 時對不上 commit_re，改在去掉引號字元的原文上找
+raw="$cmd"
+[[ "$raw" =~ $commit_re ]] || raw="${cmd//[\"\']/}"
+raw_m=''; raw_before=''
+if [[ "$raw" =~ $commit_re ]]; then
+  raw_m="${BASH_REMATCH[0]}"; raw_before="${raw%%"$raw_m"*}"
+fi
 sub_cd=0
 [[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
 # 管線裡與背景（單一 &）的 cd 在子程序執行，不改後面 commit 的目錄；先把 2>&1 的 & 去掉
@@ -154,6 +170,34 @@ if [ "$sub_cd" = 1 ] || [ "$commit_n" -ge 2 ]; then
     deny "opsx commit 閘門：一個指令裡有 ${commit_n} 個 git commit，閘門只判得了第一個。分成兩個 Bash 呼叫，一個呼叫一個 commit。"
   done
 fi
+env_msg="opsx commit 閘門：指令在 commit 前面設了 ${bad_env}，commit 實際作用的 repo 讀不出來。拿掉 ${bad_env}，改用 cd /abs/path && git commit、git -C /abs/path commit，或 git --git-dir=<repo>/.git commit。"
+# 上面算出的 repo 沒有 workplan 時，GIT_DIR、GIT_COMMON_DIR、CDPATH 的字面值可能指到有 workplan 的 repo：讀出來看那個 repo，讀不出來的值不算
+if [ -n "$bad_env" ]; then
+  env_base="${target:-$(hook_cwd)}"
+  env_cands=()
+  rest_env="$before"
+  env_v_re="(^|[[:space:];&|(])(GIT_DIR|GIT_COMMON_DIR|CDPATH)=(${dtok})"
+  while [[ "$rest_env" =~ $env_v_re ]]; do
+    var="${BASH_REMATCH[2]}"; v="${BASH_REMATCH[3]}"; rest_env="${rest_env#*"${BASH_REMATCH[0]}"}"
+    unreadable_dir "$v" && continue
+    if [ "$var" = CDPATH ]; then
+      # CDPATH 只影響相對路徑的 cd：每一項接上每個相對的 cd 目錄都是候選
+      IFS=: read -ra cdp <<< "$v"
+      for e in "${cdp[@]+"${cdp[@]}"}"; do
+        for d in "${cd_dirs[@]+"${cd_dirs[@]}"}"; do
+          case "$d" in /*) ;; *) env_cands+=("$(join_dir "$(join_dir "$(hook_cwd)" "$e")" "$d")") ;; esac
+        done
+      done
+    else
+      v="${v%/}"; env_cands+=("$(join_dir "$env_base" "${v%/.git}")")
+    fi
+  done
+  for c in "${env_cands[@]+"${env_cands[@]}"}"; do
+    [ -d "$c" ] || continue
+    t="$(OPSX_CWD="$c" repo_top)"
+    [ -n "$t" ] && [ -f "$t/openspec/workplan.yaml" ] && deny "$env_msg"
+  done
+fi
 [ -n "$top" ] || exit 0
 if [ ! -f "$top/openspec/workplan.yaml" ]; then
   ctx PreToolUse "opsx commit 閘門未啟用：這個 repo 還沒有 openspec/workplan.yaml（第一次 /opsx-workflow:propose 後自動生效）"; exit 0
@@ -164,14 +208,31 @@ if [ "$is_alias" = 1 ]; then
 fi
 
 if [ -n "$bad_env" ]; then
-  deny "opsx commit 閘門：指令在 commit 前面設了 ${bad_env}，commit 實際作用的 repo 讀不出來。拿掉 ${bad_env}，改用 cd /abs/path && git commit、git -C /abs/path commit，或 git --git-dir=<repo>/.git commit。"
+  deny "$env_msg"
 fi
 
 if [ -n "$bad_dirs" ]; then
   deny "opsx commit 閘門：指令裡的目錄（${bad_dirs# }）讀不出 commit 實際作用的 repo：含空白、引號、變數、~ 或萬用字元，或 --git-dir 不是 <repo>/.git，或 cd -。改用不含空白的字面路徑（git -C /abs/path commit 或 cd /abs/path && git commit）。"
 fi
 
-if printf '%s' "$cmd" | grep -q '\[no-change\]'; then
+# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3text：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
+# （它也扣 opsx answer 的答案與 cat、tee 寫檔 heredoc，那兩種寫法照舊算數）
+nc_in_msg=0
+l3="$(cmd_l3text "$cmd")" || l3="$cmd"
+nc_cmd="${cmd//\[no-change\]/}"; nc_l3="${l3//\[no-change\]/}"
+[ $(( ${#cmd} - ${#nc_cmd} )) -gt $(( ${#l3} - ${#nc_l3} )) ] && nc_in_msg=1
+# -F -、--file=- 讀的 heredoc 本體也是訊息：結尾行要整行相同，<<- 先去掉行首 tab；找不到結尾行就不算
+hd_re="^([^;&|]*[[:blank:]])?(-F[[:blank:]]*-|--file[=[:blank:]]+-)([[:blank:]][^;&|]*)?<<(-?)[[:blank:]]*[\"'\\\\]?([A-Za-z_][A-Za-z0-9_]*)"
+case "$raw_m" in *[\;\&\|\)]|*$'\n'|'') hd_line='' ;; *) hd_line="${raw#*"$raw_m"}" ;; esac
+if [ "$nc_in_msg" = 0 ] && [[ "$hd_line" == *$'\n'* && "${hd_line%%$'\n'*}" =~ $hd_re ]]; then
+  hd_tab="${BASH_REMATCH[4]}"; hd_end="${BASH_REMATCH[5]}"; hd_hit=0
+  while IFS= read -r ln; do
+    [ "$hd_tab" = - ] && ln="${ln#"${ln%%[!$'\t']*}"}"
+    if [ "$ln" = "$hd_end" ]; then nc_in_msg="$hd_hit"; break; fi
+    [[ "$ln" == *'[no-change]'* ]] && hd_hit=1
+  done <<< "${hd_line#*$'\n'}"
+fi
+if [ "$nc_in_msg" = 1 ]; then
   mkdir -p "$OPSX_STATE_DIR"
   printf '%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$(repo_name)" "$(branch)" "$(printf '%s' "$cmd" | tr '\n' ' ' | cut -c1-200)" | opsx_append "$OPSX_STATE_DIR/bypass.log"
   ctx PreToolUse "opsx：[no-change] 逃生口放行，記在 $OPSX_STATE_DIR/bypass.log"; exit 0

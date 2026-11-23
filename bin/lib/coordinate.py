@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argslost import args_lost, claude_argv  # noqa: E402
 import chain  # noqa: E402
 import coordq  # noqa: E402
+import drivepid  # noqa: E402
 import gaterule  # noqa: E402
 import jsonfile  # noqa: E402
 import late  # noqa: E402
@@ -70,6 +71,7 @@ GATE_HUMAN = {
     "split": ("?? %(key)s gate %(gate)s 是拆法確認，只有使用者能答，不代答、不停 pane：%(q100)s", "要你確認拆法"),
     "merge": ("?? %(key)s gate %(gate)s 是合併類決定題，不代答：%(q100)s → %(pick60)s", "是合併的決定"),
     "no-pick": ("?? %(key)s gate %(gate)s 沒有選項也沒有建議，要人看：%(q120)s", "沒有選項也沒有建議"),
+    "no-rec": ("?? %(key)s gate %(gate)s 有選項沒有建議，要你選：%(q100)s → %(opts60)s", "有選項沒有建議，要你選"),
     "hands": ("?? %(key)s gate %(gate)s 要人動手，不代答：%(q100)s → %(pick60)s", "要你動手"),
     "approval": ("?? %(key)s gate %(gate)s 要授權，不代答：%(q100)s", "要你授權"),
     "decision": ("?? %(key)s gate %(gate)s 要你決定，不代答：%(q100)s → %(pick60)s", "要你決定"),
@@ -797,7 +799,8 @@ class Round:
         pick = w.get("recommended") or (w.get("options") or [None])[0] or ""
         line, why = GATE_HUMAN["coordinator-run" if verdict[0] == "coordinator" else verdict[1]]
         self.log(line % {"key": key, "gate": w["gate_id"], "q100": q[:100], "q120": q[:120], "pick60": pick[:60],
-                         "rec100": (w.get("recommended") or "")[:100]})
+                         "rec100": (w.get("recommended") or "")[:100],
+                         "opts60": "、".join(w.get("options") or [])[:60]})
         self.notify_gate(c, w, why)
 
     def open_stale_wait_gate(self, c, top):
@@ -1550,17 +1553,17 @@ def parse_relaunching_at(key, entry, now):
     return parsed
 
 
-def drive_dead(key, disp):
+def drive_dead(key, slug, disp):
+    """drive 死了回重派原因；還活著或分不出來回 None。"""
     pid = parse_drive_pid(key, disp)
     if pid is None:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return True
-    except PermissionError:
-        return False
-    return False
+        return None
+    st, cmd = drivepid.state(pid, slug)
+    if st == drivepid.GONE:
+        return "drive pid %d 已經不在" % pid
+    if st == drivepid.OTHER:
+        return "drive pid %d 被別的程序用了（%s）" % (pid, one_line(cmd))
+    return None
 
 
 def is_merged(c):
@@ -1706,11 +1709,11 @@ def one_round(state, dry):
         if paused or not c["dispatch"] or card_key(c) in r.memo["_parked"]:
             continue
         try:
-            dead = drive_dead(card_key(c), c["dispatch"])
+            dead = drive_dead(card_key(c), c["slug"], c["dispatch"])
             if c["agent_status"] == "unknown":
                 r.redispatch(c, repo_paths[c["repo"]], "agent 不在 herdr 裡（pane %s）" % c["dispatch"].get("pane"))
             elif dead:
-                r.redispatch(c, repo_paths[c["repo"]], "drive pid %s 已經不在" % c["dispatch"]["drive_pid"])
+                r.redispatch(c, repo_paths[c["repo"]], dead)
             else:
                 r.check_args(c, repo_paths[c["repo"]])
                 r.open_stale_wait_gate(c, repo_paths[c["repo"]])
