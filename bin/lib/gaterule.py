@@ -26,10 +26,14 @@ MERGE_WORD = re.compile(r"合併|merge", re.IGNORECASE)
 MR_ANCHOR = re.compile(
     r"(?<![a-z])(mr|pr)s?(?![a-z])|merge[ _-]request|pull[ _-]request|[!#][0-9]+|(?<!origin/)(?<![a-z])(main|master)(?![a-z])",
     re.IGNORECASE)
-# 第三級動作（部署、強推、刪資料、改 CI、secrets）、花錢與對外發話。單獨的 CI 不算：「等 CI 綠」是操作題，不是改 CI
+# 合併字旁邊有授權字（要授權合併嗎、Ready to merge?）是在問要不要合併，沒有 MR 錨點也交人
+MERGE_AUTH = re.compile(r"授權|允許|(?<![a-z])ready(?![a-z])", re.IGNORECASE)
+# 第三級動作（部署、動 prod、強推、刪資料、打 tag、改 CI、secrets）、花錢與對外發話。單獨的 CI 不算：「等 CI 綠」是操作題，不是改 CI
 LEVEL3 = re.compile(
     r"deploy|部署"
     r"|force-push|push --force|push -f|強推|drop table|truncate|刪資料|刪除資料"
+    r"|drop (column|database|schema)|delete from|rm -rf|reset --hard|刪除?(欄位|表|分支)|git tag|打 ?tag|push --tags"
+    r"|(?<![a-z0-9])prod(?![a-z0-9])"
     r"|\.gitlab-ci|\.github/workflows|改 ?ci|動 ?ci|ci ?設定|ci ?檔"
     r"|secret|sops|\.env|金鑰|憑證|api key|credential"
     r"|花錢|付費|費用|購買|訂閱|billing|對外|對客戶|發信|寄信|send email|發公告|issue 留言|issue comment",
@@ -73,7 +77,8 @@ def decide(w):
     # gate 明寫 waits-on 才算等別張卡。要排在合併類規則前，不然會被它吃掉
     if w.get("waits_on"):
         return ("park", w["waits_on"])
-    if is_mr_merge(q + " " + (pick or "")):
+    decision_text = q + " " + (pick or "")
+    if is_mr_merge(decision_text) or (MERGE_WORD.search(decision_text) and MERGE_AUTH.search(decision_text)):
         return ("human", "merge")
     if LEVEL3.search(q + " " + (w.get("recommended") or "")):
         return ("human", "level3")

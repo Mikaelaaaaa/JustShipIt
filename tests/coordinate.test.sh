@@ -445,10 +445,15 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "合併類決定題不代答：$(cat "$OPSX_FAKE_LOG")"
 grep '??' "$LOG" | grep a1 | grep -q gm || fail "合併類決定題要記 ?? 與 gate id：$(cat "$LOG")"
 # 沒有 MR 錨點的合併字不算 MR 合併（gate-rule「講的是 MR 合併」），照建議答；真的合併仍由授權閘門擋、由人在板上按
-for q in 'forge 拒絕合併（pipeline 紅），要怎麼做？|重跑 pipeline 後重試合併' '要授權合併嗎？|允許' 'Ready to merge?|yes'; do
+cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"gm","question":"forge 拒絕合併（pipeline 紅），要怎麼做？","recommended":"重跑 pipeline 後重試合併","options":["重跑 pipeline 後重試合併","停"]}}]'
+rm -f "$MEMO"; round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer a1 --gate gm ')" 1 "沒有 MR 錨點的合併字照建議答：$(cat "$OPSX_FAKE_LOG")"
+# 合併字加授權字（授權、允許、ready）是在問要不要合併，交人（派工指示「合併仍交人」）
+for q in '要授權合併嗎？|允許' 'Ready to merge?|yes'; do
   cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"gm","question":"'"${q%%|*}"'","recommended":"'"${q#*|}"'","options":["'"${q#*|}"'","停"]}}]'
   rm -f "$MEMO"; round || fail "rc: $(cat "$FX/out")"
-  assert_eq "$(count '^opsx answer a1 --gate gm ')" 1 "沒有 MR 錨點的合併字照建議答（${q%%|*}）：$(cat "$OPSX_FAKE_LOG")"
+  assert_eq "$(count '^opsx answer')" 0 "合併字加授權字不代答（${q%%|*}）：$(cat "$OPSX_FAKE_LOG")"
+  grep '??' "$LOG" | grep a1 | grep -q gm || fail "合併字加授權字要記 ?? 與 gate id（${q%%|*}）：$(cat "$LOG")"
 done
 rm -f "$MEMO"
 
@@ -3100,14 +3105,26 @@ ready_round() {
   grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$1" || fail "內文要有「$1」：$(cat "$OPSX_FAKE_LOG")"
 }
 TS=2026-11-23T10:00:00+08:00
-# 一般場景：主殼一列代決
-printf '%s\t協調者\t已決定\t自動採用：協調者代決，照建議：A\tg1\n' "$TS" > "$AGD/decisions.tsv"
-ready_round '代決：g1 協調者代決，照建議：A'
-# 一般場景：主殼一列加子 change 一列，子 change 的列標 <子>/<gate id>
-printf '%s\t協調者\t已決定\t自動採用：用 B\tg2\n' "$TS" > "$AGD/decisions.tsv"
-printf '%s\t協調者\t已決定\t自動採用：用 C\tg3\n' "$TS" > "$AGD/subs/s/decisions.tsv"
-ready_round '代決：g2 用 B；s/g3 用 C'
-rm -f "$AGD/subs/s/decisions.tsv"
+# proxy_answer <gate 所在目錄> <gate id> <題目> <建議> [--sub <子>]：寫一題 open gate，再用真的 opsx answer --by coordinator 照建議答掉，
+# decisions.tsv 的列由 log.sh 的 log_row 寫，跟協調者實際寫出來的一樣
+proxy_answer() {
+  printf '## %s\ntype: decision\nstatus: open\n問題: %s\n建議: %s\n' "$2" "$3" "$4" >> "$1/gates.md"
+  bash "$OPSX_ROOT/bin/opsx" answer a "${@:5}" --gate "$2" --by coordinator --repo "$AG" -- "$BY$4$PONY" > "$FX/answer-out" 2>&1 \
+    || fail "opsx answer $2 rc: $(cat "$FX/answer-out")"
+}
+# 一般場景：主殼一列代決，清單寫 gate id、題目與建議，不帶代答文字的開頭與 ponytail 結尾
+proxy_answer "$AGD" g1 '範圍要不要收窄？' 'A'
+ready_round '代決：g1 範圍要不要收窄？ → A'
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$PONY" && fail "代決清單不帶 ponytail 結尾：$(cat "$OPSX_FAKE_LOG")"
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$BY" && fail "代決清單不帶「協調者代決，照建議：」開頭：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$AGD/decisions.tsv" "$AGD/gates.md"
+# 一般場景：主殼一列加子 change 一列，子 change 的列標 <子>/<gate id>、題目取子 change 的 gates.md；題目只取前 60 字
+Q60='這一題的題目很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長'   # 剛好 60 字
+proxy_answer "$AGD" g2 "${Q60}，後面這段不會出現" '用 B'
+proxy_answer "$AGD/subs/s" g3 '子 change 的題？' '用 C' --sub s
+ready_round "代決：g2 $Q60 → 用 B；s/g3 子 change 的題？ → 用 C"
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF '後面這段不會出現' && fail "題目只取前 60 字：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$AGD/subs/s/decisions.tsv" "$AGD/subs/s/gates.md" "$AGD/gates.md"
 # 邊界場景：使用者自己答的、協調者的其他紀錄、沒有 decisions.tsv 都是無
 printf '%s\t你\t已決定\t用 A\tg1\n' "$TS" > "$AGD/decisions.tsv"
 ready_round '代決：無'

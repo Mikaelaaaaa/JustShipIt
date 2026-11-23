@@ -64,6 +64,11 @@ DESKTOP_ONLY = "desktop "
 AGENT_NAME = chain.AGENT_NAME
 # answer.sh --by coordinator 寫進 decisions.tsv 的文字開頭；可以合併通知的代決清單只認這種列
 PROXY_PREFIX = "自動採用："
+# 協調者代答送給 agent 的答案是 PROXY_HEAD + 建議 + PROXY_TAIL；代決清單只列建議本身
+PROXY_HEAD = "協調者代決，照建議："
+PROXY_TAIL = "（套用 ponytail 原則：最小改動、不加沒人要的東西）"
+# 代決清單每項附的題目長度
+PROXY_QUESTION_CHARS = 60
 # gaterule.decide 回「留給人」時，各理由代碼寫進 log 的那行與通知標題後半
 GATE_HUMAN = {
     "stuck": ("?? %(key)s gate %(gate)s 是 drive 或 Stop hook 卡住時寫的，建議欄是給人看的提示，不代答：%(q100)s", "卡住了，要你看"),
@@ -622,7 +627,7 @@ class Round:
         """照建議答 gaterule 回 answer 的 gate（每個 repo 有建議的 decision）。sub 是子 change 名，這時 c 是它的主 change。
         送不到 agent 就重派；其他失敗記 ?? 並通知人。答成功回 True。"""
         target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
-        text = "協調者代決，照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
+        text = PROXY_HEAD + pick + PROXY_TAIL
         args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
         rc, out, err = self.act(args)
         if rc == 0:
@@ -1618,27 +1623,38 @@ def stale_wait_gate(c, now, card_dir):
     return "stale-wait-" + at.strftime("%Y%m%d%H%M%S")
 
 
-def proxy_rows(path, label):
-    """一個 decisions.tsv 裡協調者代答的列（answer.sh 寫的「協調者 已決定 自動採用：<答案> <gate id>」），回「<label><gate id> <答案>」。
-    檔案不存在等於沒有代決。"""
+def proxy_question(gates_path, gate_id):
+    """代決清單裡那題的題目前 PROXY_QUESTION_CHARS 字，取自同一個殼的 gates.md。"""
+    part = late.gate_section(gates_path, gate_id)
+    m = re.search(r"(?m)^問題:[ \t]*(.*)$", part) if part is not None else None
+    if m is None:
+        return "（gates.md 沒有這題的題目）"
+    return m.group(1).strip()[:PROXY_QUESTION_CHARS]
+
+
+def proxy_rows(shell_dir, label):
+    """一個殼的 decisions.tsv 裡協調者代答的列（answer.sh 寫的「協調者 已決定 自動採用：<答案> <gate id>」），
+    回「<label><gate id> <題目> → <建議>」。decisions.tsv 不存在等於沒有代決。"""
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(os.path.join(shell_dir, "decisions.tsv"), encoding="utf-8") as f:
             lines = f.read().split("\n")
     except FileNotFoundError:
         return []
     rows = [line.split("\t") for line in lines]
-    return ["%s%s %s" % (label, r[4], r[3][len(PROXY_PREFIX):]) for r in rows
-            if len(r) >= 5 and r[1] == "協調者" and r[3].startswith(PROXY_PREFIX)]
+    gates_path = os.path.join(shell_dir, "gates.md")
+    return ["%s%s %s → %s" % (label, r[4], proxy_question(gates_path, r[4]),
+                              r[3][len(PROXY_PREFIX):].removeprefix(PROXY_HEAD).removesuffix(PROXY_TAIL))
+            for r in rows if len(r) >= 5 and r[1] == "協調者" and r[3].startswith(PROXY_PREFIX)]
 
 
 def proxy_line(card_dir):
     """可以合併通知的代決行：主殼與每個子 change 的 decisions.tsv，子 change 的列標 <子>/。
     讀不了照樣回一行：清單是附帶資訊，不能擋住可以合併通知。"""
-    subs = sorted(glob.glob(os.path.join(card_dir, "subs", "*", "decisions.tsv")))
+    subs = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(card_dir, "subs", "*", "decisions.tsv")))
     try:
-        rows = proxy_rows(os.path.join(card_dir, "decisions.tsv"), "")
-        for path in subs:
-            rows += proxy_rows(path, os.path.basename(os.path.dirname(path)) + "/")
+        rows = proxy_rows(card_dir, "")
+        for sub_dir in subs:
+            rows += proxy_rows(sub_dir, os.path.basename(sub_dir) + "/")
     except (OSError, UnicodeDecodeError) as e:
         return "代決：讀不到（%s）" % e
     return "代決：" + ("；".join(rows) or "無")
