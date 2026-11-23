@@ -97,6 +97,24 @@ assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommende
 # 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
+# decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
+# terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
+missing_human_text() { # <gaterule.py> <coordinate.py> → 沒有文字的理由代碼，空白分隔；全有時印空行
+  python3 -I -c '
+import ast, sys
+rule, coord = (ast.parse(open(p, encoding="utf-8").read()) for p in sys.argv[1:3])
+codes = {n.elts[1].value for n in ast.walk(rule)
+         if isinstance(n, ast.Tuple) and len(n.elts) == 2
+         and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in n.elts) and n.elts[0].value == "human"}
+table = next(n.value for n in coord.body if isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "GATE_HUMAN" for t in n.targets))
+keys = {k.value for k in table.keys}
+print(" ".join(sorted(codes - keys - {"terminal"})))' "$1" "$2"
+}
+assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$OPSX_ROOT/bin/lib/coordinate.py")" "" "每個 human 理由代碼在 GATE_HUMAN 都有文字"
+# 自檢：GATE_HUMAN 少了 no-rec 時要抓得到
+NO_TEXT="$FX/coordinate-no-rec.py"
+grep -v '"no-rec":' "$OPSX_ROOT/bin/lib/coordinate.py" > "$NO_TEXT"
+assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$NO_TEXT")" "no-rec" "GATE_HUMAN 漏 no-rec 時要抓到"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '
 import ast, sys
