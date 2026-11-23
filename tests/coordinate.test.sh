@@ -695,7 +695,49 @@ sleep 0 & dead=$!; wait "$dead"
 cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$dead"'},"agent_status":"idle"}]'
 round || fail "rc: $(cat "$FX/out")"
 assert_grep "^opsx dispatch u --agent claude" "$OPSX_FAKE_LOG"
+assert_grep "drive pid $dead 已經不在" "$LOG"
 rm -f "$MEMO" "$DISP"
+
+# --- drive pid 被別的程序用了：命令列不是這張卡的 drive 就重派 ---
+use_fakes ps
+sleep 30 & live=$!
+reused() { # <命令列> <重派：0 或 1> <原因片段，空字串是不檢查>
+  export OPSX_TEST_PS_CMD="$1"
+  cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+  round || fail "rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx dispatch u ')" "$2" "命令列 $1"
+  [ -z "$3" ] || assert_grep "$3" "$LOG"
+  rm -f "$MEMO" "$DISP"
+}
+reused "bash /x/bin/opsx drive u --repo $R" 0 ""
+reused "bash /x/bin/opsx drive u" 0 ""
+reused "/usr/bin/vim notes.md" 1 "drive pid $live 被別的程序用了（/usr/bin/vim notes.md）"
+reused "bash /x/bin/opsx drive u-2 --repo $R" 1 "被別的程序用了"
+reused "bash /x/bin/opsx drive uu --repo $R" 1 "被別的程序用了"
+# 重開機後 pid 常被 root 程序拿走：signal 0 沒有權限（pid 1），一樣讀命令列、一樣重派
+export OPSX_TEST_PS_CMD="/sbin/launchd"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 1 "pid 被 root 程序用了要重派"
+assert_grep "drive pid 1 被別的程序用了（/sbin/launchd）" "$LOG"
+rm -f "$MEMO" "$DISP"
+# 別的程序的命令列可能很長、帶換行：原因只留第一行的前 100 字，跟其他外部文字一樣
+long="/x/Helper$(printf 'a%.0s' $(seq 1 300))"
+export OPSX_TEST_PS_CMD="$long
+--second-line"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_grep "被別的程序用了（${long:0:100}）" "$LOG"
+assert_not_grep "${long:0:101}" "$LOG"
+assert_not_grep "second-line" "$LOG"
+rm -f "$MEMO" "$DISP"
+# 讀不到命令列（沙盒裡 ps 跑不起來）：分不出來，不重派
+unset OPSX_TEST_PS_CMD
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 0 "讀不到命令列不重派"
+rm -f "$MEMO" "$DISP"
+kill "$live"
 
 # --- 派工照等級（priority-dispatch）---
 # incident <slug> <impact> <evidence>：收件卡的事實；evidence 給空字串就是沒證據
