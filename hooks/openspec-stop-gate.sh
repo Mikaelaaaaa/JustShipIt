@@ -229,7 +229,7 @@ babysit_reason() {
   esac
 }
 
-# MR 全綠，但邏輯表不是 MR head 產的、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
+# MR 全綠，但邏輯表不是 MR head 產的、表裡有沒處理的沒經過決定項、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
 # 印 mergeready.card_blockers 的第一條；判斷跟 collect 共用。MR JSON 讀不懂或沒有 python 時印空字串，照原本不推（hook 不能以非 0 結束）
 ready_card_blocker() {
   printf '%s' "$mr_out" | OPSX_SLUG="$slug" OPSX_DIR="$d" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
@@ -239,7 +239,12 @@ mr = json.load(sys.stdin)
 d = os.environ["OPSX_DIR"]
 with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
     report = f.read()
-got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, os.path.isfile(os.path.join(d, "logic-map.md")), mr.get("head_sha"))
+map_path = os.path.join(d, "logic-map.md")
+map_text = None
+if os.path.isfile(map_path):
+    with open(map_path, encoding="utf-8") as f:
+        map_text = f.read()
+got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, map_text, mr.get("head_sha"))
 print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
 
