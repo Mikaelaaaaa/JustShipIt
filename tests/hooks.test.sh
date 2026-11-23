@@ -439,6 +439,12 @@ assert_eq "$(containers "git commit -m '[no-change] x'" --commit-only)" 'git com
 # heredoc 本體裡長得像 commit 的行不能被當成 commit 扣掉
 FAKE=$'cat > f <<\'EOF\'\ngit commit -m \'[no-change]\'\nEOF\ngit commit -m x'
 assert_eq "$(containers "$FAKE" --commit-only)" "$FAKE" "containers: --commit-only 不掃 heredoc 本體裡的假 commit"
+# heredoc 之後的指令：不帶參數的輸出照舊（commit 訊息不扣）；反斜線續行讓 bash 的 heredoc 比 perl 長，後面的 push 行不能被吞
+AFTER=$'cat > f <<\'EOF\'\nx\nEOF\ngit commit -m \'[no-change] a\''
+assert_eq "$(containers "$AFTER")" $'cat > f <<\'EOF\'\nEOF\ngit commit -m \'[no-change] a\'' "containers: 不帶參數時 heredoc 之後的 commit 訊息原樣保留"
+assert_eq "$(containers "$AFTER" --commit-only)" $'cat > f <<\'EOF\'\nx\nEOF\ngit commit -m ""' "containers: --commit-only 時 heredoc 之後的 commit 訊息照扣"
+CONT=$'cat > f <<EOF\na\\\nEOF\ncat > g <<X\nEOF\ngit push --force origin main\nX\n'
+case "$(containers "$CONT")" in *'git push --force origin main'*) ;; *) fail "containers: 不帶參數時續行 heredoc 後的 push 行被吞掉" ;; esac
 if printf 'ls' | perl "$H/cmd-containers.pl" --bogus >/dev/null 2>&1; then fail "containers: 不認得的參數要失敗"; fi
 
 # 白名單容器的「容器本身」不能變成繞過口（review 第 2 輪）：已授權 push 串在前面時閘門會明確 allow，所以每個都要 deny

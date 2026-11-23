@@ -115,7 +115,7 @@ sub scan {
         my $c = substr $s, $i, 1;
         if ($at_cmd && $c !~ /\s/) {
             my ($text, $end) = container_at(\$s, $i, $heredocs_ok);
-            if (defined $text) { $out .= $text; $i = $end; $at_cmd = $text =~ /\n\z/ ? 1 : 0; next }
+            if (defined $text) { $out .= $text; $i = $end; $at_cmd = $COMMIT_ONLY && $text =~ /\n\z/ ? 1 : 0; next }
         }
         my ($copied, $next);
         if ($c eq '\\') { ($copied, $next) = (substr($s, $i, 2), $i + 2) }
