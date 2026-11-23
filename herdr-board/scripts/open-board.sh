@@ -3,12 +3,17 @@
 #   server：python3 herdr-board/server.py --port ${OPSX_BOARD_PORT}（預設 8791），pid 在 $OPSX_STATE_DIR/board-<port>.pid（每個 port 一份），log 在 board.log
 #   token：server 第一次啟動寫 $OPSX_STATE_DIR/board-token；拼進 URL，頁面讀一次存 sessionStorage 後抹掉
 #   用法：open-board.sh [<repo>/<slug>]，給了就在同一個 fragment 加 card=，網頁開頁後展開那張卡
+#   瀏覽器：預設 open / xdg-open；OPSX_BOARD_BROWSER=orca 才開 Orca 內建瀏覽器分頁
 set -euo pipefail
 card="${1:-}"
 # 參數錯不起 server，所以先驗
 # slug 照 collect 列出的目錄名收，不套 herdr agent 名的 32 字上限；兩段都會經 quote 編碼
 if [ -n "$card" ] && ! [[ "$card" =~ ^[^/]+/[^/]+$ ]]; then
   echo "opsx board: 參數要是 <repo>/<slug>，收到 [$card]" >&2; exit 1
+fi
+browser="${OPSX_BOARD_BROWSER:-}"
+if [ -n "$browser" ] && [ "$browser" != orca ]; then
+  echo "opsx board: OPSX_BOARD_BROWSER 只收 orca 或不設，收到 [$browser]" >&2; exit 1
 fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 state="${OPSX_STATE_DIR:-$HOME/.local/state/opsx}"
@@ -72,8 +77,9 @@ orca_fail() { # orca_fail <步驟> <orca stdout>：不退回系統瀏覽器，�
   [ -n "$2" ] && printf '%s\n' "$2" >&2
   cat "$orca_err" >&2; rm -f "$orca_err"; exit 1
 }
-# 只有 Orca terminal 有 ORCA_TERMINAL_HANDLE；tab create 不收 --focus，要拿 browserPageId 再 tab switch
-if [ -n "${ORCA_TERMINAL_HANDLE:-}" ]; then
+# 預設系統瀏覽器：herdr server 的環境可能帶著過期的 ORCA_TERMINAL_HANDLE，不能拿它判斷使用者在不在 Orca。
+# tab create 不收 --focus，要拿 browserPageId 再 tab switch
+if [ "$browser" = orca ]; then
   orca_err="$(mktemp "${TMPDIR:-/tmp}/opsx-orca-tab.XXXXXX")"
   # Orca 的 Electron 殼成功時也在 stderr 印 codesign 雜訊，JSON 只從 stdout 讀
   created="$(orca tab create --url "$open_url" --json 2>"$orca_err")" || orca_fail "tab create" "$created"

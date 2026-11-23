@@ -27,7 +27,7 @@ chmod +x "$FX/fakebin/"*
 export PATH="$FX/fakebin:$PATH"
 export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"; : > "$FX/open.log"
 export OPSX_TEST_ORCA_LOG="$FX/orca.log"; : > "$OPSX_TEST_ORCA_LOG"
-unset ORCA_TERMINAL_HANDLE OPSX_TEST_ORCA_FAIL   # 在 Orca terminal 裡跑測試時會繼承它，下面除了 Orca 段都要走系統瀏覽器
+unset ORCA_TERMINAL_HANDLE OPSX_BOARD_BROWSER OPSX_TEST_ORCA_FAIL   # 跑測試的環境可能帶著它們，下面除了 Orca 段都要走系統瀏覽器
 trap 'for f in "$OPSX_STATE_DIR"/board*.pid "$FX"/kill-*.pid; do kill "$(cat "$f" 2>/dev/null)" 2>/dev/null; done; rm -rf "$FX"' EXIT   # 斷言失敗也要把 server 收掉（每個 port 一份 pid 檔，加上測試自己起的占 port 程式）
 
 # --- manifest ---
@@ -118,26 +118,37 @@ for good in "notification-toast-replays-on-load" "a$(printf 'b%.0s' $(seq 1 40))
   out="$(bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" "opsx-workflow/$good" 2>&1)"; assert_eq "$?" 0 "slug [$good] 要開得了: $out"
   assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok&card=opsx-workflow/$good" "slug [$good] 帶進 card="
 done
-# --- Orca terminal 裡：開在 Orca 內建瀏覽器並切過去，不叫系統瀏覽器（specs/orca-board-tab）---
+# --- OPSX_BOARD_BROWSER=orca：開在 Orca 內建瀏覽器並切過去，不叫系統瀏覽器（specs/orca-board-tab）---
 : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" opsx-workflow/tui-keys 2>&1)"; assert_eq "$?" 0 "Orca terminal 開看板: $out"
+out="$(OPSX_BOARD_BROWSER=orca bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" opsx-workflow/tui-keys 2>&1)"; assert_eq "$?" 0 "OPSX_BOARD_BROWSER=orca 開看板: $out"
 assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "tab create --url http://127.0.0.1:$port/#token=$tok&card=opsx-workflow/tui-keys --json
 tab switch --page page-9 --focus" "Orca 先 tab create 再 tab switch 到回傳的 page"
 assert_eq "$(cat "$FX/open.log")" "" "Orca 開成功不叫 open / xdg-open"
 case "$out" in *"opsx 看板：http://127.0.0.1:$port/"*) ;; *) fail "Orca 開成功仍要印看板那一行：$out";; esac
-# 不在 Orca terminal：沒設、空字串都照舊 open，不叫 orca
+# 沒設 OPSX_BOARD_BROWSER（或空字串）：一律 open，不叫 orca；herdr 環境帶著過期的 ORCA_TERMINAL_HANDLE 也一樣
 : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(env -u ORCA_TERMINAL_HANDLE bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "沒設 handle: $out"
-assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "沒設 handle 照舊 open"
-assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "沒設 handle 不叫 orca"
+out="$(env -u ORCA_TERMINAL_HANDLE bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "都沒設: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "都沒設照舊 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "都沒設不叫 orca"
 : > "$FX/open.log"
-out="$(ORCA_TERMINAL_HANDLE= bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "handle 空字串: $out"
-assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "handle 空字串照舊 open"
-assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "handle 空字串不叫 orca"
+out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "只有 handle: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "只有 ORCA_TERMINAL_HANDLE 仍走 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "只有 ORCA_TERMINAL_HANDLE 不叫 orca"
+: > "$FX/open.log"
+out="$(OPSX_BOARD_BROWSER= ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "OPSX_BOARD_BROWSER 空字串: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "OPSX_BOARD_BROWSER 空字串走 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "OPSX_BOARD_BROWSER 空字串不叫 orca"
+# 不認得的值：回 1、stderr 寫出那個值、什麼瀏覽器都不開
+: > "$FX/open.log"
+err="$(OPSX_BOARD_BROWSER=chrome bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "OPSX_BOARD_BROWSER=chrome 要回 1: $err"
+case "$err" in *chrome*) ;; *) fail "stderr 要寫出不認得的值 chrome：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "不認得的值不叫 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "不認得的值不叫 orca"
 # Orca 任一步失敗：非零結束、orca 的錯誤到 stderr、不退回系統瀏覽器
 for f in create switch; do
   : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-  err="$(ORCA_TERMINAL_HANDLE=term-1 OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+  err="$(OPSX_BOARD_BROWSER=orca OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
   [ "$rc" -ne 0 ] || fail "orca tab $f 失敗要非零結束：$err"
   case "$err" in *runtime_access_denied*) ;; *) fail "orca tab $f 失敗，stderr 要有 orca 的錯誤：$err";; esac
   assert_eq "$(cat "$FX/open.log")" "" "orca tab $f 失敗不退回 open / xdg-open"
@@ -146,7 +157,7 @@ assert_grep "^tab switch --page page-9 --focus\$" "$OPSX_TEST_ORCA_LOG"   # 上�
 # tab create 以 0 結束但 stdout 不能用：點名 result.browserPageId、附原始輸出，不印 traceback、不退回 open
 for f in nopage nullresult nojson nullpage emptypage; do
   : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-  err="$(ORCA_TERMINAL_HANDLE=term-1 OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+  err="$(OPSX_BOARD_BROWSER=orca OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
   [ "$rc" -ne 0 ] || fail "tab create 回 $f 要非零結束：$err"
   case "$err" in *result.browserPageId*) ;; *) fail "tab create 回 $f 時 stderr 要點出 result.browserPageId：$err";; esac
   case "$err" in *Traceback*) fail "tab create 回 $f 時不該印 Python traceback：$err";; esac
@@ -155,7 +166,7 @@ for f in nopage nullresult nojson nullpage emptypage; do
 done
 # orca 的 stderr 暫存檔不用 state 目錄裡的固定檔名：那個位置被佔掉時 Orca 分支照樣能開
 mkdir -p "$OPSX_STATE_DIR/orca-tab.err"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "state 裡有 orca-tab.err 目錄時 Orca 分支: $out"
+out="$(OPSX_BOARD_BROWSER=orca bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "state 裡有 orca-tab.err 目錄時 Orca 分支: $out"
 assert_grep "^tab switch --page page-9 --focus\$" "$OPSX_TEST_ORCA_LOG"
 rmdir "$OPSX_STATE_DIR/orca-tab.err"
 # --- 沒有 open / xdg-open：非零結束、網址寫到 stderr，呼叫的人（TUI 的 o）才不會當成開好了 ---
