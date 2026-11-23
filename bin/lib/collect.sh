@@ -363,7 +363,7 @@ def needs_human(card, gates, agent_status, top, prs, dispatched):
     open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
     if not open_gates: return True
     for g in open_gates:
-        verdict = gaterule.decide(waiting_of(card, [g], agent_status), card["repo"])
+        verdict = gaterule.decide(waiting_of(card, [g], agent_status))
         if verdict[0] == "coordinator":
             if dispatched: continue
             return True

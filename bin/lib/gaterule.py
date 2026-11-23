@@ -1,8 +1,8 @@
 """一個 gate 要通知人、停 pane 等別張卡、交協調者 session 代跑，還是由協調者照建議答；協調者與 collect 共用。
-只看 waiting 與 repo 名，不讀檔、不跑指令、不通知。只有 opsx-workflow repo 的 decision 由協調者照建議答；
-approval 與其他 repo 的 gate 都由使用者答。代跑是照建議跑一次指令、把結果貼回，不是替人做決定。
+只看 waiting，不看 repo、不讀檔、不跑指令、不通知。每個 repo 有建議的 decision 都由協調者照建議答；
+approval、第三級、花錢、對外、合併與要人動手的題由使用者答。代跑是照建議跑一次指令、把結果貼回，不是替人做決定。
 
-decide(waiting, repo) 回傳四種處置之一：
+decide(waiting) 回傳四種處置之一：
   ("human", reason)        留給人；reason 是理由代碼，文字由呼叫端對照
   ("park", waits_on)       等 waits_on 那張卡合進 main
   ("coordinator", "run")   needs: run 且 by: coordinator，協調者 session 照建議跑
@@ -26,10 +26,16 @@ MERGE_WORD = re.compile(r"合併|merge", re.IGNORECASE)
 MR_ANCHOR = re.compile(
     r"(?<![a-z])(mr|pr)s?(?![a-z])|merge[ _-]request|pull[ _-]request|[!#][0-9]+|(?<!origin/)(?<![a-z])(main|master)(?![a-z])",
     re.IGNORECASE)
+# 第三級動作（部署、強推、刪資料、改 CI、secrets）、花錢與對外發話。單獨的 CI 不算：「等 CI 綠」是操作題，不是改 CI
+LEVEL3 = re.compile(
+    r"deploy|部署"
+    r"|force-push|push --force|push -f|強推|drop table|truncate|刪資料|刪除資料"
+    r"|\.gitlab-ci|\.github/workflows|改 ?ci|動 ?ci|ci ?設定|ci ?檔"
+    r"|secret|sops|\.env|金鑰|憑證|api key|credential"
+    r"|花錢|付費|費用|購買|訂閱|billing|對外|對客戶|發信|寄信|send email|發公告|issue 留言|issue comment",
+    re.IGNORECASE)
 # explore 寫的拆法確認 gate 的 id
 SPLIT_GATE = "split"
-# 這個 repo 的 decision 由協調者照建議答
-ANSWER_REPO = "opsx-workflow"
 # drive、Stop hook 卡住與協調者等背景工作太久時寫的 gate 標題（drive-<站>-<n>、卡在接 /<站> [#<n>]、stale-wait-<時間>）：
 # 建議欄是給人看的提示，不是答案
 STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?|stale-wait-[0-9]+")
@@ -39,7 +45,7 @@ def is_mr_merge(text):
     return bool(MR_MERGE.search(text) or (MERGE_WORD.search(text) and MR_ANCHOR.search(text)))
 
 
-def decide(w, repo):
+def decide(w):
     if w["gate_id"] and STUCK_GATE.fullmatch(w["gate_id"]):
         return ("human", "stuck")
     # 排在 type 前：approval 型的 push 題也交協調者，使用者在協調者 pane 按權限提示。
@@ -62,8 +68,6 @@ def decide(w, repo):
         return ("human", "terminal")
     if w["type"] == "type 不明":
         return ("human", "type")
-    if w["gate_id"] == SPLIT_GATE and repo != ANSWER_REPO:
-        return ("human", "split")
     q = w.get("question") or ""
     pick = w.get("recommended") or (w.get("options") or [None])[0]
     # gate 明寫 waits-on 才算等別張卡。要排在合併類規則前，不然會被它吃掉
@@ -71,10 +75,10 @@ def decide(w, repo):
         return ("park", w["waits_on"])
     if is_mr_merge(q + " " + (pick or "")):
         return ("human", "merge")
+    if LEVEL3.search(q + " " + (w.get("recommended") or "")):
+        return ("human", "level3")
     if not pick:
         return ("human", "no-pick")
     if any(k in (w.get("recommended") or "") for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
-    if repo == ANSWER_REPO:
-        return ("answer", pick) if w.get("recommended") else ("human", "no-rec")
-    return ("human", "decision")
+    return ("answer", pick) if w.get("recommended") else ("human", "no-rec")
