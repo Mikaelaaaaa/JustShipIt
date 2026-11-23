@@ -100,11 +100,11 @@ assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一�
 # 要人動手只看建議與題目，沒建議時選項裡的字不算（Scenario Outline，正例＋反例）
 assert_eq "$(decide_in opsx-workflow '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-pick')" "選項含「錄」不算要人動手"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-pick')" "選項含「你」不算要人動手"
-assert_eq "$(decide_in Agentory-AI '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'decision')" "其他 repo 選項含「錄」是要你決定"
+assert_eq "$(decide_in other-repo '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'decision')" "其他 repo 選項含「錄」是要你決定"
 assert_eq "$(decide_in opsx-workflow '{"question": "這段怎麼驗", "recommended": "你在 sandbox 外跑", "options": ["你在 sandbox 外跑", "略過"]}')" "('human', 'hands')" "建議含「你」要人動手"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "先錄一段畫面", "options": ["先錄一段畫面", "略過"]}')" "('human', 'hands')" "建議含「錄」要人動手"
 assert_eq "$(decide_in opsx-workflow '{"question": "這只有你能做", "options": ["A", "B"]}')" "('human', 'hands')" "邊界：題目端命中，沒建議也算"
-assert_eq "$(decide_in Agentory-AI '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
+assert_eq "$(decide_in other-repo '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "用 A", "options": ["照你說的", "用 A"]}')" "('answer', '用 A')" "邊界：有建議時不看選項"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '
