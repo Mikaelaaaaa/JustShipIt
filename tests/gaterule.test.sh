@@ -96,6 +96,9 @@ assert_eq "$(decide_in opsx-workflow '{"question": "衝突怎麼處理？", "rec
 assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommended": "用 A"}')" "('human', 'decision')" "opsx-workflow-fork 不算"
 # 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
+# 要人動手的字只比建議：沒有建議時第一個選項不是建議（D4）
+assert_eq "$(decide_in opsx-workflow '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "opsx 沒建議、第一個選項含你，不算要你動手"
+assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'decision')" "其他 repo 沒建議、第一個選項含你，留在 decision"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
 # decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
 # terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
