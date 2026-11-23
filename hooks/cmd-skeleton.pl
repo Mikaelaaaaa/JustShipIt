@@ -118,6 +118,10 @@ sub strip_heredocs {
         my $nl = index $s, "\n", $opener_end;
         next if $nl < 0;
         next unless substr($mask, $start, 1) eq '1';
+        # $(( 1<<2 )) 與 (( y = 1<<2 )) 的 << 是位移：同一行前面有程式碼位置、還沒閉合的 (( 就不是 heredoc
+        # shortcut: 只看同一行、(( 裡最多一層括號，巢狀更深或算術跨行時改成數括號
+        my $ls = rindex($s, "\n", $start - 1) + 1;
+        next if substr($s, $ls, $start - $ls) =~ /\(\((?:[^()]|\([^()]*\))*\z/ && substr($mask, $ls + $-[0], 1) eq '1';
         # $'…\x41…' 的跳脫 bash 會展開，這裡不展開：算不準分隔字就不剝本體（fail-closed）
         next if $word =~ /\$['"]/ && $word =~ /\\/;
         my $delim = unquote_word($word);
@@ -138,41 +142,58 @@ sub skeleton {
     return $s if $depth > MAX_DEPTH;
     $s = strip_heredocs($s, $depth);
     my ($out, $i, $n) = ('', 0, length $s);
+    my ($dq_open, $esc_end, $mask) = (0, -1, code_mask($s));
     while ($i < $n) {
         my $c = substr $s, $i, 1;
         if ($c eq '\\') {
             my $next = substr $s, $i + 1, 1;
             # c\ommit、g\it：bash 把 \o 當 o。參數位置含 / 的字是路徑，保留跳脫，commit 閘門靠它認出讀不出來的目錄；
-            # 指令位置（行首或 ; & | ( 之後）的字一律還原，絕對路徑的 /usr/bin/g\it 也是
+            # 指令位置（行首、; & | ( { ! 之後，或 time env command if 之後）的字一律還原，絕對路徑的 /usr/bin/g\it 也是
             # 只看 $out 最後 256 字：每個反斜線都掃整串 $out 會變成二次方
             my $tail = substr $out, -256;
-            my $cmdpos = (length($out) <= 256 && $tail =~ /\A\s*[^\s;&|()]*\z/) || $tail =~ /[;&|(\n]\s*[^\s;&|()]*\z/;
+            my $cmdpos = (length($out) <= 256 && $tail =~ /\A\s*[^\s;&|()]*\z/) || $tail =~ /(?:[;&|(\n{!]\s*|(?<![^\s;&|(])(?:time|env|command|if)\s+)[^\s;&|()]*\z/;
             if ($next =~ /^\w$/ && ($cmdpos || $tail !~ m{[^\s]*/[^\s]*\z})) { $out .= $next }
             elsif ($next eq "\n") { }                     # 行尾續行：bash 把反斜線與換行整個拿掉
             else { $out .= "\\$next" }
             $i += 2;
+            $esc_end = $i;
             next;
         }
         my $prev = $i ? substr($s, $i - 1, 1) : '';
-        if ($c eq $SQ && $prev =~ /[\w]/) {
-            # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號
-            my $end = index $s, $SQ, $i + 1;
-            my $body = $end < 0 ? '' : substr($s, $i + 1, $end - $i - 1);
-            if ($end >= 0 && $body =~ /^[^\s\\\$`"']*$/) { $out .= $body; $i = $end + 1; next }
-        }
-        if ($c eq $SQ && $prev !~ /[\w\\]/) {
+        # 註解裡的撇號（# it's）不是引號：前一個字不是程式碼就不當片段開頭
+        if ($c eq $SQ && $prev =~ /[\w]/ && substr($mask, $i - 1, 1) eq '1') {
+            # g''it、g'i't：緊貼著字的單引號片段是指令字的一部分，沒有空白就去掉引號；
+            # 其他的（don't … it's）保留兩個引號，片段裡的 " 不能被當成雙引號開頭，片段裡的 g\it 照樣還原。
+            # 片段不是新的一層求值，遞迴不加深度
             my $end = index $s, $SQ, $i + 1;
             if ($end >= 0) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
-                if ($prev eq '$') { $out .= "$SQ$body$SQ" }
+                $out .= $body =~ /^[^\s\\\$`"']*$/ ? $body : $SQ . skeleton($body, $depth) . $SQ;
+                $i = $end + 1;
+                next;
+            }
+        }
+        # 迴圈走到的 ' 不會是被跳脫的（反斜線分支一次吃兩個字元），所以 \\' 的 ' 是真引號；\$' 的 $ 被跳脫了，不是 $'…'
+        # $$' 的 $$ 是 PID，後面的 ' 是一般單引號
+        my $ansi = $prev eq '$' && $i != $esc_end && ($i < 2 || substr($s, $i - 2, 1) ne '$');
+        if ($c eq $SQ && $prev !~ /\w/) {
+            my $end = $i + 1;
+            if ($ansi) { $end += substr($s, $end, 1) eq '\\' ? 2 : 1 while $end < $n && substr($s, $end, 1) ne $SQ }
+            else { $end = index $s, $SQ, $end }
+            $end = -1 if $end >= $n;
+            if ($end >= 0) {
+                my $body = substr $s, $i + 1, $end - $i - 1;
+                if ($ansi) { $out .= "$SQ$body$SQ" }
                 elsif (substr($out, -80) =~ $RUNS_STRING) { $out .= " ; " . skeleton($body, $depth + 1) . " ; " }
                 else { $out .= $body =~ /^\S*$/ ? $body : "''" }
                 $i = $end + 1;
                 next;
             }
         }
-        if ($c eq '"') {
+        # 沒結尾的雙引號之後，" 一律當一般字元：再配對會把夾在中間的指令收成 ""，每個都用 skip_dq 重掃到尾又是二次方
+        if ($c eq '"' && !$dq_open) {
             my $end = skip_dq($s, $i);
+            $dq_open = $end >= $n;
             if ($end < $n) {
                 my $body = substr $s, $i + 1, $end - $i - 1;
                 if (substr($out, -80) =~ $RUNS_STRING) {
