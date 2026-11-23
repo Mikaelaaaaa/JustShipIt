@@ -76,6 +76,29 @@ err="$(opsx drop "$M" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
 case "$err" in *agent-20261106-1600*split-out*|*split-out*agent-20261106-1600*) ;; *) fail "stderr 要列出 id 並提示 split-out：$err" ;; esac
 assert_eq "$(snap)" "$before"; assert_dir "$CH/$M"
 
+# --- 併入段的 id 行含 \r：讀不懂也不能當成沒有併入段而歸檔（card-auto-merge「讀併入段不轉換行」）---
+export OPSX_TEST_NOW="2026-11-06 15:30"
+M2="$(opsx new --name merge-cr --repo "$A" -- 併入段有 CR)"
+printf '\n## 併入：2026-11-06T16:01:00+08:00 agent:foo\n\n- id: a\rb\n- kind_of_work: planned\n- type: bug\n\n別人的問題\n' >> "$CH/$M2/inbox.md"
+before="$(snap)"
+err="$(opsx drop "$M2" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "併入段 id 行含 \\r 的卡不能捨棄"
+case "$err" in *'\r'*) ;; *) fail "stderr 要指出 \\r：$err" ;; esac
+assert_eq "$(snap)" "$before"; assert_dir "$CH/$M2"
+rm -rf "$CH/$M2"
+
+# --- 整段 CRLF 的併入段數得到 id，但拆不出：訊息要叫人先修好，不叫人先 split-out（design D7）---
+M3="$(opsx new --name merge-crlf --repo "$A" -- 併入段整段 CRLF)"
+printf '\r\n## 併入：2026-11-06T15:30:00+08:00 agent:foo\r\n\r\n- id: c1\r\n- kind_of_work: planned\r\n- type: bug\r\n\r\n整段 CRLF\r\n' >> "$CH/$M3/inbox.md"
+before="$(snap)"
+err="$(opsx drop "$M3" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "整段 CRLF 併入段的卡不能捨棄"
+case "$err" in *先修好*'\r'*) ;; *) fail "stderr 要叫人先修好並指出 \\r：$err" ;; esac
+case "$err" in *split-out*) fail "CRLF 段拆不出，訊息不能叫人先 split-out：$err" ;; esac
+assert_eq "$(snap)" "$before"; assert_dir "$CH/$M3"
+rm -rf "$CH/$M3"
+export OPSX_TEST_NOW="2026-11-06 16:00"   # 後面的案例沿用上面那段的時間
+
 # --- drop-card-lock：另一個行程持卡鎖時，drop 的無鎖預檢已過；它放鎖前寫進一段併入，drop 取得鎖後要重查並拒絕 ---
 PYBIN="$(cat "$OPSX_STATE_DIR/python")"; LIBDIR="$OPSX_ROOT/bin/lib"
 hold_lock() { # hold_lock <卡目錄> <動作>：持卡鎖，等 $FX/go 出現後做動作（merge 併入一段 / move 搬走目錄）再放鎖
@@ -146,4 +169,26 @@ wait "$NEW"; rc=$?
 [ $rc -ne 0 ] || fail "卡已歸檔，opsx new 不能併進去：$(cat "$FX/new.out")"
 assert_grep '併不進' "$FX/new.err"
 assert_not_grep '晚到的併入' "$CH/archive/2026-11-11-$T/inbox.md"
+
+# --- 今天已有同名歸檔時拒絕捨棄（specs/slug-archive-unique）：什麼都不寫，卡留在 changes/ ---
+# openspec archive 用真實時間的 UTC 日期命名（假 date 管不到）。在 UTC+14 與 UTC-12 各跑一次：
+# 任何時刻至少一個時區的本地日期不是 UTC 日期，取本地日期的實作必有一次放行
+TODAY="$("$PYBIN" -I -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).date())')"
+export OPSX_TEST_NOW="2026-11-06 17:00"
+Z="$(opsx new --name archived-today --repo "$A" -- 今天歸檔撞名)"
+mkdir -p "$CH/archive/$TODAY-$Z"
+before="$(snap)"
+err="$(TZ=Etc/GMT-14 opsx drop "$Z" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "今天（UTC）已有同名歸檔，UTC+14 下 drop 要拒絕"
+case "$err" in *"archive/$TODAY-$Z"*) ;; *) fail "stderr 要指出撞名的歸檔路徑：$err" ;; esac
+err="$(TZ=Etc/GMT+12 opsx drop "$Z" --repo "$A" -- 不要了 2>&1 >/dev/null)"; rc=$?
+[ $rc -ne 0 ] || fail "今天（UTC）已有同名歸檔，UTC-12 下 drop 要拒絕"
+assert_eq "$(snap)" "$before" "撞名時卡的檔案都不能動"; assert_dir "$CH/$Z"
+
+# --- 別天的同名歸檔不擋捨棄：openspec 寫的歸檔在 UTC 日期 ---
+export OPSX_TEST_NOW="2026-11-06 17:01"
+O="$(opsx new --name archived-before --repo "$A" -- 別天歸檔過)"
+mkdir -p "$CH/archive/2020-01-01-$O"
+assert_rc 0 opsx drop "$O" --repo "$A" -- 不要了
+assert_dir "$CH/archive/$TODAY-$O"; assert_no_file "$CH/$O"
 echo ok

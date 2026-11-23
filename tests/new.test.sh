@@ -515,4 +515,20 @@ s="$(opsx new --name bad-workplan --type 功能 --repo "$WB" -- 壞的 workplan 
 assert_file "$WB/openspec/changes/$s/inbox.md"
 assert_grep "已建 ${s}，但沒掛進 workplan" "$FX/wb.err"; assert_grep 'features' "$FX/wb.err"
 assert_eq "$(cat "$WB/openspec/workplan.yaml")" "created: 2026-11-05"
+
+# --- 歸檔過的 slug 不再使用（specs/slug-archive-unique）：archive/<日期>-<slug> 算占用，名字只是包含 slug 的不算 ---
+AR="$(mk_opsx_repo ar)"; ARC="$AR/openspec/changes/archive"
+mkdir -p "$ARC/2026-11-17-arc-same"
+assert_eq "$(opsx new --name arc-same --repo "$AR" -- 同一天歸檔過)" arc-same-2 "archive 有 2026-11-17-<slug> 要換 -2"
+mkdir -p "$ARC/2025-01-02-arc-old"
+assert_eq "$(opsx new --name arc-old --repo "$AR" -- 別年歸檔過)" arc-old-2 "任何日期的歸檔都算占用"
+mkdir -p "$ARC/2026-11-17-foo-arc-part"
+assert_eq "$(opsx new --name arc-part --repo "$AR" -- 只是名字含 slug)" arc-part "名字只是以 -<slug> 結尾的歸檔不算占用"
+mkdir -p "$ARC/2026-11-17-arc-plus-2"
+assert_eq "$(opsx new --name arc-plus --repo "$AR" -- 加號的歸檔)" arc-plus "<slug>-2 的歸檔不占用 <slug>"
+mkdir -p "$ARC/2026-11-17-arc-both" "$AR/openspec/changes/arc-both-2"
+assert_eq "$(opsx new --name arc-both --repo "$AR" -- 兩邊都占用)" arc-both-3 "進行中與歸檔都占用時再往後加號"
+assert_file "$AR/openspec/changes/arc-both-3/inbox.md"
+rm -rf "$ARC"
+assert_eq "$(opsx new --name arc-none --repo "$AR" -- 沒有歸檔目錄)" arc-none "沒有 archive/ 時照原名"
 echo ok

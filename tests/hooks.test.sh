@@ -834,6 +834,19 @@ assert_eq "$(grep -c '^type: approval-ish$' "$G")" 1 "gate-type: 表外的值原
 printf '## g1\ntype: approval-ish\nstatus: open\n' > "$G"; printf '{"tool_name":"Write","tool_input":{"file_path":"%s"}}' "$G" | CLAUDE_PLUGIN_ROOT="$GP" OPSX_NOW=2026-11-06T14:05:00+08:00 bash "$H/gate-timestamp.sh" >/dev/null 2>&1
 assert_eq "$?" 0 "gate-type: 提醒時退出碼仍是 0"
 assert_eq "$(cat "$KL")" "$(printf 'opsx coordinate --kick\nopsx coordinate --kick')" "gate-type: 有 open 的 gate 兩次寫入各 kick 一次，且只叫到假的 bin/opsx"
+# gate 沒有 status 行：提醒補 status: open 並點名，不改檔；有 status 行的不提醒（agent-20261117-1437）
+printf '## g1\ntype: decision\n問題: 選哪個\n\n## g2\ntype: decision\nstatus: answered\n' > "$G"; cp "$G" "$FX/gst-before.md"
+out="$(gts "$G")"; ctx="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out")"
+for want in g1 'status: open'; do case "$ctx" in *"$want"*) ;; *) fail "gate-status: 沒有 status 行的提醒要含「${want}」：$ctx" ;; esac; done
+case "$ctx" in *g2*) fail "gate-status: 有 status 行的 gate 不該被點名：$ctx" ;; esac
+assert_eq "$(cmp -s "$G" "$FX/gst-before.md" && echo same)" same "gate-status: 只提醒不改檔"
+printf '## g2\ntype: decision\nstatus: answered\n' > "$G"
+out="$(gts "$G")"; assert_eq "$out" "" "gate-status: 有 status 行的 gate 不提醒"
+# status 值不是剛好 open 或 answered 的也提醒（D6）
+printf '## g3\ntype: decision\nstatus: Open\n\n## g4\ntype: decision\nstatus: open（等授權）\n\n## g5\ntype: decision\nstatus: open\n' > "$G"
+out="$(gts "$G")"; ctx="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out")"
+for want in g3 g4; do case "$ctx" in *"gate $want"*) ;; *) fail "gate-status: status 值不合法的 ${want} 要提醒：$ctx" ;; esac; done
+case "$ctx" in *"gate g5"*) fail "gate-status: status: open 的 g5 不該被點名：$ctx" ;; esac
 # gate 標題只放 slug：open 的「slug 加其餘文字」被縮成 slug，其餘進 問題:；第一個詞不是 slug 只提醒（gate-id-slug）
 printf '## G1 瀏覽器確認精靈畫出來了\ntype: decision\nstatus: open\n\n## g2 測試跑不起來\ntype: decision\nstatus: open\n問題: 需要你在終端機跑\n' > "$G"
 out="$(gts "$G")"; assert_eq "$out" "" "gate-slug: 縮標題不出聲"
@@ -1452,6 +1465,12 @@ printf '%s' "${OPEN_MR/\"success\"/\"failed\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_eq "$out" "" "stop: babysit 做完 CI 紅放行"
 assert_not_grep '^agent prompt' "$CL"
 assert_eq "$(said 1)" "babysit 做完，MR 卡在 CI 紅" "stop: CI 紅記下原因"
+# 快取目錄寫不進去：mkdir、mktemp 的錯誤印到 stderr，不能混進 MR 狀態
+printf '%s' "${OPEN_MR/\"has_conflicts\":false/\"has_conflicts\":true}" > "$OPSX_TEST_GLAB_JSON"
+rm -rf "$OPSX_STATE_DIR/cache"; : > "$OPSX_STATE_DIR/cache"
+out="$(OPSX_MR_CACHE_TTL=60 sgc)"; assert_eq "$out" "" "stop: 快取寫不進去 MR 衝突放行"
+assert_eq "$(said 1)" "babysit 做完，MR 卡在衝突" "stop: 快取寫不進去仍讀得到 MR 衝突"
+rm -f "$OPSX_STATE_DIR/cache"
 # CI 還在跑、MR ready、查不到：都不推
 printf '%s' "${OPEN_MR/\"success\"/\"running\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: CI 在跑不推"

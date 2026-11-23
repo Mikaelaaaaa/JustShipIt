@@ -325,6 +325,21 @@ no_summary() { # <名> <內文>：內文沒有非空一句話的來源，merge-c
 no_summary ns1 $'## 證據\n\n- foo.py:3'
 no_summary ns2 $'## 一句話\n\n## 證據'
 
+# ========== 來源帶附件或 \r 不捨棄（board-actions「merge-card 不收拆不回的來源」）==========
+unsplittable() { # <名> <要含的訊息> <整份 inbox（printf 格式）>：拆不回的來源，merge-card 退出非零、兩張卡都不動
+  mk_card "$1-s" planned "" ""; mk_card "$1-d" planned "" ""
+  printf -- "$3" > "$CH/$1-s/inbox.md"
+  before="$(snap)"
+  err="$(opsx merge-card "$1-s" --into "$1-d" --repo "$A" 2>&1)" && fail "$1：拆不回的來源要退出非零"
+  case "$err" in *"$1-s"*) ;; *) fail "$1：訊息要含來源 slug：$err" ;; esac
+  case "$err" in *"$2"*) ;; *) fail "$1：訊息要含 $2：$err" ;; esac
+  assert_eq "$(snap)" "$before" "$1：兩張卡都不動"
+}
+unsplittable at1 '## 附件' '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\n---\n\n## 一句話\n\n帶附件\n\n## 附件\n\n- attachments/shot.png\n\n## 證據\n\n'
+unsplittable cr1 '\r' '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\n---\n\n## 一句話\n\n證據有 CR\n\n## 證據\n\n- a\rb\n'
+unsplittable cr2 '\r' '---\r\ntype: bug\r\nsource: agent:t\r\nfound: 2026-11-10\r\n---\r\n\r\n## 一句話\r\n\r\n整份 CRLF\r\n\r\n## 證據\r\n\r\n'
+unsplittable at2 '## 附件' '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\n---\n\n## 一句話\n\n標題尾端空白\n\n## 附件 \n\n- attachments/shot.png\n\n## 證據\n\n'
+
 # ========== 縮排段保存來源 frontmatter ==========
 mk_card fm-s incident prod_or_main "foo.py:3"; mk_card fm-d planned "" ""
 printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-17\nrelated:\nkind_of_work: incident\nimpact: prod_or_main\nevidence: foo.py:3\npriority: P1\npriority_reason: 照建議\n---\n\n## 一句話\n\nfm-s\n\n## 證據\n\n- 原有\n' > "$CH/fm-s/inbox.md"
@@ -351,4 +366,15 @@ mk_card cr4-s planned "" ""; mk_card cr4-d planned "" ""
 printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P1\npriority_reason: 手動\n---\n\n## 一句話\n\ncr4-s\n\n## 證據\n\n- 原有\n' > "$CH/cr4-s/inbox.md"
 printf -- '---\ntype: bug\nsource: agent:t\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\npriority: P2\npriority_reason: 原理由\n---\n\n## 一句話\n\ncr4-d\n\n## 證據\n\n- 原有\n' > "$CH/cr4-d/inbox.md"
 carried_row cr4 '{"set": {"priority": "P1", "priority_reason": "併自 cr4-s：手動"}, "before": {"priority": "P2", "priority_reason": "原理由"}}'
+
+# --- 併進時來源撞名，兩張卡都不動（specs/slug-archive-unique）：今天已有來源的同名歸檔 ---
+# openspec archive 用真實時間的 UTC 日期命名，假 date 管不到；UTC+14 下本地日期常跟 UTC 不同
+TODAY="$("$PYBIN" -I -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).date())')"
+mk_card arch-src planned "" ""; mk_card arch-dst planned "" ""
+mkdir -p "$CH/archive/$TODAY-arch-src"
+before="$(snap)"
+err="$(TZ=Etc/GMT-14 opsx merge-card arch-src --into arch-dst --repo "$A" 2>&1)" && fail "來源今天（UTC）已有同名歸檔，merge-card 要退出非零"
+case "$err" in *"archive/$TODAY-arch-src"*) ;; *) fail "stderr 要指出撞名的歸檔路徑：$err" ;; esac
+assert_eq "$(snap)" "$before" "撞名時兩張卡都不能動"
+assert_dir "$CH/arch-src"
 echo ok

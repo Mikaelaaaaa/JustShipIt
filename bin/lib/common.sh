@@ -103,6 +103,7 @@ slug_candidate() { # <slug> <n>
 # 在 <top> 用 openspec 建殼，inbox.md 寫成 <內容檔>；slug 已被占用就依序加 -2、-3，總長照 slug_candidate 截到 32 字以內。印實際的 slug。
 # 占用：殼已在、歸檔過（archive/<日期>-<slug>）、workplan 有同名 feature、PR 或 change、或有 */<slug>/* 或 */<slug> 分支。
 # 後三者會讓新卡的 PR 名、branch 名跟舊的撞在一起，卡名就不再等於 PR 名和 branch 名（有 feat/<slug> 時 git 建不出 feat/<slug>/<user>）。
+# 歸檔過也算：openspec archive 撞到同名目錄會拒絕，舊名重用也會讓紀錄指到兩張卡。
 # workplan 讀不了時 names 只警告、不印名字：照樣建殼，只少了 workplan 名字的撞名檢查。
 # 建好就掛進 workplan（workplanwrite.py attach），<父卡> 沒給時從卡的 source: agent:<卡> 取。
 # 掛不進去只警告、照樣印 slug：卡已經建好，退出非零會讓呼叫端或 agent 再建一張。

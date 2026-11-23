@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 # 假 ps：只支援 `ps -p <pid> -o command=`。pid 不在就 exit 1（跟真的一樣），在就印 $OPSX_TEST_PS_CMD。測試用。
-kill -0 "$2" 2>/dev/null || exit 1
+# 沒有權限送 signal 的 pid（例如 1）也算在，跟真的 ps 一樣讀得到它的命令列。
+err="$(kill -0 "$2" 2>&1)" || case "$err" in *"No such process"*) exit 1 ;; esac
 printf '%s\n' "${OPSX_TEST_PS_CMD:?}"

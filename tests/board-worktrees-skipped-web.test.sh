@@ -21,7 +21,7 @@ const top = (data) => {
   return {render: () => renderTop({page: 'board'}), errors: $('#errors')};
 };
 
-const onlySkipped = top({generated_at: 'x', errors: [], worktrees_skipped: ['Agentory-AI-langflow', 'a-wt']});
+const onlySkipped = top({generated_at: 'x', errors: [], worktrees_skipped: ['acme-api-wt', 'a-wt']});
 onlySkipped.render();
 assert.strictEqual(onlySkipped.errors.hidden, true, '只有跳過的 worktree 時紅條要隱藏');
 assert.ok(!onlySkipped.errors.innerHTML.includes('跳過 worktree 目錄'), '紅條不能有跳過 worktree 目錄');
