@@ -48,7 +48,7 @@ opsx_merge-card() {
 
   "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" open-check "$ch/$into" || die "merge-card: 目標 $into 不收併入，兩張卡都沒動"
   "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" summary-check "$MERGE_CARD_COPY" "$src" \
-    || die "merge-card: 來源 $src 沒有非空的 ## 一句話，併進去拆不回來，兩張卡都沒動"
+    || die "merge-card: 來源 $src 併進去拆不回來（上面是原因），兩張卡都沒動"
 
   opsx_drop "$src" --repo "$top" -- "併入 $repo/$into"
   local mid   # 目標已有同 id 的段時會是 <src>-2，carry 要記進這次寫的那段

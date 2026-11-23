@@ -120,4 +120,15 @@ row() { # <slug> <字元>
   case "$errs" in *"$1 的併入段"*) fail "$1 不該有併入段格式錯誤：$errs" ;; esac
 }
 row ls-line "$LS"; row ls-ind "$LS"; row ls-nel "$NEL"; row ls-ff "$FF"
+
+# --- 看板對含 \r 的段報格式錯，跟 split-out 判斷一致（card-auto-merge「讀併入段不轉換行」）---
+base cr
+printf '\n## 併入：2026-11-20T10:00:00+08:00 agent:t\n\n- id: r1\n- kind_of_work: planned\n- type: bug\n\none\rtwo\n' >> "$CH/cr/inbox.md"
+printf '\r\n## 併入：2026-11-20T10:01:00+08:00 agent:t\r\n\r\n- id: r3\r\n- kind_of_work: planned\r\n- type: bug\r\n\r\n整段 CRLF\r\n' >> "$CH/cr/inbox.md"
+printf '\n## 併入：2026-11-20T10:02:00+08:00 agent:t\n\n- id: ok1\n- kind_of_work: planned\n- type: bug\n\nfine\n' >> "$CH/cr/inbox.md"
+J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect rc（\\r）: $J"
+assert_eq "$(q "$(card "$J" r cr)" merged | python3 -I -c 'import json,sys; print(" ".join(m["id"] for m in json.load(sys.stdin)))')" "ok1" "含 \\r 的段不進 merged[]"
+errs="$(q "$J" errors)"
+case "$errs" in *"cr 的併入段"*r1*) ;; *) fail "r1 要報格式錯：$errs" ;; esac
+case "$errs" in *"cr 的併入段"*r3*) ;; *) fail "r3 要報格式錯：$errs" ;; esac
 echo "collect-section-split ok"

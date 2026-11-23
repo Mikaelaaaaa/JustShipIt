@@ -146,14 +146,15 @@ cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "帶附件：x/inbox.md 不該變"
 assert_eq "$(dirs)" "x " "帶附件：沒有新殼"
 
 # --- merge-card 寫入再 split-out 讀回：新殼 frontmatter 之後的內容跟來源一模一樣 ---
+# src 已隨 merge-card 歸檔成 archive/<今天>-src，拆回來的殼是 src-2，之後捨棄才不會撞名（specs/slug-archive-unique）
 reset; card x; card src
 printf '\n## 派工指示\n\n- 2026-11-20T10:00:00+08:00 先跑 lint\n' >> "$C/src/inbox.md"
 body() { awk 'n >= 2; /^---$/ { n++ }' "$1"; }
 body "$C/src/inbox.md" > "$FX/src-body.md"
 opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
 split x src; assert_eq "$?" 0 "往返拆回要退出 0：$(cat "$ERR")"
-assert_eq "$(cat "$OUT")" src
-body "$C/src/inbox.md" > "$FX/back-body.md"
+assert_eq "$(cat "$OUT")" src-2
+body "$C/src-2/inbox.md" > "$FX/back-body.md"
 cmp -s "$FX/src-body.md" "$FX/back-body.md" || fail "往返後內文要跟來源一樣：$(diff "$FX/src-body.md" "$FX/back-body.md")"
 
 # --- 帶 frontmatter 的縮排段原樣拆回：新殼跟來源併入前的 inbox.md 一字不差 ---
@@ -163,14 +164,15 @@ cp "$C/src/inbox.md" "$FX/src-orig.md"
 opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
 assert_grep '^  ---$' "$C/x/inbox.md"
 split x src; assert_eq "$?" 0 "帶 frontmatter 的縮排段要拆得出：$(cat "$ERR")"
-cmp -s "$C/src/inbox.md" "$FX/src-orig.md" || fail "新殼要跟來源原本的 inbox.md 一字不差：$(diff "$FX/src-orig.md" "$C/src/inbox.md")"
+assert_eq "$(cat "$OUT")" src-2 "src 已歸檔，拆回的殼是 src-2"
+cmp -s "$C/src-2/inbox.md" "$FX/src-orig.md" || fail "新殼要跟來源原本的 inbox.md 一字不差：$(diff "$FX/src-orig.md" "$C/src-2/inbox.md")"
 # 來源以 ## 證據\n\n 結尾（opsx new 寫的卡都是）：檔尾空行不計，拆回的是來源去掉檔尾空行再補一個 \n
 reset; card x; card src
 printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-17\nrelated:\nkind_of_work: planned\n---\n\n## 一句話\n\n證據段是空的\n\n## 證據\n\n' > "$C/src/inbox.md"
 printf -- '---\ntype: bug\nsource: me\nfound: 2026-11-17\nrelated:\nkind_of_work: planned\n---\n\n## 一句話\n\n證據段是空的\n\n## 證據\n' > "$FX/want.md"
 opsx merge-card src --into x --repo "$E" > /dev/null 2> "$ERR" || fail "merge-card 失敗：$(cat "$ERR")"
 split x src; assert_eq "$?" 0 "$(cat "$ERR")"
-cmp -s "$C/src/inbox.md" "$FX/want.md" || fail "拆回的檔要是來源去掉檔尾空行加一個換行：$(diff "$FX/want.md" "$C/src/inbox.md")"
+cmp -s "$C/src-2/inbox.md" "$FX/want.md" || fail "拆回的檔要是來源去掉檔尾空行加一個換行：$(diff "$FX/want.md" "$C/src-2/inbox.md")"
 
 # --- 拆回時照 - carried: 撤回 carry，刪掉 - 併進 證據行：x 回到併入前 ---
 REPO="$(basename "$E")"
@@ -351,6 +353,29 @@ split x ls1; assert_eq "$?" 0 "一句話含 U+2028 要拆得出：$(cat "$ERR")"
 cmp -s "$C/x/inbox.md" "$FX/want.md" || fail "只該刪含 U+2028 的那段：$(diff "$FX/want.md" "$C/x/inbox.md")"
 assert_grep $'^foo\342\200\250bar$' "$C/ls1/inbox.md"
 
+# --- CRLF 目標刪段其餘位元組不變（card-auto-merge「讀併入段不轉換行」）---
+reset; mkdir -p "$C/x"; printf 'schema: opsx\n' > "$C/x/.openspec.yaml"
+printf -- '---\r\ntype: 功能\r\nsource: me\r\nfound: 2026-11-10\r\nrelated:\r\nkind_of_work: planned\r\n---\r\n\r\n## 一句話\r\n\r\nx\r\n\r\n## 證據\r\n\r\n- 原本的證據 bin/x.sh\r\n' > "$C/x/inbox.md"
+sec2='## 併入：2026-11-11T10:41:00+08:00 agent:foo\n\n- id: c2\n- kind_of_work: planned\n- type: bug\n\n第二段\n'
+cp "$C/x/inbox.md" "$FX/want.md"; printf "\\n$sec2" >> "$FX/want.md"
+printf '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: c1\n- kind_of_work: planned\n- type: bug\n\n第一段\n' >> "$C/x/inbox.md"
+printf "\\n$sec2" >> "$C/x/inbox.md"
+split x c1; assert_eq "$?" 0 "CRLF 目標要拆得出：$(cat "$ERR")"
+cmp -s "$C/x/inbox.md" "$FX/want.md" || fail "CRLF 目標只該刪 c1 那段：$(diff "$FX/want.md" "$C/x/inbox.md" | od -c | head -20)"
+
+# --- 併入段含 \r 拆不出：退出 1、stderr 含 id、目標不變、沒有新殼 ---
+cr_case() { # cr_case <id> <段的位元組（printf 格式）>
+  reset; card x; printf "$2" >> "$C/x/inbox.md"; cp "$C/x/inbox.md" "$FX/keep.md"
+  split x "$1"; assert_eq "$?" 1 "$1 含 \\r 要退出 1：$(cat "$OUT") $(cat "$ERR")"
+  assert_grep "$1" "$ERR"
+  cmp -s "$C/x/inbox.md" "$FX/keep.md" || fail "$1：x/inbox.md 不該變"
+  assert_eq "$(dirs)" "x " "$1：沒有新殼"
+}
+cr_case r1 '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: r1\n- kind_of_work: planned\n- type: bug\n\none\rtwo\n'
+cr_case r2 '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: r2\n- kind_of_work: planned\n- type: bug\n\n  ## 一句話\n\n  一句\n\n  ## 證據\n\n  - a\rb\n'
+cr_case r3 '\r\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\r\n\r\n- id: r3\r\n- kind_of_work: planned\r\n- type: bug\r\n\r\n整段 CRLF\r\n'
+cr_case r4 '\n## 併入：2026-11-11T10:40:00+08:00 agent:foo\n\n- id: r4\n- kind_of_work: planned\n- type: bug\r\n\n一句\n'
+
 # --- 併入後 note 在檔尾長出 ## 派工指示：拆出併入段，派工指示一字不變 ---
 reset; card x
 merge --kind-of-work planned -- 先併入
@@ -500,4 +525,13 @@ want = (sys.argv[3], "fix/%s/mika" % sys.argv[3], [sys.argv[3]])
 assert [(p["name"], p["branch"], [c["name"] for c in p["changes"]]) for p in f["prs"]][1:] == [want], f
 PY
 rm "$E/openspec/workplan.yaml"
+
+# --- 拆出的 id 跟歸檔卡同名（specs/slug-archive-unique）：換成 <id>-2，記「拆出 <id> 成 <id>-2」---
+reset; card x
+merge --kind-of-work planned -- 跟歸檔同名
+mkdir -p "$C/archive/2026-11-17-$ID"
+split x "$ID"; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" "$ID-2" "跟歸檔同名的 id 要拆成 -2"
+assert_file "$C/$ID-2/inbox.md"; assert_no_file "$C/$ID/inbox.md"
+assert_eq "$(tail -1 "$C/x/decisions.tsv" | cut -f4)" "拆出 $ID 成 $ID-2"
 echo ok

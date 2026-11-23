@@ -44,6 +44,11 @@ opsx_drop() {
   local ids=""
   [ ! -f "$d/inbox.md" ] || ids="$("$OPSX_PY" -I "$OPSX_ROOT/bin/lib/inboxmerge.py" ids "$d")" || die "drop: 讀不了 $d/inbox.md 的併入段（上面是原因）"
   [ -z "$ids" ] || die "drop: $repo/$slug 還有併入的項目（${ids//$'\n'/ }），先用 opsx split-out $slug <id> 拆出來再捨棄"
+  # openspec archive 撞到同名目錄會拒絕，那時理由已經寫進卡；所以先查。
+  # openspec 用 UTC 日期命名歸檔目錄（new Date().toISOString()），這裡也取 UTC 日期，不用本地日期，也不用可被換掉的 date 指令
+  local arch
+  arch="$top/openspec/changes/archive/$("$OPSX_PY" -I -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).date())')-$slug"
+  [ ! -e "$arch" ] || die "drop: 已有同名歸檔 ${arch}，openspec archive 會撞名；$repo/$slug 沒有改動"
 
   # 預檢之後才併進來的段，只有卡鎖內的重查擋得住；鎖要到 archive 結束才放，等鎖的 opsx new 才會報併不進而不是跟著歸檔
   local rc=0
