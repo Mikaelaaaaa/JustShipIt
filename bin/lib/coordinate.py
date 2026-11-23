@@ -1053,14 +1053,35 @@ class Round:
         return [pr["name"]] if pr["name"] in merged else []
 
     def close_gone_released(self):
-        """opsx release 放掉、pane 已不在 herdr agent 清單的條目記 pane_closed_at：reap 收不到不在的 pane，
-        不記的話 dispatch_new 與 opsx dispatch 會一直等它被收。"""
-        panes = {a.get("pane_id") for a in self.agents}
+        """opsx release 放掉、herdr agent 清單裡已沒有它的 agent 的條目記 pane_closed_at：reap 收不到不在的 agent，
+        不記的話 dispatch_new 與 opsx dispatch 會一直等它被收。跟 live_panes 一樣比 cwd，pane id 在但 cwd 不在條目的
+        worktree 底下，是 herdr 把 id 重用給了別的 pane。relaunch 中的不動：claude 已 /exit，看起來就是不在。"""
+        by_pane = {a.get("pane_id"): a for a in self.agents}
         at = self.now.isoformat(timespec="seconds")
         for key, entry in sorted(self.dispatch_file.items()):
-            if not chain.released_waiting(entry) or entry.get("pane") in panes:
+            if not chain.released_waiting(entry):
                 continue
-            self.log("-- %s 放掉的 pane %s 已不在 herdr，記成已收" % (key, entry.get("pane")))
+            try:
+                since = parse_relaunching_at(key, entry, self.now)
+            except DispatchFieldError as e:
+                self.log("?? %s %s，這輪不收它的 pane" % (key, e))
+                continue
+            if since and self.now - since < datetime.timedelta(minutes=RELAUNCH_MINUTES):
+                self.log("-- %s 放掉了，但從 %s 起在 relaunch，不收 pane" % (key, entry["relaunching_at"]))
+                continue
+            if not entry.get("worktree"):
+                self.log("?? %s 放掉的條目沒記 worktree，比不了 pane %s 的 cwd，這輪不收" % (key, entry.get("pane")))
+                continue
+            a = by_pane.get(entry.get("pane"))
+            if a and in_worktree(a, entry["worktree"]):
+                continue
+            if a:
+                # id 已經是別人的 pane：原本的 pane 早就關了，再關會關掉別人的
+                self.log("-- %s 放掉的 pane %s 已被 herdr 重用在別處，記成已收" % (key, entry["pane"]))
+            else:
+                # claude 退出後 pane 剩 shell 還開著，不關的話同一棵 worktree 會再開出第二個 pane；herdr 回錯當作已不在
+                self.log("-- %s 放掉的 pane %s 已不在 herdr agent 清單，關掉並記成已收" % (key, entry["pane"]))
+                self.act(runtime.close("pane", card=key, dispatch=os.path.join(self.state, "dispatch.json")))
             entry["pane_closed_at"] = at
             if not self.dry:
                 jsonfile.update(os.path.join(self.state, "dispatch.json"), functools.partial(mark_pane_closed, key=key, at=at))
@@ -1094,8 +1115,9 @@ class Round:
                 continue   # 人在板上停掉的
             if not (discuss or os.path.isfile(os.path.join(c["path"], "tasks.md"))) or c["mr"]:
                 continue
-            # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session
-            owner = None if parked else self.session_feature_of(top, c["repo"], c["slug"])
+            # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session。
+            # 放掉後 worktree 還在的補卡也一樣，分支還 checkout 在那棵 worktree
+            owner = None if parked or (entry and released_in_worktree(entry)) else self.session_feature_of(top, c["repo"], c["slug"])
             if owner:
                 self.log("-- %s 屬於 feature %s，由那個 session 做，不單獨派" % (key, owner))
                 continue
@@ -1108,7 +1130,12 @@ class Round:
                 continue
             # opsx release 放掉、reap 還沒收的 pane 還在同一棵 worktree 上，先派會開出第二個 pane
             if entry and chain.released_waiting(entry):
-                self.log("-- %s 放掉了，等 reap 收 pane 才派" % key)
+                # 超過一輪還沒收：agent 停在 blocked 或一直 working，reap 不會收，要人去看
+                if self.now - datetime.datetime.fromisoformat(entry["released_at"]) > datetime.timedelta(minutes=REDISPATCH_MINUTES):
+                    status = {a.get("pane_id"): a.get("agent_status") for a in self.agents}.get(entry.get("pane"))
+                    self.log("?? %s 放掉超過 %d 分鐘、pane %s 還沒收（agent %s）" % (key, REDISPATCH_MINUTES, entry.get("pane"), status))
+                else:
+                    self.log("-- %s 放掉了，等 reap 收 pane 才派" % key)
                 continue
             # 排在等級與額度之前：已經有 pane 在做的卡不該吃掉這輪的額度
             holder = self.branch_holder(top, c["slug"])
@@ -1151,13 +1178,16 @@ class Round:
 
     def ready(self, c, top):
         """待指派裡現在就能派的卡：有 tasks.md、沒有 MR、P0/P1、依賴都合了、沒有活的條目（人停的條目也不活），
-        而且不是 dispatch_new 會跳過的卡（session 的 feature 卡、slug 不合 agent 名、放掉但 pane 還沒收、分支被別的 worktree 佔著）。"""
+        而且不是 dispatch_new 會跳過的卡（session 的 feature 卡但放掉後 worktree 還在的除外、slug 不合 agent 名、放掉但 pane 還沒收、
+        分支被別的 worktree 佔著）。"""
         entry = self.dispatch_file.get(card_key(c))
         if c["section"] != "待指派" or c["mr"] or not os.path.isfile(os.path.join(c["path"], "tasks.md")):
             return False
         if entry and (chain.session_alive(entry) or entry.get("mode") == "stopped" or chain.released_waiting(entry)):
             return False
-        if not AGENT_NAME.match(c["slug"]) or self.session_feature_of(top, c["repo"], c["slug"]) or self.branch_holder(top, c["slug"]):
+        if not AGENT_NAME.match(c["slug"]) or self.branch_holder(top, c["slug"]):
+            return False
+        if not (entry and released_in_worktree(entry)) and self.session_feature_of(top, c["repo"], c["slug"]):
             return False
         got = self.level(top, c["slug"])
         if "error" in got or got["level"] == "P2":
@@ -1321,9 +1351,9 @@ class Round:
 
     def holds_branch(self, repo, slug, feature):
         """<slug> 有條目、不是這個 feature 的 session 成員，而且沒停、或停了但 worktree 還在（opsx stop 不收 worktree）。
-        放掉且 pane 已收的條目不算：那是協調者補的卡，propose 完交給 session 接手。"""
+        放掉且 pane 已收、worktree 也不在的條目不算：那是協調者補的卡，propose 完交給 session 接手；worktree 還在就還佔著分支。"""
         entry = self.dispatch_file.get("%s/%s" % (repo, slug))
-        if not entry or entry.get("via") == "@" + feature or chain.released_done(entry):
+        if not entry or entry.get("via") == "@" + feature or (chain.released_done(entry) and not released_in_worktree(entry)):
             return False
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
 
@@ -1403,11 +1433,21 @@ def live_panes(entries, agents, own_work):
         status = a.get("agent_status")
         if status not in LIVE_AGENT and not (status in ("idle", "done") and key in own_work):
             continue
-        root = os.path.realpath(e["worktree"])
-        cwds = [os.path.realpath(a[k]) for k in ("cwd", "foreground_cwd") if a.get(k)]
-        if any(p == root or p.startswith(root + "/") for p in cwds):
+        if in_worktree(a, e["worktree"]):
             busy.add(e["pane"])
     return busy
+
+
+def released_in_worktree(entry):
+    """opsx release 放掉、pane 已收，但 worktree 還在：分支還 checkout 在那棵 worktree，只能單卡派回去。"""
+    return chain.released_done(entry) and "worktree" in entry and os.path.isdir(entry["worktree"])
+
+
+def in_worktree(agent, worktree):
+    """herdr agent 的 cwd 或 foreground_cwd 是 worktree 或在它底下，兩邊都 realpath。"""
+    root = os.path.realpath(worktree)
+    cwds = [os.path.realpath(agent[k]) for k in ("cwd", "foreground_cwd") if agent.get(k)]
+    return any(p == root or p.startswith(root + "/") for p in cwds)
 
 
 def read_max_working(path):

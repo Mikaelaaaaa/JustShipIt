@@ -81,13 +81,35 @@ rm -f "$R/openspec/workplan.yaml"
 # ========== dispatch_new 不會派的待指派卡不算存量：活 session 的 feature 卡、放掉但 pane 還沒收的卡 ==========
 reset
 printf 'created: 2026-11-07\n\nfeatures:\n  - name: fx\n    prs:\n      - name: sa\n        status: pending\n        depends-on: []\n        changes:\n          - name: sa\n            status: pending\n      - name: sb\n        status: pending\n        depends-on: []\n        changes:\n          - name: sb\n            status: pending\n' > "$R/openspec/workplan.yaml"
-printf '{"demo/@fx":{"mode":"autopilot","agent":"claude","pane":"w1:s1","drive_pid":null},"demo/rr":{"mode":"autopilot","agent":"claude","pane":"w1:r1","drive_pid":null,"released_at":"2026-11-22T10:00:00+08:00"}}' > "$DISP"
+printf '{"demo/@fx":{"mode":"autopilot","agent":"claude","pane":"w1:s1","drive_pid":null},"demo/rr":{"mode":"autopilot","agent":"claude","pane":"w1:r1","drive_pid":null,"worktree":"%s","released_at":"2026-11-22T10:00:00+08:00"}}' "$FX" > "$DISP"
 printf '{"id":"cli:agent:list","result":{"agents":[{"pane_id":"w1:s1","agent_status":"working","cwd":"%s"},{"pane_id":"w1:r1","agent_status":"idle","cwd":"%s"}],"type":"agent_list"}}' "$FX" "$FX" > "$FX/agents.json"
 cards "[$(ready sa sb rr),$(inboxes ia ib)]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch (sa|sb|rr) ')" 0 "session 的卡與還沒收 pane 的卡不單獨派：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(filled)" 2 "它們不算存量，補 2 張：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$R/openspec/workplan.yaml"
+
+# ========== dispatch_new 不會派的待指派卡不算存量：分支被別的 worktree 佔著的卡 ==========
+reset
+printf 'created: 2026-11-07\n\nfeatures:\n  - name: fh\n    prs:\n      - name: rh\n        branch: feat/rh/u\n        status: pending\n        depends-on: []\n        changes:\n          - name: rh\n            status: pending\n' > "$R/openspec/workplan.yaml"
+# git worktree list 回 feat/rh/u checkout 在別的 worktree
+cat > "$FX/worktree-list" <<EOF
+#!/usr/bin/env bash
+printf 'worktree %s\nHEAD 0000000000000000000000000000000000000000\nbranch refs/heads/feat/rh/u\n\n' "$FX/other-wt"
+EOF
+chmod +x "$FX/worktree-list"; export OPSX_TEST_REAL_GIT="$FX/worktree-list"
+cards "[$(ready rh),$(inboxes ia ib ic)]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch rh ')" 0 "分支被佔著的卡不派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(filled)" 2 "分支被佔著的卡不算存量，補 2 張：$(cat "$OPSX_FAKE_LOG")"
+unset OPSX_TEST_REAL_GIT; rm -f "$R/openspec/workplan.yaml"
+
+# ========== dispatch_new 不會派的待指派卡不算存量：slug 不合 agent 名的卡 ==========
+reset
+cards "[$(ready Rbad),$(inboxes ia ib ic)]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch Rbad ')" 0 "slug 不合 agent 名的卡不派：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(filled)" 2 "slug 不合 agent 名的卡不算存量，補 2 張：$(cat "$OPSX_FAKE_LOG")"
 
 # ========== 補了還在 explore 的卡算存量 ==========
 reset
