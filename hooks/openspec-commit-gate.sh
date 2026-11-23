@@ -215,10 +215,9 @@ if [ -n "$bad_dirs" ]; then
   deny "opsx commit 閘門：指令裡的目錄（${bad_dirs# }）讀不出 commit 實際作用的 repo：含空白、引號、變數、~ 或萬用字元，或 --git-dir 不是 <repo>/.git，或 cd -。改用不含空白的字面路徑（git -C /abs/path commit 或 cd /abs/path && git commit）。"
 fi
 
-# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3text：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
-# （它也扣 opsx answer 的答案與 cat、tee 寫檔 heredoc，那兩種寫法照舊算數）
+# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3commit：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
 nc_in_msg=0
-l3="$(cmd_l3text "$cmd")" || l3="$cmd"
+l3="$(cmd_l3commit "$cmd")" || deny "opsx commit 閘門：perl 執行失敗，算不出 commit 訊息裡有沒有 [no-change]，先擋下。確認 perl 可用"
 nc_cmd="${cmd//\[no-change\]/}"; nc_l3="${l3//\[no-change\]/}"
 [ $(( ${#cmd} - ${#nc_cmd} )) -gt $(( ${#l3} - ${#nc_l3} )) ] && nc_in_msg=1
 # -F -、--file=- 讀的 heredoc 本體也是訊息：結尾行要整行相同，<<- 先去掉行首 tab；找不到結尾行就不算

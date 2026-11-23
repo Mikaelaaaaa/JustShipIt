@@ -208,6 +208,30 @@ for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 
   out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "commit 訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
   reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
 done
+# 寫檔 heredoc 與 opsx answer 裡的 [no-change] 不打開逃生口
+for c in $'cat > f <<\'EOF\'\n[no-change]\nEOF\ngit commit -m x' "opsx answer c '[no-change]' && git commit -m x" $'tee f <<EOF\n[no-change]\nEOF\ngit commit -m x' $'cat >> f <<-\'EOF\'\n\t[no-change]\n\tEOF\ngit commit -m x' 'git commit -m x && opsx answer c --gate g "[no-change]"' $'cat > f <<\'EOF\'\ngit commit -m \'[no-change]\'\nEOF\ngit commit -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "寫檔或回 gate 的 [no-change] 不算：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '對不到' || fail "deny 要說 branch 對不到卡（${c}）: $(reason "$out")"
+done
+for c in $'cat > f <<\'EOF\'\nhello\nEOF\ngit commit -m \'[no-change] x\'' "opsx answer c 'ok' && git commit -m \"chore [no-change]\"" $'git commit -m "$(cat <<\'EOF\'\n[no-change] x\nEOF\n)"' $'cat > f <<\'EOF\'\n[no-change]\nEOF\ngit commit -F - <<\'EOF\'\n[no-change] x\nEOF'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "旁邊有寫檔或回 gate，訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
+done
+# opsx answer 下一行的 commit 訊息照算；bash 讀成 heredoc 資料的假 commit 訊息不算（反斜線續行讓 perl 與 bash 對 heredoc 結尾的判斷不同）
+out="$(cgin "$R" $'opsx answer c --grant push\ngit commit -m \'[no-change] x\'')"; assert_eq "$(decision "$out")" allow "opsx answer 下一行 commit 的 [no-change] 放行: $(reason "$out")"
+reason "$out" | grep -q 'bypass.log' || fail "opsx answer 下一行的放行要提到 bypass.log: $(reason "$out")"
+out="$(cgin "$R" $'cat > f <<EOF\na\\\nEOF\ngit commit -m \'[no-change] x\'\nEOF\ngit commit -m real')"; assert_eq "$(decision "$out")" deny "續行 heredoc 裡的假 commit 訊息不算: $(reason "$out")"
+# -F 檔案的內容不算；-F - 的 heredoc 照算
+printf '[no-change] x' > "$R/msg.txt"
+out="$(cgin "$R" 'git commit -F msg.txt')"; assert_eq "$(decision "$out")" deny "-F 檔案裡的 [no-change] 不算: $(reason "$out")"
+reason "$out" | grep -q '對不到' || fail "-F 檔案的 deny 要說 branch 對不到卡: $(reason "$out")"
+out="$(cgin "$R" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF')"; assert_eq "$(decision "$out")" allow "-F - 的 heredoc 裡的 [no-change] 放行: $(reason "$out")"
+reason "$out" | grep -q 'bypass.log' || fail "-F - 放行要提到 bypass.log: $(reason "$out")"
+# 計數用的 perl 失敗：deny 並點名 perl，不當成沒有標記往下判
+mkdir -p "$FX/noperl-l3"
+printf '#!/usr/bin/env bash\ncase "$1" in *cmd-containers.pl) exit 1 ;; esac\nexec %s "$@"\n' "$(command -v perl)" > "$FX/noperl-l3/perl"; chmod +x "$FX/noperl-l3/perl"
+out="$(PATH="$FX/noperl-l3:$PATH" cgin "$R" "git commit -m '[no-change] x'")"; assert_eq "$(decision "$out")" deny "計數的 perl 失敗要 deny: $(reason "$out")"
+reason "$out" | grep -q 'perl' || fail "計數失敗的 deny 要提到 perl: $(reason "$out")"
 # env -C、env --chdir 照 git -C 算；command -- cd、builtin -- cd 照 cd 算
 for c in "env -C $R git commit -m x" "env --chdir=$R git commit -m x" "env --chdir $R git commit -m x" "env -i -C $R git commit -m x" "command -- cd $R && git commit -m x" "builtin -- cd $R && git commit -m x"; do
   out="$(cgin "$N" "$c")"; assert_eq "$(decision "$out")" deny "改目錄到 R 要照 R 判：${c}｜$(reason "$out")"
