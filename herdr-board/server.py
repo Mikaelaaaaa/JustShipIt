@@ -4,7 +4,7 @@
     server.py [--port N] [--collect <json 檔>] [--state <dir>]
 
 GET /            回 web/index.html。
-GET /healthz     回 {"ok": true, "app": "opsx-board"}，不用 token，給 open-board.sh 探活，app 欄讓它認得是我們的。
+GET /healthz     回 {"ok": true, "app": "opsx-board", "pid": <server pid>}，不用 token，給 open-board.sh 探活，app 欄讓它認得是我們的，pid 讓它比對 pidfile。
 GET /api/collect 回上一次 `opsx collect` 的結果（成功或失敗），超過 CACHE_S 秒就在背景刷新；--collect 給了檔就回那個檔（測試用）。
                  同一時間只跑一支 collect，沒有請求時不跑。只有 server 剛啟動還沒有結果時，GET 才等 collect 跑完。
                  動作 POST 呼叫過 opsx 後快取作廢並在背景開跑一輪，之後的 GET 等到動作之後才開始的那輪結果。
@@ -484,8 +484,11 @@ def raise_terminal(state: pathlib.Path, env: dict) -> str | None:
 class Handler(BaseHTTPRequestHandler):
     cfg: Config  # 由 serve() 設
 
-    def log_message(self, fmt, *args):  # noqa: D102 - 不把 token 印進 log
-        sys.stderr.write("%s %s\n" % (self.command, self.path.split("?")[0]))
+    def log_request(self, code="-", size="-"):  # noqa: D102 - 不把 query 裡的 token 印進 log
+        sys.stderr.write("%s %s %d\n" % (self.command, self.path.split("?")[0], int(code)))
+
+    def log_message(self, fmt, *args):  # noqa: D102 - send_error 之後還會走 log_request 記狀態碼，這裡不另寫一行
+        pass
 
     def send_json(self, status: int, obj) -> None:
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -534,7 +537,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
         if path == "/healthz":
-            self.send_json(200, {"ok": True, "app": "opsx-board"}); return
+            self.send_json(200, {"ok": True, "app": "opsx-board", "pid": os.getpid()}); return
         if path == "/":
             try:
                 data = INDEX.read_bytes()

@@ -83,6 +83,43 @@ assert_eq "$(decide '{"question": "選哪個", "options": ["B", "C"]}')" "('huma
 assert_eq "$(decide '{"type": "等待授權", "action": "push", "recommended": "准"}')" "('human', 'approval')" "opsx-workflow 授權 push 建議准"
 # 有第二張主 change 的 split gate 不寫建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
 assert_eq "$(decide '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
+# 要人動手看片語（Scenario Outline，正例）：建議取自真實 gate
+hands() { assert_eq "$(decide "{\"question\": \"下一步？\", \"recommended\": \"$1\"}")" "('human', 'hands')" "要人動手片語：$1"; }
+hands '你自己 rebase，rebase 完重跑 tests/new.test.sh'
+hands '你在 sandbox 外用 `!` 跑'
+hands '在你平常的 pane 起 claude --settings 再貼輸出'
+hands '訊息與指令都已備好，你一條命令就完成'
+hands '你在終端機跑上面那行並貼結果'
+hands '開 DevTools 錄一次回答 gate，連同機器型號貼回來'
+hands '你在 sandbox 外合併，合完我跑 /archive board-inbox'
+hands '你在沙盒外跑一次全套'
+hands '在你的終端機跑 opsx init --global'
+hands '這一步要你做，我做不到'
+hands '這題要你跑一次指令才知道'
+hands '五分鐘內可以錄完'
+hands '錄下畫面再回這題'
+hands '重新錄下畫面'
+hands '手動錄完再貼'
+hands "你在看板派一個 claude pane 重產"
+# 單字「你」「錄」不算要人動手（Scenario Outline，反例）
+not_hands() { assert_eq "$(decide "{\"question\": \"選哪個？\", \"recommended\": \"$1\"}")" "('answer', '$1')" "單字你錄不算：$1"; }
+not_hands 'A，照你上一題說的最小改動'
+not_hands 'A：跟你在 D6 的選擇一致，只影響錯誤訊息'
+not_hands '留在待指派：照派工指示，由你決定何時派'
+not_hands '不改。沒有 codex 撞到這問題的紀錄'
+not_hands '照記錄撤回'
+not_hands '1A。用相對路徑起 drive 只有在 bin/ 目錄裡手打才會發生'
+not_hands '錄影第一格就是看板，跟主圖重複'
+not_hands '建議你確認第一項'
+not_hands '照派工指示停，所以開這題請你決定'
+not_hands '開新卡。改 skill 要再跑 eval，又是一輪你跑的指令'
+not_hands 'A。記錄完整的 log 就好'
+not_hands '照記錄下方的 D3'
+not_hands '請記錄一次失敗原因'
+not_hands '紀錄完再回報'
+not_hands '放在 bin/ 目錄下就好'
+not_hands '收錄完再發'
+not_hands '附錄下方表格'
 # 要人動手的字只比建議：沒有建議時第一個選項不是建議（D4）
 assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "沒建議、第一個選項含你，不算要你動手"
 # 第三級、花錢、對外的決定題留給人（Scenario Outline，反例）

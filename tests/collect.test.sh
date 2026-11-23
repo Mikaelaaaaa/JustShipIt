@@ -866,6 +866,22 @@ assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以
 assert_eq "$(mwait badreport waiting)" null "report.md 讀不了不標可以合併"
 printf '%s' "$J" | python3 -I -c 'import json,sys;sys.exit(0 if any("badreport" in e["message"] for e in json.load(sys.stdin)["errors"]) else 1)' || fail "report.md 讀不了要記 errors：$(q "$J" errors)"
 
+# 邏輯表行的路徑要是本卡（specs/board-mergeable-map「路徑是別張卡的邏輯表行不算對到 head」「卡名裡的符號照字面比對」）
+H="abc1234$(printf '0%.0s' $(seq 33))"
+mapm() { python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import mergeready; print(mergeready.map_matches(sys.argv[2], sys.argv[3], sys.argv[4]))' "$OPSX_ROOT/bin/lib" "$1" "$2" "$H"; }
+assert_eq "$(mapm m 'openspec/changes/m/logic-map.md · abc1234')" True "本卡路徑"
+assert_eq "$(mapm m 'openspec/changes/other/logic-map.md · abc1234')" False "別張卡"
+assert_eq "$(mapm m 'openspec/changes/m2/logic-map.md · abc1234')" False "別張卡以本卡名開頭"
+assert_eq "$(mapm m 'openspec/changes/xm/logic-map.md · abc1234')" False "別張卡以本卡名結尾"
+assert_eq "$(mapm m 'openspec/changes/other/m/logic-map.md · abc1234')" False "多一層目錄，最後一層是本卡名"
+assert_eq "$(mapm m 'openspec/changes/m/x/logic-map.md · abc1234')" False "多一層目錄，第一層是本卡名"
+assert_eq "$(mapm a.b 'openspec/changes/axb/logic-map.md · abc1234')" False "卡名的點照字面比對"
+# 看板一端：report.md 寫別張卡路徑的卡不是可以合併，進度是 testing
+mr21 otherpath "openspec/changes/other/logic-map.md · abc1234" >/dev/null
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"
+assert_eq "$(mwait otherpath waiting) $(mwait ok waiting.type)" "null 可以合併" "別張卡路徑不標可以合併"
+assert_eq "$(mwait otherpath progress_class)" testing "別張卡路徑的進度是 testing"
+
 # ---------- 進度與卡的分類（progress-collect，specs/board-collect「卡的進度分類」「每個 repo 的進度」） ----------
 R10="$FX/code10"; S10="$FX/state10"; mkdir -p "$R10/r/.git" "$R10/n/.git" "$S10" "$R10/r/openspec/changes/archive/2026-11-01-arch-x"
 pc10() { # <repo> <slug> [frontmatter 行…]：建殼，印目錄

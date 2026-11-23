@@ -27,8 +27,8 @@ chmod +x "$FX/fakebin/"*
 export PATH="$FX/fakebin:$PATH"
 export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"; : > "$FX/open.log"
 export OPSX_TEST_ORCA_LOG="$FX/orca.log"; : > "$OPSX_TEST_ORCA_LOG"
-unset ORCA_TERMINAL_HANDLE OPSX_TEST_ORCA_FAIL   # 在 Orca terminal 裡跑測試時會繼承它，下面除了 Orca 段都要走系統瀏覽器
-trap 'for f in "$OPSX_STATE_DIR"/board*.pid; do kill "$(cat "$f" 2>/dev/null)" 2>/dev/null; done; rm -rf "$FX"' EXIT   # 斷言失敗也要把 server 收掉（每個 port 一份 pid 檔）
+unset ORCA_TERMINAL_HANDLE OPSX_BOARD_BROWSER OPSX_TEST_ORCA_FAIL   # 跑測試的環境可能帶著它們，下面除了 Orca 段都要走系統瀏覽器
+trap 'for f in "$OPSX_STATE_DIR"/board*.pid "$FX"/kill-*.pid; do kill "$(cat "$f" 2>/dev/null)" 2>/dev/null; done; rm -rf "$FX"' EXIT   # 斷言失敗也要把 server 收掉（每個 port 一份 pid 檔，加上測試自己起的占 port 程式）
 
 # --- manifest ---
 python3 -I - "$OPSX_ROOT" <<'PY' || fail "manifest"
@@ -118,26 +118,37 @@ for good in "notification-toast-replays-on-load" "a$(printf 'b%.0s' $(seq 1 40))
   out="$(bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" "opsx-workflow/$good" 2>&1)"; assert_eq "$?" 0 "slug [$good] 要開得了: $out"
   assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok&card=opsx-workflow/$good" "slug [$good] 帶進 card="
 done
-# --- Orca terminal 裡：開在 Orca 內建瀏覽器並切過去，不叫系統瀏覽器（specs/orca-board-tab）---
+# --- OPSX_BOARD_BROWSER=orca：開在 Orca 內建瀏覽器並切過去，不叫系統瀏覽器（specs/orca-board-tab）---
 : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" opsx-workflow/tui-keys 2>&1)"; assert_eq "$?" 0 "Orca terminal 開看板: $out"
+out="$(OPSX_BOARD_BROWSER=orca bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" opsx-workflow/tui-keys 2>&1)"; assert_eq "$?" 0 "OPSX_BOARD_BROWSER=orca 開看板: $out"
 assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "tab create --url http://127.0.0.1:$port/#token=$tok&card=opsx-workflow/tui-keys --json
 tab switch --page page-9 --focus" "Orca 先 tab create 再 tab switch 到回傳的 page"
 assert_eq "$(cat "$FX/open.log")" "" "Orca 開成功不叫 open / xdg-open"
 case "$out" in *"opsx 看板：http://127.0.0.1:$port/"*) ;; *) fail "Orca 開成功仍要印看板那一行：$out";; esac
-# 不在 Orca terminal：沒設、空字串都照舊 open，不叫 orca
+# 沒設 OPSX_BOARD_BROWSER（或空字串）：一律 open，不叫 orca；herdr 環境帶著過期的 ORCA_TERMINAL_HANDLE 也一樣
 : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(env -u ORCA_TERMINAL_HANDLE bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "沒設 handle: $out"
-assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "沒設 handle 照舊 open"
-assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "沒設 handle 不叫 orca"
+out="$(env -u ORCA_TERMINAL_HANDLE bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "都沒設: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "都沒設照舊 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "都沒設不叫 orca"
 : > "$FX/open.log"
-out="$(ORCA_TERMINAL_HANDLE= bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "handle 空字串: $out"
-assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "handle 空字串照舊 open"
-assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "handle 空字串不叫 orca"
+out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "只有 handle: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "只有 ORCA_TERMINAL_HANDLE 仍走 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "只有 ORCA_TERMINAL_HANDLE 不叫 orca"
+: > "$FX/open.log"
+out="$(OPSX_BOARD_BROWSER= ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "OPSX_BOARD_BROWSER 空字串: $out"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port/#token=$tok" "OPSX_BOARD_BROWSER 空字串走 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "OPSX_BOARD_BROWSER 空字串不叫 orca"
+# 不認得的值：回 1、stderr 寫出那個值、什麼瀏覽器都不開
+: > "$FX/open.log"
+err="$(OPSX_BOARD_BROWSER=chrome bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "OPSX_BOARD_BROWSER=chrome 要回 1: $err"
+case "$err" in *chrome*) ;; *) fail "stderr 要寫出不認得的值 chrome：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "不認得的值不叫 open"
+assert_eq "$(cat "$OPSX_TEST_ORCA_LOG")" "" "不認得的值不叫 orca"
 # Orca 任一步失敗：非零結束、orca 的錯誤到 stderr、不退回系統瀏覽器
 for f in create switch; do
   : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-  err="$(ORCA_TERMINAL_HANDLE=term-1 OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+  err="$(OPSX_BOARD_BROWSER=orca OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
   [ "$rc" -ne 0 ] || fail "orca tab $f 失敗要非零結束：$err"
   case "$err" in *runtime_access_denied*) ;; *) fail "orca tab $f 失敗，stderr 要有 orca 的錯誤：$err";; esac
   assert_eq "$(cat "$FX/open.log")" "" "orca tab $f 失敗不退回 open / xdg-open"
@@ -146,7 +157,7 @@ assert_grep "^tab switch --page page-9 --focus\$" "$OPSX_TEST_ORCA_LOG"   # 上�
 # tab create 以 0 結束但 stdout 不能用：點名 result.browserPageId、附原始輸出，不印 traceback、不退回 open
 for f in nopage nullresult nojson nullpage emptypage; do
   : > "$FX/open.log"; : > "$OPSX_TEST_ORCA_LOG"
-  err="$(ORCA_TERMINAL_HANDLE=term-1 OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+  err="$(OPSX_BOARD_BROWSER=orca OPSX_TEST_ORCA_FAIL=$f bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
   [ "$rc" -ne 0 ] || fail "tab create 回 $f 要非零結束：$err"
   case "$err" in *result.browserPageId*) ;; *) fail "tab create 回 $f 時 stderr 要點出 result.browserPageId：$err";; esac
   case "$err" in *Traceback*) fail "tab create 回 $f 時不該印 Python traceback：$err";; esac
@@ -155,7 +166,7 @@ for f in nopage nullresult nojson nullpage emptypage; do
 done
 # orca 的 stderr 暫存檔不用 state 目錄裡的固定檔名：那個位置被佔掉時 Orca 分支照樣能開
 mkdir -p "$OPSX_STATE_DIR/orca-tab.err"; : > "$OPSX_TEST_ORCA_LOG"
-out="$(ORCA_TERMINAL_HANDLE=term-1 bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "state 裡有 orca-tab.err 目錄時 Orca 分支: $out"
+out="$(OPSX_BOARD_BROWSER=orca bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "state 裡有 orca-tab.err 目錄時 Orca 分支: $out"
 assert_grep "^tab switch --page page-9 --focus\$" "$OPSX_TEST_ORCA_LOG"
 rmdir "$OPSX_STATE_DIR/orca-tab.err"
 # --- 沒有 open / xdg-open：非零結束、網址寫到 stderr，呼叫的人（TUI 的 o）才不會當成開好了 ---
@@ -197,6 +208,126 @@ kill -0 "$legacy" 2>/dev/null && fail "stop --board 沒關舊 board.pid 指的 s
 assert_no_file "$pidf"
 assert_no_file "$OPSX_STATE_DIR/board.pid"
 out="$(opsx stop --board 2>&1)"; assert_eq "$?" 0 "stop --board 第二次要是 no-op: $out"
+
+free_port() { python3 -I -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'; }
+wait_http() { for _ in $(seq 1 50); do curl -s --max-time 1 -o /dev/null "http://127.0.0.1:$1/healthz" && return 0; sleep 0.1; done; fail "port $1 沒起來"; }
+healthz_pid() { curl -sf --max-time 1 "http://127.0.0.1:$1/healthz" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["pid"])'; }
+# --- port 被 pidfile 以外的 opsx server 占著：停掉它、起新的，pidfile 記活的 pid（specs/board-plugin「open-board 用 pid 認自己的 server」）---
+port3="$(free_port)"; pidf3="$OPSX_STATE_DIR/board-$port3.pid"
+# 子 shell 裡起：行程不是本 shell 的子行程，被 kill 後不留 zombie，kill -0 才分得出死活
+orphan="$(python3 -I "$OPSX_ROOT/herdr-board/server.py" --port "$port3" --state "$OPSX_STATE_DIR" >>"$FX/orphan.log" 2>&1 & echo $!)"
+echo "$orphan" > "$FX/kill-orphan.pid"
+wait_http "$port3"
+dead="$(sleep 0 >/dev/null 2>&1 & echo $!)"; sleep 0.2
+printf '%s\n' "$dead" > "$pidf3"
+: > "$FX/open.log"
+out="$(OPSX_BOARD_PORT="$port3" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "孤兒 server 在 port 上: $out"
+sleep 0.3; kill -0 "$orphan" 2>/dev/null && fail "孤兒 opsx server 要被停掉（pid ${orphan}）"
+pid3="$(cat "$pidf3")"
+kill -0 "$pid3" 2>/dev/null || fail "pidfile 的 pid 要活著（pid ${pid3}）：$out"
+assert_eq "$(healthz_pid "$port3")" "$pid3" "pidfile 的 pid 要等於 healthz 回的 pid"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port3/#token=$(cat "$OPSX_STATE_DIR/board-token")" "換掉孤兒後照常開瀏覽器"
+out="$(OPSX_BOARD_PORT="$port3" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "換掉孤兒後再按一次: $out"
+assert_eq "$(cat "$pidf3")" "$pid3" "再按一次不該換 pid"
+out="$(OPSX_BOARD_PORT="$port3" opsx stop --board 2>&1)"; assert_eq "$?" 0 "stop --board 關得到換上的 server: $out"
+sleep 0.3; kill -0 "$pid3" 2>/dev/null && fail "stop --board 後 server 還活著（pid ${pid3}）"
+# --- port 被不是 opsx 的程式占著：不殺它、回 1、印 board.log、不開瀏覽器 ---
+port4="$(free_port)"; mkdir -p "$FX/www"
+holder="$(python3 -I -m http.server "$port4" --bind 127.0.0.1 --directory "$FX/www" >>"$FX/holder.log" 2>&1 & echo $!)"
+echo "$holder" > "$FX/kill-holder.pid"
+wait_http "$port4"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port4" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "port 被別的程式占著要回 1: $err"
+case "$err" in *"Address already in use"*) ;; *) fail "stderr 要有 board.log 的 bind 錯誤：$err";; esac
+kill -0 "$holder" 2>/dev/null || fail "不是 opsx 的程式不能被停掉（pid ${holder}）"
+assert_eq "$(cat "$FX/open.log")" "" "server 起不來不開瀏覽器"
+kill "$holder"
+# --- port 上是 healthz 不回 pid 的舊版 opsx server：不猜 pid，回 1 並給停掉它的指令 ---
+port5="$(free_port)"
+legacy_srv="$(python3 -I -c '
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"{\"ok\": true, \"app\": \"opsx-board\"}"
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+' "$port5" >>"$FX/legacy.log" 2>&1 & echo $!)"
+echo "$legacy_srv" > "$FX/kill-legacy.pid"
+wait_http "$port5"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port5" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "舊版 opsx server 占著要回 1: $err"
+case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) fail "stderr 要說是舊版並給停掉它的指令：$err";; esac
+kill -0 "$legacy_srv" 2>/dev/null || fail "舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
+assert_eq "$(cat "$FX/open.log")" "" "舊版占著不開瀏覽器"
+# pidfile 記的就是那支舊版（升級後第一次按）：一樣不停它，pidfile 留著
+printf '%s\n' "$legacy_srv" > "$OPSX_STATE_DIR/board-$port5.pid"
+err="$(OPSX_BOARD_PORT="$port5" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "pidfile 指到舊版 opsx server 也要回 1: $err"
+case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) fail "pidfile 指到舊版時 stderr 要說是舊版並給停掉它的指令：$err";; esac
+kill -0 "$legacy_srv" 2>/dev/null || fail "pidfile 指到的舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
+assert_eq "$(cat "$OPSX_STATE_DIR/board-$port5.pid")" "$legacy_srv" "舊版占著時 pidfile 不動"
+assert_eq "$(cat "$FX/open.log")" "" "pidfile 指到舊版也不開瀏覽器"
+kill "$legacy_srv"
+# --- 停不掉、5 秒內沒停：回 1、印 board.log 尾巴、不開瀏覽器 ---
+# 假 opsx server：healthz 回 argv[2] 給的 pid（self 是自己的 pid），而且不理 SIGTERM
+cat > "$FX/stubborn.py" <<'PY'
+import os, signal, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pid = os.getpid() if sys.argv[2] == "self" else int(sys.argv[2])
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = ('{"ok": true, "app": "opsx-board", "pid": %d}' % pid).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+echo "board-log-tail-marker" >> "$OPSX_STATE_DIR/board.log"
+port6="$(free_port)"
+foreign="$(python3 -I "$FX/stubborn.py" "$port6" 1 >>"$FX/stubborn.log" 2>&1 & echo $!)"
+echo "$foreign" > "$FX/kill-foreign.pid"
+wait_http "$port6"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port6" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "healthz 回停不掉的 pid 要回 1: $err"
+case "$err" in *"停不掉 port ${port6}"*"board-log-tail-marker"*) ;; *) fail "stderr 要說停不掉並印 board.log 尾巴：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "停不掉不開瀏覽器"
+kill -9 "$foreign"
+port7="$(free_port)"
+stubborn="$(python3 -I "$FX/stubborn.py" "$port7" self >>"$FX/stubborn.log" 2>&1 & echo $!)"
+echo "$stubborn" > "$FX/kill-stubborn.pid"
+wait_http "$port7"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port7" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "不理 SIGTERM 的 opsx server 要回 1: $err"
+case "$err" in *"5 秒內沒停"*"board-log-tail-marker"*) ;; *) fail "stderr 要說 5 秒內沒停並印 board.log 尾巴：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "舊 server 沒停不開瀏覽器"
+kill -9 "$stubborn"
+# --- port 上是不說 HTTP 的程式：health() 當成沒回應，走起不來那條回 1、印 board.log 尾巴，不印 healthz 的 traceback，也不停它 ---
+port8="$(free_port)"
+raw="$(python3 -I -c '
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5)
+while True:
+    c, _ = s.accept(); c.sendall(b"NOTHTTP\r\n"); c.close()
+' "$port8" >>"$FX/raw.log" 2>&1 & echo $!)"
+echo "$raw" > "$FX/kill-raw.pid"
+for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/$port8") 2>/dev/null && break; sleep 0.1; done
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port8" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "不說 HTTP 的程式占著要回 1: $err"
+case "$err" in *BadStatusLine*) fail "health() 不該讓 healthz 的例外漏到 stderr：$err";; esac
+case "$err" in *"opsx board: server 起不來"*"board-log-tail-marker"*) ;; *) fail "stderr 要說 server 起不來並印 board.log 尾巴：$err";; esac
+kill -0 "$raw" 2>/dev/null || fail "不是 opsx 的程式不能被停掉（pid ${raw}）"
+assert_eq "$(cat "$FX/open.log")" "" "不說 HTTP 的程式占著不開瀏覽器"
+kill -9 "$raw"
 
 # --- init --global 做 herdr plugin link（herdr 在 PATH 上才做；已掛就不再 link）---
 out="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "init --global: $out"
