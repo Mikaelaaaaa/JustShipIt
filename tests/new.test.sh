@@ -504,6 +504,11 @@ WR="$(mk_opsx_repo wr)"; wp_fixture "$WR" ""; chmod 000 "$WR/openspec/workplan.y
 s="$(opsx new --name no-read --type 功能 --repo "$WR" -- 讀不到 workplan 2> "$FX/wr.err")"; assert_eq "$?" 0 "$(cat "$FX/wr.err")"
 chmod 644 "$WR/openspec/workplan.yaml"
 assert_eq "$s" no-read; assert_grep 'workplan' "$FX/wr.err"; assert_not_grep 'Traceback' "$FX/wr.err"
+# 名字寫成清單：一樣只警告、照樣建殼
+WM="$(mk_opsx_repo wm)"
+printf 'features:\n  - name: [a, b]\n    status: active\n' > "$WM/openspec/workplan.yaml"
+s="$(opsx new --name list-name --type 功能 --repo "$WM" -- 名字是清單 2> "$FX/wm.err")"; assert_eq "$?" 0 "$(cat "$FX/wm.err")"
+assert_eq "$s" list-name; assert_grep 'workplan' "$FX/wm.err"; assert_not_grep 'Traceback' "$FX/wm.err"
 WN="$(mk_opsx_repo wn)"; wp_fixture "$WN" ""
 s="$(opsx new --name no-milestone --type 功能 --repo "$WN" -- 沒設目前階段)"
 assert_eq "$(where "$WN" "$s")" "$s	-	feat/$s/mika" "沒有 current_milestone 就不寫 milestone"
