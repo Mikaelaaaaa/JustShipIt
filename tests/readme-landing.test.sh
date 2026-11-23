@@ -23,8 +23,12 @@ badges="$(grep -o 'img\.shields\.io/[^"]*' "$README")"
 [ -z "$badges" ] || printf '%s\n' "$badges" | grep -qF 'img.shields.io/badge/license-MIT' || fail "README 的 badge 不是 license：$badges"
 ! grep -qiE 'production[- ]ready' "$README" || fail "README 不該宣稱 production-ready"
 n="$(printf '%s\n' "$top" | grep -c '^- ')"
-[ "$n" -ge 3 ] && [ "$n" -le 4 ] || fail "開頭的差異清單要 3～4 點，現在 $n 點"
-n="$(awk '/^## .*解決什麼問題$/{f=1;next} /^## /{f=0} f' "$README" | grep -o '。' | wc -l)"
+[ "$n" -eq 0 ] || fail "開頭不該有條列，差異寫進解決什麼問題段，現在 $n 行"
+why="$(awk '/^## .*解決什麼問題$/{f=1;next} /^## /{f=0} f' "$README")"
+for w in 合併 review gate 邏輯表; do
+  printf '%s\n' "$why" | grep -qF -- "$w" || fail "解決什麼問題段沒提 $w"
+done
+n="$(printf '%s\n' "$why" | grep -o '。' | wc -l)"
 [ "$n" -le 3 ] || fail "解決什麼問題段要兩三句，現在 $n 句"
 # 參考專案名只存 sha256，名字本身不進公開 repo
 python3 -I -c 'import hashlib,re,sys; bad="db0ee43ab2f9353ebd68b373591d62bc827688c6e56f95e89fcbedc2de7b1133"; sys.exit(any(hashlib.sha256(w.encode()).hexdigest()==bad for w in set(re.findall(r"[a-z0-9]+", open(sys.argv[1], encoding="utf-8").read().lower()))))' "$README" || fail "README 提到參考專案名"
