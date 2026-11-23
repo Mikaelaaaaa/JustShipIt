@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# opsx stack <主> <子> <sha>：在主 change 的 PR 分支上 cherry-pick 子 change 的 commit，成功就勾主殼 tasks.md 那一項（以反引號包的子 change 名對到）。
+# opsx stack <主> <子> <sha>：在主 change 的 PR 分支上 先勾主殼 tasks.md 那一項（以反引號包的子 change 名對到）再 cherry-pick 子 change 的 commit，cherry-pick 失敗就把 tasks.md 寫回原樣。
 # 退出 0 疊好；2 拒絕（不在 PR 分支、依賴還沒疊、sha 或子 change 不對），歷史不動；
 # 3 衝突：已 cherry-pick --abort，主殼 decisions.tsv 記一行，session 在 PR 分支上自己重做這個子 change。
 # 不在衝突標記上手解：subagent 的測試是在舊基底上綠的。驗收：specs/subchange-stack/spec.md。
@@ -25,18 +25,22 @@ opsx_stack() {
   git cat-file -e "$sha^{commit}" 2>/dev/null || die "stack: 沒有這個 commit：$sha"
   [ -z "$(git status --porcelain)" ] || die "stack: $branch 有未 commit 的改動，先收乾淨再疊"
 
+  # 先勾再 cherry-pick：git 端 commit 閘門在 cherry-pick 的 commit 當下要看到主殼已勾
+  local orig ticked
+  orig="$(cat "$d/tasks.md")" || die "stack: 讀不了 $d/tasks.md"
+  ticked="$(awk -v s="\`$sub\`" '!done && match($0, /^[[:space:]]*- \[ \] [0-9.]+ /) && substr($0, RSTART + RLENGTH, length(s)) == s { sub(/- \[ \] /, "- [x] "); done = 1 } { print }' "$d/tasks.md")" || die "stack: 勾 $d/tasks.md 失敗，檔案沒動"
+  printf '%s\n' "$ticked" | opsx_replace "$d/tasks.md" || die "stack: 寫不了 $d/tasks.md（上面有原因）"
+
   if ! git cherry-pick "$sha" >/dev/null 2>&1; then
     local conflicts; conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
     git cherry-pick --abort >/dev/null 2>&1 || true
+    printf '%s\n' "$orig" | opsx_replace "$d/tasks.md" || die "stack: cherry-pick $sha 失敗，tasks.md 寫不回原樣（上面有原因）：$d/tasks.md"
     [ -n "$conflicts" ] || die "stack: cherry-pick $sha 失敗，不是衝突（空 commit 或 git 錯誤）；歷史沒動"
     log_row "$d" session 已決定 "$sub 疊回衝突，改由 session 在 PR 分支重做" "衝突檔：${conflicts% }；$sha"
     say "stack: ${sub} 疊回衝突（${conflicts% }），已 abort；在 ${branch} 上自己重做 ${sub}"
     exit 3
   fi
 
-  local ticked
-  ticked="$(awk -v s="\`$sub\`" '!done && match($0, /^[[:space:]]*- \[ \] [0-9.]+ /) && substr($0, RSTART + RLENGTH, length(s)) == s { sub(/- \[ \] /, "- [x] "); done = 1 } { print }' "$d/tasks.md")" || die "stack: 勾 $d/tasks.md 失敗，檔案沒動"
-  printf '%s\n' "$ticked" | opsx_replace "$d/tasks.md" || die "stack: 寫不了 $d/tasks.md（上面有原因）"
   say "stack: ${sub} 疊回 ${branch}（$(git rev-parse --short HEAD)），主殼 tasks.md 已勾"
 }
 

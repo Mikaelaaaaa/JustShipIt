@@ -69,9 +69,13 @@ assert_rc 2 opsx stack m s1
 assert_eq "$(git rev-parse HEAD)" "$base" "邊界都不動歷史"
 assert_eq "$(git status --porcelain)" "" "邊界都不留髒 tree"
 
-# --- Scenario：乾淨疊回 ---
+# --- Scenario：乾淨疊回（cherry-pick 執行時主殼項目已勾） ---
+printf '#!/bin/sh\ncp "%s" "%s"\n' "$M/tasks.md" "$FX/seen-tasks.md" > .git/hooks/prepare-commit-msg
+chmod +x .git/hooks/prepare-commit-msg
 printf 'keep me\n' > "$FX/victim"; ln -s "$FX/victim" "$M/tasks.md.stack.tmp"   # symlink-safe-writes：舊的固定暫存檔名
 out="$(opsx stack m s1 "$S1" 2>&1)"; assert_eq "$?" 0 "乾淨疊回: $out"
+grep -q '^- \[x\] 1.1 `s1`' "$FX/seen-tasks.md" || fail "cherry-pick 當下 s1 要已勾: $(cat "$FX/seen-tasks.md")"
+rm .git/hooks/prepare-commit-msg
 assert_eq "$(cat "$FX/victim")" "keep me" "tasks.md 的舊暫存檔名上的 symlink 不能被寫"
 rm -f "$M/tasks.md.stack.tmp"
 assert_eq "$(git rev-list --count "$base"..HEAD)" 1 "PR 分支多一個 commit"
@@ -82,8 +86,10 @@ grep -q '^- \[ \] 1.3 `s3`' "$M/tasks.md" || fail "s3 不該勾"
 
 # --- Scenario：兩個子 change 改同一行 ---
 head="$(git rev-parse HEAD)"
+cp "$M/tasks.md" "$FX/tasks-before.md"
 out="$(opsx stack m s2 "$S2" 2>&1)"; rc=$?
 assert_eq "$rc" 3 "衝突退出 3: $out"
+cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "衝突後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
 echo "$out" | grep -q 'a.txt' || fail "要印衝突檔: $out"
 assert_eq "$(git status --porcelain)" "" "衝突後工作目錄乾淨"
 assert_eq "$(git rev-parse HEAD)" "$head" "衝突後 HEAD 不變"
@@ -110,6 +116,23 @@ assert_eq "$rc" 2 "裸名項目要拒絕: $out"
 echo "$out" | grep -q '`s4`' || fail "訊息要含 \`s4\`: $out"
 echo "$out" | grep -q -- '- \[ \] <編號> `s4`' || fail "訊息要給格式範例: $out"
 assert_eq "$(git rev-parse HEAD)" "$head" "裸名被拒不動歷史"
+
+# --- Scenario：cherry-pick 非衝突失敗時還原 tasks.md ---
+cat >> "$R/openspec/workplan.yaml" <<'EOF'
+          - name: s5
+            status: pending
+            depends-on: []
+EOF
+printf -- '- [ ] 1.5 `s5`：跟 s3 一樣加 b.txt\n  - 驗收：x\n  - 測試：x\n' >> "$M/tasks.md"
+git checkout -q -b feat/m--s5/u "$base"; printf 'b\n' > b.txt; git add b.txt; git commit -q -m "feat: s5"; S5="$(git rev-parse HEAD)"
+git checkout -q feat/m/u
+head="$(git rev-parse HEAD)"
+cp "$M/tasks.md" "$FX/tasks-before.md"
+out="$(opsx stack m s5 "$S5" 2>&1)"; rc=$?
+[ $rc -ne 0 ] || fail "空 cherry-pick 要失敗: $out"
+echo "$out" | grep -q '不是衝突' || fail "訊息要含「不是衝突」: $out"
+cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "非衝突失敗後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
+assert_eq "$(git rev-parse HEAD)" "$head" "非衝突失敗不動歷史"
 
 # --- Scenario：文件寫出反引號格式 ---
 for f in skills/propose/SKILL.md references/work-split.md; do
