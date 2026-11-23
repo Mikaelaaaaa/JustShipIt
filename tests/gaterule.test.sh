@@ -116,6 +116,18 @@ assert_eq "$(decide '{"question": "tag 推上去？", "recommended": "git push -
 assert_eq "$(decide '{"question": "要不要直接改 prod 的設定？", "recommended": "改"}')" "('human', 'level3')" "level3：prod"
 assert_eq "$(decide '{"question": "下一步？", "recommended": "推到prod"}')" "('human', 'level3')" "level3 邊界：prod 前面接中文"
 assert_eq "$(decide '{"question": "product 欄位要不要改名？", "recommended": "改成 product_name"}')" "('answer', '改成 product_name')" "level3 邊界：product 不是 prod"
+# D10：建議是「選 X」時，被選的那個選項全文也比對 level3；沒被選的選項不算
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 A", "options": ["A 直接部署到 spark1", "B 先在 staging 試"]}')" "('human', 'level3')" "D10：被選的選項寫部署"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選A", "options": ["A. 直接部署到 spark1", "B. 先在 staging 試"]}')" "('human', 'level3')" "D10 邊界：選A 沒空格、選項用 A. 開頭"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 A", "options": ["A 改成兩欄", "B 部署到 spark1"]}')" "('answer', '選 A')" "D10：沒被選的選項寫部署不算"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 C", "options": ["A 部署", "B 不部署"]}')" "('answer', '選 C')" "D10 邊界：選的代號不在選項裡"
+# D11：英文字詞有字界，不比中更長的英文字
+assert_eq "$(decide '{"question": "secretary 欄位要不要拆？", "recommended": "拆"}')" "('answer', '拆')" "D11：secretary 不是 secret"
+assert_eq "$(decide '{"question": "設定怎麼讀？", "recommended": "用 process.env 讀"}')" "('answer', '用 process.env 讀')" "D11：process.env 不是 .env 檔"
+assert_eq "$(decide '{"question": "要不要動 circuit breaker 的閾值？", "recommended": "調到 5"}')" "('answer', '調到 5')" "D11：動 circuit 不是動 CI"
+assert_eq "$(decide '{"question": "改 city 欄位格式？", "recommended": "改"}')" "('answer', '改')" "D11：改 city 不是改 CI"
+assert_eq "$(decide '{"question": "token 放哪？", "recommended": "放進 secrets"}')" "('human', 'level3')" "D11 邊界：secrets 複數仍交人"
+assert_eq "$(decide '{"question": "要不要換 credentials？", "recommended": "換"}')" "('human', 'level3')" "D11 邊界：credentials 複數仍交人"
 assert_eq "$(decide '{"question": "要不要加 production 註解？", "recommended": "加"}')" "('answer', '加')" "level3 邊界：production 不是 prod"
 # 合併字與授權字同時出現是在問要不要合併，交人
 assert_eq "$(decide '{"question": "要授權合併嗎？", "recommended": "允許"}')" "('human', 'merge')" "合併加授權：要授權合併嗎"

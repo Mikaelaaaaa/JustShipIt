@@ -25,6 +25,8 @@ has "$r" '有建議的 decision 由協調者照建議答'
 has "$r" 'approval 與沒有建議的題由使用者答'
 has "$r" '每個 repo'
 for k in '部署' 'CI' 'secrets' '花錢' '對外' '合併'; do has "$r" "$k"; done
+# D12：例外清單跟 gaterule 的 hands 規則一致，要人動手的題也由使用者答
+has "$r" '合併、要人動手的題除外'
 gone "$r" '協調者不代答'
 gone "$r" 'opsx-workflow 的 decision 由協調者照建議答'
 has "$r" '不開 gate'

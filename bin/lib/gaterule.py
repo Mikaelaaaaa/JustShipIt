@@ -28,16 +28,19 @@ MR_ANCHOR = re.compile(
     re.IGNORECASE)
 # 合併字旁邊有授權字（要授權合併嗎、Ready to merge?）是在問要不要合併，沒有 MR 錨點也交人
 MERGE_AUTH = re.compile(r"授權|允許|(?<![a-z])ready(?![a-z])", re.IGNORECASE)
-# 第三級動作（部署、動 prod、強推、刪資料、打 tag、改 CI、secrets）、花錢與對外發話。單獨的 CI 不算：「等 CI 綠」是操作題，不是改 CI
+# 第三級動作（部署、動 prod、強推、刪資料、打 tag、改 CI、secrets）、花錢與對外發話。單獨的 CI 不算：「等 CI 綠」是操作題，不是改 CI。
+# 英文字詞有字界，不比中更長的英文字（secretary、process.env、動 circuit）
 LEVEL3 = re.compile(
-    r"deploy|部署"
-    r"|force-push|push --force|push -f|強推|drop table|truncate|刪資料|刪除資料"
+    r"(?<![a-z])deploy|部署"
+    r"|force-push|push --force|push -f|強推|drop table|(?<![a-z])truncate(?![a-z])|刪資料|刪除資料"
     r"|drop (column|database|schema)|delete from|rm -rf|reset --hard|刪除?(欄位|表|分支)|git tag|打 ?tag|push --tags"
     r"|(?<![a-z0-9])prod(?![a-z0-9])"
-    r"|\.gitlab-ci|\.github/workflows|改 ?ci|動 ?ci|ci ?設定|ci ?檔"
-    r"|secret|sops|\.env|金鑰|憑證|api key|credential"
-    r"|花錢|付費|費用|購買|訂閱|billing|對外|對客戶|發信|寄信|send email|發公告|issue 留言|issue comment",
+    r"|\.gitlab-ci|\.github/workflows|[改動] ?ci(?![a-z])|(?<![a-z])ci ?[設檔]"
+    r"|(?<![a-z])secrets?(?![a-z])|(?<![a-z])sops(?![a-z])|(?<![a-z0-9_])\.env(?![a-z])|金鑰|憑證|api key|(?<![a-z])credentials?(?![a-z])"
+    r"|花錢|付費|費用|購買|訂閱|(?<![a-z])billing(?![a-z])|對外|對客戶|發信|寄信|send email|發公告|issue 留言|issue comment",
     re.IGNORECASE)
+# 建議只寫「選 X」時，X 指向的選項全文也要比 LEVEL3
+CHOICE = re.compile(r"選\s*([A-Za-z0-9]+)")
 # explore 寫的拆法確認 gate 的 id
 SPLIT_GATE = "split"
 # drive、Stop hook 卡住與協調者等背景工作太久時寫的 gate 標題（drive-<站>-<n>、卡在接 /<站> [#<n>]、stale-wait-<時間>）：
@@ -47,6 +50,15 @@ STUCK_GATE = re.compile(r"drive-[a-z]+-[0-9]+|卡在接 /[a-z]+( #[0-9]+)?|stale
 
 def is_mr_merge(text):
     return bool(MR_MERGE.search(text) or (MERGE_WORD.search(text) and MR_ANCHOR.search(text)))
+
+
+def chosen_option(recommended, options):
+    """建議整句是「選 X」時，回以代號 X 開頭的那個選項全文；不是這種建議或找不到那個選項回空字串。"""
+    m = CHOICE.fullmatch(recommended.strip())
+    if m is None:
+        return ""
+    label = re.compile(re.escape(m.group(1)) + r"(?![A-Za-z0-9])")
+    return next((o for o in options if label.match(o)), "")
 
 
 def decide(w):
@@ -80,7 +92,8 @@ def decide(w):
     decision_text = q + " " + (pick or "")
     if is_mr_merge(decision_text) or (MERGE_WORD.search(decision_text) and MERGE_AUTH.search(decision_text)):
         return ("human", "merge")
-    if LEVEL3.search(q + " " + (w.get("recommended") or "")):
+    rec = w.get("recommended") or ""
+    if LEVEL3.search(q + " " + rec + " " + chosen_option(rec, w.get("options") or [])):
         return ("human", "level3")
     if not pick:
         return ("human", "no-pick")
