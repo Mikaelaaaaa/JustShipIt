@@ -62,6 +62,7 @@ mkm() { # <slug> <⚠ 段>：report 沒有待決項、邏輯表對應 head
   local d="$ROOT/r/openspec/changes/$1"
   printf '# Review\n\n## 四桶\n### 待修（範圍內）\n### Consider\n\n## MR\nhttps://gitlab.example.com/acmecorp/r/-/merge_requests/31\n\n## 邏輯表\nopenspec/changes/%s/logic-map.md · abc1234\n' "$1" > "$d/report.md"
   printf '# 邏輯表\n\n### ⚠ 要看的地方\n%s\n\n## 業務說明\n- 沒經過決定。這段不是 ⚠ 段\n' "$2" > "$d/logic-map.md"
+  printf '## logic-map-undecided-r1\ntype: decision\nstatus: answered\n寫回: 2026-11-23 · D9\n\n## logic-map-undecided-r3\ntype: decision\nstatus: answered\n寫回: 2026-11-23 · D10\n\n## logic-map-undecided-r5\ntype: decision\nstatus: answered\nanswer: 1A\n' > "$d/gates.md"
 }
 mkm ok-empty ''
 mkm ok-gate '- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r3'
@@ -84,7 +85,16 @@ mkmulti() { # <slug> <功能 1 的 ⚠ 段> <功能 2 的 ⚠ 段>
 mkmulti ok-multi '- 沒經過決定。D1：甲 · gate logic-map-undecided-r1' '- 沒經過決定。D2：乙 · 開卡 agent-20261123-1300'
 mkmulti no-multi '- 沒經過決定。D1：甲 · gate logic-map-undecided-r1' '- 沒經過決定。D2：乙'
 mkmulti no-multi-nodesign '- bug：違反 design D3。D1：甲' $'沒有 design.md，未分類\n- D2：乙'
-printf '{"r/ok-empty":{"pane":"p1","mode":"autopilot"},"r/ok-gate":{"pane":"p1","mode":"autopilot"},"r/ok-card":{"pane":"p1","mode":"autopilot"},"r/ok-bug":{"pane":"p1","mode":"autopilot"},"r/ok-tidy":{"pane":"p1","mode":"autopilot"},"r/ok-nodesign":{"pane":"p1","mode":"autopilot"},"r/ok-subline":{"pane":"p1","mode":"autopilot"},"r/no-plain":{"pane":"p1","mode":"autopilot"},"r/no-nodesign":{"pane":"p1","mode":"autopilot"},"r/no-midline":{"pane":"p1","mode":"autopilot"},"r/no-word":{"pane":"p1","mode":"autopilot"},"r/no-both":{"pane":"p1","mode":"autopilot"},"r/ok-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi-nodesign":{"pane":"p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+# 未分類看整張表：只有功能 1 寫了未分類那一行，功能 2 沒標籤的項也要標記
+mkmulti no-nodesign-once $'沒有 design.md，未分類\n- D1：甲 · gate logic-map-undecided-r1' '- D2：乙'
+# gate 答了還沒寫回：標記指到它的項不算處理過；指到不存在的 gate 也不算
+mkm no-unwritten '- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r5'
+mkm no-ghost '- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r9'
+# 標題多行尾空白也認得到；未分類表只有「- 無」時沒有項
+mkm no-heading-space ''
+printf '# 邏輯表\n\n### ⚠ 要看的地方 \n- 沒經過決定。D4：以後都 判斷\n' > "$ROOT/r/openspec/changes/no-heading-space/logic-map.md"
+mkm ok-none $'沒有 design.md，未分類\n- 無'
+printf '{"r/ok-empty":{"pane":"p1","mode":"autopilot"},"r/ok-gate":{"pane":"p1","mode":"autopilot"},"r/ok-card":{"pane":"p1","mode":"autopilot"},"r/ok-bug":{"pane":"p1","mode":"autopilot"},"r/ok-tidy":{"pane":"p1","mode":"autopilot"},"r/ok-nodesign":{"pane":"p1","mode":"autopilot"},"r/ok-subline":{"pane":"p1","mode":"autopilot"},"r/no-plain":{"pane":"p1","mode":"autopilot"},"r/no-nodesign":{"pane":"p1","mode":"autopilot"},"r/no-midline":{"pane":"p1","mode":"autopilot"},"r/no-word":{"pane":"p1","mode":"autopilot"},"r/no-both":{"pane":"p1","mode":"autopilot"},"r/ok-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi-nodesign":{"pane":"p1","mode":"autopilot"},"r/no-nodesign-once":{"pane":"p1","mode":"autopilot"},"r/no-unwritten":{"pane":"p1","mode":"autopilot"},"r/no-ghost":{"pane":"p1","mode":"autopilot"},"r/no-heading-space":{"pane":"p1","mode":"autopilot"},"r/ok-none":{"pane":"p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect rc: $J"
 assert_eq "$(q "$(card "$J" r ok-empty)" waiting.type)" 可以合併 "⚠ 段沒有項目"
 assert_eq "$(q "$(card "$J" r ok-gate)" waiting.type)" 可以合併 "行尾 · gate"
@@ -117,4 +127,9 @@ assert_eq "$(q "$C" waiting.type)" "report 待你決定" "功能 2 的項沒標�
 assert_eq "$(q "$C" waiting.question)" "邏輯表有沒經過決定的項目沒處理"
 C="$(card "$J" r no-multi-nodesign)"
 assert_eq "$(q "$C" waiting.type)" "report 待你決定" "功能 2 是未分類段、項沒標記：$C"
+assert_eq "$(q "$(card "$J" r no-nodesign-once)" waiting.type)" "report 待你決定" "未分類那一行只寫在功能 1，功能 2 沒標籤的項也要擋"
+assert_eq "$(q "$(card "$J" r no-unwritten)" waiting.type)" "report 待你決定" "gate 答了還沒寫回，標記不算處理過"
+assert_eq "$(q "$(card "$J" r no-ghost)" waiting.type)" "report 待你決定" "標記指到不存在的 gate 不算處理過"
+assert_eq "$(q "$(card "$J" r no-heading-space)" waiting.type)" "report 待你決定" "標題行尾多空白也要認得"
+assert_eq "$(q "$(card "$J" r ok-none)" waiting.type)" 可以合併 "未分類表只有「- 無」不算項"
 echo "collect-report-needs-you ok"

@@ -130,6 +130,10 @@ grep -q "card-a.*gate" "$LOG" && fail "不走 handle_gate：$(cat "$LOG")"
 assert_grep '^notification show \[demo/card-a\] report 待你決定 .*merge_requests/9' "$OPSX_FAKE_LOG"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count 'report 待你決定')" 0 "同一個 head sha 不重送：$(cat "$OPSX_FAKE_LOG")"
+# 同一個 head、原因換了要再通知一次（design D15）
+cards "${REPORT_CARD/邏輯表有沒經過決定的項目沒處理/report.md 有留給人決定的項目}"
+round || fail "rc: $(cat "$FX/out")"
+assert_grep '^notification show \[demo/card-a\] report 待你決定 .*--body report.md 有留給人決定的項目：' "$OPSX_FAKE_LOG"
 printf '{"demo/card-a":{"mode":"stopped","agent":"claude","pane":"w1:p9","drive_pid":null}}' > "$DISP"
 
 # apply 前有活 pane 的卡在待指派：沒有 tasks.md，協調者不派（design D10）

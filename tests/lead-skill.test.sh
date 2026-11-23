@@ -8,6 +8,7 @@ assert_file "$F"
 grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
 grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
 grep -qF '停住：babysit 做完，邏輯表有沒經過決定的項目沒處理' "$F" || fail "skill 缺新推送：邏輯表有沒經過決定的項目沒處理"
+grep -qF 'whichever `停住：babysit 做完，…` line the hook sent for that card' "$F" || fail "skill 要把 report 待你決定跟 hook 任一條 babysit 停住行算同一項"
 ! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
 
 # 五塊依序出現

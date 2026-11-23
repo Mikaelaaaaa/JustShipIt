@@ -61,7 +61,12 @@ map_text = None
 if os.path.isfile(map_path):
     with open(map_path, encoding="utf-8") as f:
         map_text = f.read()
-print("、".join(mergeready.blockers(os.environ["OPSX_M_SLUG"], json.loads(os.environ["OPSX_M_MR"]), os.environ["OPSX_M_GATES"] != "0", status, report, map_text)))')" \
+gates_path = os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "gates.md")
+gates_text = ""
+if os.path.isfile(gates_path):
+    with open(gates_path, encoding="utf-8") as f:
+        gates_text = f.read()
+print("、".join(mergeready.blockers(os.environ["OPSX_M_SLUG"], json.loads(os.environ["OPSX_M_MR"]), os.environ["OPSX_M_GATES"] != "0", status, report, map_text, gates_text)))')" \
     || die "merge: 判斷 $slug 能不能合併時出錯，不核准"
   [ -z "$blocked" ] || die "merge: $slug 還不能合併（${blocked}），不核准。等 agent 做完、看板再標「可以合併」"
 

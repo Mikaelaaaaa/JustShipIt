@@ -307,7 +307,7 @@ def merge_blockers(card, agent_status):
         return [mergeready.NOT_READY]
     sub_open = any(g.get("status", "").strip() == "open"
                    for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
-    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, card["logic_map"])
+    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, card["logic_map"], read(os.path.join(d, "gates.md")))
 
 # MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目、邏輯表沒處理的項（或連同邏輯表舊了）時才是要人看 report
 REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.UNHANDLED_MAP, mergeready.STALE_MAP}

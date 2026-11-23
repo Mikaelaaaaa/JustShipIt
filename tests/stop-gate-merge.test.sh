@@ -37,8 +37,13 @@ printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後�
 rm -rf "$STOP_STATE"; sg >/dev/null
 assert_eq "$(said)" "babysit 做完，邏輯表有沒經過決定的項目沒處理" "沒標記的項要是 Stop hook 的第一條 blocker"
 printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r3\n' > "$C/logic-map.md"
+printf '## logic-map-undecided-r3\ntype: decision\nstatus: answered\nanswer: 1A\n' > "$C/gates.md"
 rm -rf "$STOP_STATE"; sg >/dev/null
-assert_eq "$(said)" "babysit 一輪做完，等 MR 合併" "標記過的項不擋"
+assert_eq "$(said)" "babysit 做完，邏輯表有沒經過決定的項目沒處理" "gate 答了還沒寫回，標記不算處理過"
+printf '寫回: 2026-11-23 · D10\n' >> "$C/gates.md"
+rm -rf "$STOP_STATE"; sg >/dev/null
+assert_eq "$(said)" "babysit 一輪做完，等 MR 合併" "標記過、gate 已寫回的項不擋"
+rm -f "$C/gates.md"
 # 表寫到一半、結尾切在中文字中間：跟 collect 一樣當沒有表，推表過期，不吞掉
 printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：\xe4\xbd' > "$C/logic-map.md"
 rm -rf "$STOP_STATE"; sg >/dev/null
