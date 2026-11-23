@@ -28,7 +28,7 @@ export PATH="$FX/fakebin:$PATH"
 export OPSX_FAKE_LOG="$FX/herdr.log"; : > "$OPSX_FAKE_LOG"; : > "$FX/open.log"
 export OPSX_TEST_ORCA_LOG="$FX/orca.log"; : > "$OPSX_TEST_ORCA_LOG"
 unset ORCA_TERMINAL_HANDLE OPSX_TEST_ORCA_FAIL   # 在 Orca terminal 裡跑測試時會繼承它，下面除了 Orca 段都要走系統瀏覽器
-trap 'for f in "$OPSX_STATE_DIR"/board*.pid; do kill "$(cat "$f" 2>/dev/null)" 2>/dev/null; done; rm -rf "$FX"' EXIT   # 斷言失敗也要把 server 收掉（每個 port 一份 pid 檔）
+trap 'for f in "$OPSX_STATE_DIR"/board*.pid "$FX"/kill-*.pid; do kill "$(cat "$f" 2>/dev/null)" 2>/dev/null; done; rm -rf "$FX"' EXIT   # 斷言失敗也要把 server 收掉（每個 port 一份 pid 檔，加上測試自己起的占 port 程式）
 
 # --- manifest ---
 python3 -I - "$OPSX_ROOT" <<'PY' || fail "manifest"
@@ -197,6 +197,63 @@ kill -0 "$legacy" 2>/dev/null && fail "stop --board 沒關舊 board.pid 指的 s
 assert_no_file "$pidf"
 assert_no_file "$OPSX_STATE_DIR/board.pid"
 out="$(opsx stop --board 2>&1)"; assert_eq "$?" 0 "stop --board 第二次要是 no-op: $out"
+
+free_port() { python3 -I -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'; }
+wait_http() { for _ in $(seq 1 50); do curl -s --max-time 1 -o /dev/null "http://127.0.0.1:$1/healthz" && return 0; sleep 0.1; done; fail "port $1 沒起來"; }
+healthz_pid() { curl -sf --max-time 1 "http://127.0.0.1:$1/healthz" | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["pid"])'; }
+# --- port 被 pidfile 以外的 opsx server 占著：停掉它、起新的，pidfile 記活的 pid（specs/board-plugin「open-board 用 pid 認自己的 server」）---
+port3="$(free_port)"; pidf3="$OPSX_STATE_DIR/board-$port3.pid"
+# 子 shell 裡起：行程不是本 shell 的子行程，被 kill 後不留 zombie，kill -0 才分得出死活
+orphan="$(python3 -I "$OPSX_ROOT/herdr-board/server.py" --port "$port3" --state "$OPSX_STATE_DIR" >>"$FX/orphan.log" 2>&1 & echo $!)"
+echo "$orphan" > "$FX/kill-orphan.pid"
+wait_http "$port3"
+dead="$(sleep 0 >/dev/null 2>&1 & echo $!)"; sleep 0.2
+printf '%s\n' "$dead" > "$pidf3"
+: > "$FX/open.log"
+out="$(OPSX_BOARD_PORT="$port3" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "孤兒 server 在 port 上: $out"
+sleep 0.3; kill -0 "$orphan" 2>/dev/null && fail "孤兒 opsx server 要被停掉（pid ${orphan}）"
+pid3="$(cat "$pidf3")"
+kill -0 "$pid3" 2>/dev/null || fail "pidfile 的 pid 要活著（pid ${pid3}）：$out"
+assert_eq "$(healthz_pid "$port3")" "$pid3" "pidfile 的 pid 要等於 healthz 回的 pid"
+assert_eq "$(cat "$FX/open.log")" "open http://127.0.0.1:$port3/#token=$(cat "$OPSX_STATE_DIR/board-token")" "換掉孤兒後照常開瀏覽器"
+out="$(OPSX_BOARD_PORT="$port3" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1)"; assert_eq "$?" 0 "換掉孤兒後再按一次: $out"
+assert_eq "$(cat "$pidf3")" "$pid3" "再按一次不該換 pid"
+out="$(OPSX_BOARD_PORT="$port3" opsx stop --board 2>&1)"; assert_eq "$?" 0 "stop --board 關得到換上的 server: $out"
+sleep 0.3; kill -0 "$pid3" 2>/dev/null && fail "stop --board 後 server 還活著（pid ${pid3}）"
+# --- port 被不是 opsx 的程式占著：不殺它、回 1、印 board.log、不開瀏覽器 ---
+port4="$(free_port)"; mkdir -p "$FX/www"
+holder="$(python3 -I -m http.server "$port4" --bind 127.0.0.1 --directory "$FX/www" >>"$FX/holder.log" 2>&1 & echo $!)"
+echo "$holder" > "$FX/kill-holder.pid"
+wait_http "$port4"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port4" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "port 被別的程式占著要回 1: $err"
+case "$err" in *"Address already in use"*) ;; *) fail "stderr 要有 board.log 的 bind 錯誤：$err";; esac
+kill -0 "$holder" 2>/dev/null || fail "不是 opsx 的程式不能被停掉（pid ${holder}）"
+assert_eq "$(cat "$FX/open.log")" "" "server 起不來不開瀏覽器"
+kill "$holder"
+# --- port 上是 healthz 不回 pid 的舊版 opsx server：不猜 pid，回 1 並給停掉它的指令 ---
+port5="$(free_port)"
+legacy_srv="$(python3 -I -c '
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"{\"ok\": true, \"app\": \"opsx-board\"}"
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+' "$port5" >>"$FX/legacy.log" 2>&1 & echo $!)"
+echo "$legacy_srv" > "$FX/kill-legacy.pid"
+wait_http "$port5"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port5" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "舊版 opsx server 占著要回 1: $err"
+case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) fail "stderr 要說是舊版並給停掉它的指令：$err";; esac
+kill -0 "$legacy_srv" 2>/dev/null || fail "舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
+assert_eq "$(cat "$FX/open.log")" "" "舊版占著不開瀏覽器"
+kill "$legacy_srv"
 
 # --- init --global 做 herdr plugin link（herdr 在 PATH 上才做；已掛就不再 link）---
 out="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "init --global: $out"
