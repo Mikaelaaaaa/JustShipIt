@@ -1688,7 +1688,7 @@ def one_round(state, dry):
         if w and w["type"] == "可以合併":
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
         if w and w["type"] == "report 待你決定":
-            r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", "看 report.md 的待修與 Consider：" + c["mr"]["url"])
+            r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", w["question"] + "：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
         if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]

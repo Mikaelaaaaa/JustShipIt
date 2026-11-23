@@ -39,5 +39,9 @@ assert_eq "$(said)" "babysit 做完，邏輯表有沒經過決定的項目沒處
 printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r3\n' > "$C/logic-map.md"
 rm -rf "$STOP_STATE"; sg >/dev/null
 assert_eq "$(said)" "babysit 一輪做完，等 MR 合併" "標記過的項不擋"
+# 表寫到一半、結尾切在中文字中間：跟 collect 一樣當沒有表，推表過期，不吞掉
+printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：\xe4\xbd' > "$C/logic-map.md"
+rm -rf "$STOP_STATE"; sg >/dev/null
+assert_eq "$(said)" "babysit 做完，邏輯表不是 MR 最新 head" "讀不了的表當沒有表"
 
 echo "stop-gate-merge ok"

@@ -242,8 +242,11 @@ with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
 map_path = os.path.join(d, "logic-map.md")
 map_text = None
 if os.path.isfile(map_path):
-    with open(map_path, encoding="utf-8") as f:
-        map_text = f.read()
+    try:
+        with open(map_path, encoding="utf-8") as f:
+            map_text = f.read()
+    except UnicodeDecodeError:
+        map_text = None  # 寫到一半的表跟 collect 一樣當沒有表，回報表過期
 got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, map_text, mr.get("head_sha"))
 print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }

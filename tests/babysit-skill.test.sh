@@ -96,6 +96,9 @@ MRNONE='`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workp
 grep -qF -- "$MRNONE" "$FX/entry" || fail "入口缺 skip：mr: none 的條件"
 assert_fixed "$MRNONE" "$STEP"
 
+# --- logic-map-undecided-gate D9：表對到 head、但有沒標記的沒經過決定項時，不重產、對現有表跑 undecided 規則 ---
+grep -qF 'When the line names the current head but the map has a `沒經過決定` item (or, in a map that says 沒有 design.md，未分類, any item other than `bug：` and `程式整理`) with no ` · 開卡 <slug>` or ` · gate <id>` at the end of its line, do not rebuild: run the **Logic map, undecided** rule of `../review/SKILL.md` Step 4 on the existing map' "$FX/entry" || fail "入口缺：表對到 head 但有沒標記項時對現有表跑 undecided 規則"
+
 # --- D9 放行之後步 8 也不重產 ---
 assert_fixed 'unless the line under `## 邏輯表` starts with `skip：`' "$STEP"
 

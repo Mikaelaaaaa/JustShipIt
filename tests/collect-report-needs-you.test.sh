@@ -76,7 +76,15 @@ mkm no-midline '- 沒經過決定。D4：· gate logic-map-undecided-r3 這行�
 mkm no-word '- 沒經過決定。D4：描述裡提到「開卡」兩個字'
 mk no-both 31
 printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後都 判斷\n' > "$ROOT/r/openspec/changes/no-both/logic-map.md"
-printf '{"r/ok-empty":{"pane":"p1","mode":"autopilot"},"r/ok-gate":{"pane":"p1","mode":"autopilot"},"r/ok-card":{"pane":"p1","mode":"autopilot"},"r/ok-bug":{"pane":"p1","mode":"autopilot"},"r/ok-tidy":{"pane":"p1","mode":"autopilot"},"r/ok-nodesign":{"pane":"p1","mode":"autopilot"},"r/ok-subline":{"pane":"p1","mode":"autopilot"},"r/no-plain":{"pane":"p1","mode":"autopilot"},"r/no-nodesign":{"pane":"p1","mode":"autopilot"},"r/no-midline":{"pane":"p1","mode":"autopilot"},"r/no-word":{"pane":"p1","mode":"autopilot"},"r/no-both":{"pane":"p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
+# 邏輯表每個功能各有一段 ⚠，每一段都要看；未分類由各段的第一行決定
+mkmulti() { # <slug> <功能 1 的 ⚠ 段> <功能 2 的 ⚠ 段>
+  mkm "$1" ''
+  printf '# 邏輯表\n\n## 功能 1：甲\n\n### ⚠ 要看的地方\n%s\n\n## 功能 2：乙\n\n### ⚠ 要看的地方\n%s\n' "$2" "$3" > "$ROOT/r/openspec/changes/$1/logic-map.md"
+}
+mkmulti ok-multi '- 沒經過決定。D1：甲 · gate logic-map-undecided-r1' '- 沒經過決定。D2：乙 · 開卡 agent-20261123-1300'
+mkmulti no-multi '- 沒經過決定。D1：甲 · gate logic-map-undecided-r1' '- 沒經過決定。D2：乙'
+mkmulti no-multi-nodesign '- bug：違反 design D3。D1：甲' $'沒有 design.md，未分類\n- D2：乙'
+printf '{"r/ok-empty":{"pane":"p1","mode":"autopilot"},"r/ok-gate":{"pane":"p1","mode":"autopilot"},"r/ok-card":{"pane":"p1","mode":"autopilot"},"r/ok-bug":{"pane":"p1","mode":"autopilot"},"r/ok-tidy":{"pane":"p1","mode":"autopilot"},"r/ok-nodesign":{"pane":"p1","mode":"autopilot"},"r/ok-subline":{"pane":"p1","mode":"autopilot"},"r/no-plain":{"pane":"p1","mode":"autopilot"},"r/no-nodesign":{"pane":"p1","mode":"autopilot"},"r/no-midline":{"pane":"p1","mode":"autopilot"},"r/no-word":{"pane":"p1","mode":"autopilot"},"r/no-both":{"pane":"p1","mode":"autopilot"},"r/ok-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi":{"pane":"p1","mode":"autopilot"},"r/no-multi-nodesign":{"pane":"p1","mode":"autopilot"}}' > "$OPSX_STATE_DIR/dispatch.json"
 J="$(opsx collect --root "$ROOT")"; assert_eq "$?" 0 "collect rc: $J"
 assert_eq "$(q "$(card "$J" r ok-empty)" waiting.type)" 可以合併 "⚠ 段沒有項目"
 assert_eq "$(q "$(card "$J" r ok-gate)" waiting.type)" 可以合併 "行尾 · gate"
@@ -103,4 +111,10 @@ assert_eq "$(q "$C" waiting.question)" "邏輯表有沒經過決定的項目沒�
 C="$(card "$J" r no-both)"
 assert_eq "$(q "$C" waiting.type)" "report 待你決定" "兩條都在：$C"
 assert_eq "$(q "$C" waiting.question)" "邏輯表有沒經過決定的項目沒處理、report.md 有留給人決定的項目"
+assert_eq "$(q "$(card "$J" r ok-multi)" waiting.type)" 可以合併 "兩個功能的 ⚠ 都有標記"
+C="$(card "$J" r no-multi)"
+assert_eq "$(q "$C" waiting.type)" "report 待你決定" "功能 2 的項沒標記：$C"
+assert_eq "$(q "$C" waiting.question)" "邏輯表有沒經過決定的項目沒處理"
+C="$(card "$J" r no-multi-nodesign)"
+assert_eq "$(q "$C" waiting.type)" "report 待你決定" "功能 2 是未分類段、項沒標記：$C"
 echo "collect-report-needs-you ok"

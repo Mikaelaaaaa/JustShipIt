@@ -65,15 +65,19 @@ def open_review_items(report):
 
 
 def unhandled_map_items(map_text):
-    """行首沒有縮排的 `- ` 才是一項；未分類表（段落第一行是「沒有 design.md，未分類」）沒有「沒經過決定」標籤，bug、程式整理以外都要標記。"""
-    lines = section_lines(map_text, "### ⚠ 要看的地方")
-    unsorted = bool(lines) and lines[0].strip() == "沒有 design.md，未分類"
-    items = [l for l in lines if l.startswith("- ")]
-    if unsorted:
-        need = [l for l in items if not l.startswith(("- bug：", "- 程式整理"))]
-    else:
-        need = [l for l in items if l.startswith("- 沒經過決定")]
-    return [l for l in need if not MAP_HANDLED.search(l)]
+    """邏輯表每個功能各有一段 `### ⚠ 要看的地方`，每段都看。行首沒有縮排的 `- ` 才是一項；
+    未分類段（段落第一行是「沒有 design.md，未分類」）沒有「沒經過決定」標籤，bug、程式整理以外都要標記。"""
+    out = []
+    for chunk in ("\n" + map_text).split("\n### ⚠ 要看的地方\n")[1:]:
+        lines = section_lines("### ⚠ 要看的地方\n" + chunk, "### ⚠ 要看的地方")
+        unsorted = bool(lines) and lines[0].strip() == "沒有 design.md，未分類"
+        items = [l for l in lines if l.startswith("- ")]
+        if unsorted:
+            need = [l for l in items if not l.startswith(("- bug：", "- 程式整理"))]
+        else:
+            need = [l for l in items if l.startswith("- 沒經過決定")]
+        out += [l for l in need if not MAP_HANDLED.search(l)]
+    return out
 
 
 def card_blockers(slug, report, map_text, head_sha):
