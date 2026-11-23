@@ -1452,6 +1452,12 @@ printf '%s' "${OPEN_MR/\"success\"/\"failed\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_eq "$out" "" "stop: babysit 做完 CI 紅放行"
 assert_not_grep '^agent prompt' "$CL"
 assert_eq "$(said 1)" "babysit 做完，MR 卡在 CI 紅" "stop: CI 紅記下原因"
+# 快取目錄寫不進去：mkdir、mktemp 的錯誤印到 stderr，不能混進 MR 狀態
+printf '%s' "${OPEN_MR/\"has_conflicts\":false/\"has_conflicts\":true}" > "$OPSX_TEST_GLAB_JSON"
+rm -rf "$OPSX_STATE_DIR/cache"; : > "$OPSX_STATE_DIR/cache"
+out="$(OPSX_MR_CACHE_TTL=60 sgc)"; assert_eq "$out" "" "stop: 快取寫不進去 MR 衝突放行"
+assert_eq "$(said 1)" "babysit 做完，MR 卡在衝突" "stop: 快取寫不進去仍讀得到 MR 衝突"
+rm -f "$OPSX_STATE_DIR/cache"
 # CI 還在跑、MR ready、查不到：都不推
 printf '%s' "${OPEN_MR/\"success\"/\"running\"}" > "$OPSX_TEST_GLAB_JSON"
 out="$(sgc)"; assert_not_grep '^agent prompt' "$CL"; assert_eq "$(said 1)" "babysit 一輪做完，等 MR 合併" "stop: CI 在跑不推"
