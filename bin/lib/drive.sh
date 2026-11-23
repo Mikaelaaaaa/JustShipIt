@@ -278,19 +278,16 @@ drive_register() { # <repo/slug>
   [ -f "$OPSX_STATE_DIR/dispatch.json" ] || return 0
   OPSX_KEY="$1" OPSX_PID="$$" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$OPSX_STATE_DIR/dispatch.json" <<'PY'
 import os, sys
-sys.path.insert(0, os.environ["OPSX_LIB"]); import jsonfile
+sys.path.insert(0, os.environ["OPSX_LIB"]); import drivepid, jsonfile
 key, me = os.environ["OPSX_KEY"], int(os.environ["OPSX_PID"])
 def put(d):
     card = d.get(key)
     if card is None or card.get("mode") == "stopped":
         return
     other = card.get("drive_pid")
-    if other and other != me:
-        try:
-            os.kill(other, 0)
-            sys.exit("drive: %s 已經有一支 drive 在跑（pid %d）。要換就先 kill %d 或 opsx stop" % (key, other, other))
-        except ProcessLookupError:
-            pass
+    # 舊 pid 被別的程序用了就覆寫；讀不到命令列時分不出來，當成還有一支在跑
+    if other and other != me and drivepid.state(other, key.split("/", 1)[1])[0] in (drivepid.MINE, drivepid.UNKNOWN):
+        sys.exit("drive: %s 已經有一支 drive 在跑（pid %d）。要換就先 kill %d 或 opsx stop" % (key, other, other))
     card["drive_pid"] = me
     if card.get("mode") == "drive":
         card["mode"] = "autopilot"

@@ -62,7 +62,7 @@ assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "照�
 # opsx repo 裡留給人的題不變（Scenario Outline，反例）
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 卡住的 gate"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "stale-wait-20261120101500", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 協調者自己的 stale-wait gate"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-pick')" "opsx 沒有建議、只有選項"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-rec')" "opsx 沒有建議、只有選項"
 assert_eq "$(decide_in opsx-workflow '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "opsx needs run"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "opsx 授權題"
 assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "opsx 合併授權"
@@ -95,17 +95,38 @@ assert_eq "$(decide_in opsx-workflow '{"question": "衝突怎麼處理？", "rec
 # 其他 repo 的決定題留給人（邊界：名字只是開頭相同）
 assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommended": "用 A"}')" "('human', 'decision')" "opsx-workflow-fork 不算"
 # 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-pick')" "兩張主 change 的 split gate 交人"
+assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
+# 要人動手的字只比建議：沒有建議時第一個選項不是建議（D4）
+assert_eq "$(decide_in opsx-workflow '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "opsx 沒建議、第一個選項含你，不算要你動手"
+assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'decision')" "其他 repo 沒建議、第一個選項含你，留在 decision"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
 # 要人動手只看建議與題目，沒建議時選項裡的字不算（Scenario Outline，正例＋反例）
-assert_eq "$(decide_in opsx-workflow '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-pick')" "選項含「錄」不算要人動手"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-pick')" "選項含「你」不算要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-rec')" "選項含「錄」不算要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-rec')" "選項含「你」不算要人動手"
 assert_eq "$(decide_in other-repo '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'decision')" "其他 repo 選項含「錄」是要你決定"
 assert_eq "$(decide_in opsx-workflow '{"question": "這段怎麼驗", "recommended": "你在 sandbox 外跑", "options": ["你在 sandbox 外跑", "略過"]}')" "('human', 'hands')" "建議含「你」要人動手"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "先錄一段畫面", "options": ["先錄一段畫面", "略過"]}')" "('human', 'hands')" "建議含「錄」要人動手"
 assert_eq "$(decide_in opsx-workflow '{"question": "這只有你能做", "options": ["A", "B"]}')" "('human', 'hands')" "邊界：題目端命中，沒建議也算"
 assert_eq "$(decide_in other-repo '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "用 A", "options": ["照你說的", "用 A"]}')" "('answer', '用 A')" "邊界：有建議時不看選項"
+# decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
+# terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
+missing_human_text() { # <gaterule.py> <coordinate.py> → 沒有文字的理由代碼，空白分隔；全有時印空行
+  python3 -I -c '
+import ast, sys
+rule, coord = (ast.parse(open(p, encoding="utf-8").read()) for p in sys.argv[1:3])
+codes = {n.elts[1].value for n in ast.walk(rule)
+         if isinstance(n, ast.Tuple) and len(n.elts) == 2
+         and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in n.elts) and n.elts[0].value == "human"}
+table = next(n.value for n in coord.body if isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "GATE_HUMAN" for t in n.targets))
+keys = {k.value for k in table.keys}
+print(" ".join(sorted(codes - keys - {"terminal"})))' "$1" "$2"
+}
+assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$OPSX_ROOT/bin/lib/coordinate.py")" "" "每個 human 理由代碼在 GATE_HUMAN 都有文字"
+# 自檢：GATE_HUMAN 少了 no-rec 時要抓得到
+NO_TEXT="$FX/coordinate-no-rec.py"
+grep -v '"no-rec":' "$OPSX_ROOT/bin/lib/coordinate.py" > "$NO_TEXT"
+assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$NO_TEXT")" "no-rec" "GATE_HUMAN 漏 no-rec 時要抓到"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '
 import ast, sys

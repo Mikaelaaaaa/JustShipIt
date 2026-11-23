@@ -73,9 +73,8 @@ def decide(w, repo):
         return ("human", "merge")
     if not pick:
         return ("human", "no-pick")
-    # 只比建議：沒建議時 pick 是第一個選項，不能拿它判斷要不要人動手
     if any(k in (w.get("recommended") or "") for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
     if repo == ANSWER_REPO:
-        return ("answer", pick) if w.get("recommended") else ("human", "no-pick")
+        return ("answer", pick) if w.get("recommended") else ("human", "no-rec")
     return ("human", "decision")
