@@ -43,12 +43,13 @@ opsx_lead() {
     return 0
   fi
   pane="$RUNTIME_PANE"; tab="$RUNTIME_TAB"
+  # 協調者一起來就照這次的參數記指紋，下面送第一句失敗 die 也不會留著上一次的；記不下就刪掉，下次說沒有啟動記錄
+  now="$(lead_fingerprint "$settings" "${args[@]}" 2>/dev/null)" && printf '%s\n' "$now" 2>/dev/null > "$fp" \
+    || { rm -f "$fp" 2>/dev/null || :; warn "協調者的啟動指紋沒記下（${fp}），下次 opsx lead 會說沒有它的啟動記錄"; }
   runtime_prompt --agent "$COORDINATOR_AGENT" "/opsx-workflow:lead" nowait >/dev/null || die "lead: 協調者起來了但第一句送不進去。到 pane ${pane} 自己打 /opsx-workflow:lead（重跑 opsx lead 會說已在跑，不會補送）"
   # 記下協調者的 session id，SessionStart hook 憑它在換 pane 後把名字掛回；這裡記不到時 coordinate 下一輪會記
   got="$(runtime_get --agent "$COORDINATOR_AGENT")" && printf '%s' "$got" | "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/coordq.py" remember "$OPSX_STATE_DIR" \
     || warn "協調者的 session id 這次沒記下，coordinate 下一輪會補記"
-  lead_fingerprint "$settings" "${args[@]}" 2>/dev/null > "$fp" \
-    || warn "協調者的啟動指紋沒寫進 ${fp}，下次 opsx lead 看不出它是不是舊的"
   runtime_focus --agent "$COORDINATOR_AGENT" >/dev/null || warn "焦點切不過去，協調者在 tab ${tab}（pane ${pane}）"
   say "lead: 協調者開在 tab ${tab}（pane ${pane}），cwd ${top}"
 }
