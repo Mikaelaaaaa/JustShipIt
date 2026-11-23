@@ -69,7 +69,7 @@ GATE_HUMAN = {
     "type": ("?? %(key)s gate %(gate)s 的 type 沒寫或不在 approval | decision，不代答，要人看：%(q100)s", "的 type 不明"),
     "split": ("?? %(key)s gate %(gate)s 是拆法確認，只有使用者能答，不代答、不停 pane：%(q100)s", "要你確認拆法"),
     "merge": ("?? %(key)s gate %(gate)s 是合併類決定題，不代答：%(q100)s → %(pick60)s", "是合併的決定"),
-    "no-pick": ("?? %(key)s gate %(gate)s 沒有選項也沒有建議，要人看：%(q120)s", "沒有選項也沒有建議"),
+    "no-pick": ("?? %(key)s gate %(gate)s 沒有建議，要人看：%(q120)s", "沒有建議"),
     "hands": ("?? %(key)s gate %(gate)s 要人動手，不代答：%(q100)s → %(pick60)s", "要你動手"),
     "approval": ("?? %(key)s gate %(gate)s 要授權，不代答：%(q100)s", "要你授權"),
     "decision": ("?? %(key)s gate %(gate)s 要你決定，不代答：%(q100)s → %(pick60)s", "要你決定"),

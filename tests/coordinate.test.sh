@@ -419,6 +419,19 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "要人動手的不代答"
 grep '??' "$LOG" | grep a1 | grep -q g5 || fail "要記 ?? 與 gate id：$(cat "$LOG")"
 
+# --- 沒有建議的通知標題（gate-rule：沒有建議的通知標題）：opsx 的題只有選項、選項含「錄」 ---
+rm -f "$MEMO"
+cards '[{"repo":"opsx-workflow","slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"g7","question":"要不要寫 log","recommended":null,"options":["加記錄","不加"]}}]'
+jq --arg r "$R" '.repo_paths["opsx-workflow"] = $r' "$OPSX_TEST_COLLECT_JSON" > "$FX/ow-collect.json"; mv "$FX/ow-collect.json" "$OPSX_TEST_COLLECT_JSON"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 0 "沒有建議不代答：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep g7 | grep -q '沒有建議' || fail "?? 行要寫沒有建議：$(cat "$LOG")"
+grep g7 "$LOG" | grep -qE '要人動手|沒有選項也沒有建議' && fail "沒有建議的題不能寫成要人動手或沒有選項：$(cat "$LOG")"
+assert_eq "$(count '^notification show')" 1 "沒有建議要通知一次：$(cat "$OPSX_FAKE_LOG")"
+grep '^notification show' "$OPSX_FAKE_LOG" | grep -q '沒有建議' || fail "通知標題要寫沒有建議：$(cat "$OPSX_FAKE_LOG")"
+grep '^notification show' "$OPSX_FAKE_LOG" | grep -qE '要你動手|沒有選項也沒有建議' && fail "通知標題不能寫要你動手或沒有選項：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$MEMO"
+
 # --- 答 gate：授權題的 action 或題目跟合併有關就不代答（action 不一定剛好寫成 merge） ---
 for a in 'mr-merge|forge 回 405，要授權重試嗎' 'external|用 GitLab API 合併 MR !7'; do
   cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待授權","gate_id":"gx","action":"'"${a%%|*}"'","question":"'"${a#*|}"'","recommended":null,"options":["這次"]}}]'
