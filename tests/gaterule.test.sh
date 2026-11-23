@@ -86,6 +86,8 @@ hands '這一步要你做，我做不到'
 hands '這題要你跑一次指令才知道'
 hands '五分鐘內可以錄完'
 hands '錄下畫面再回這題'
+hands '重新錄下畫面'
+hands '手動錄完再貼'
 # 單字「你」「錄」不算要人動手（Scenario Outline，反例）
 not_hands() { assert_eq "$(decide_in opsx-workflow "{\"question\": \"選哪個？\", \"recommended\": \"$1\"}")" "('answer', '$1')" "單字你錄不算：$1"; }
 not_hands 'A，照你上一題說的最小改動'
@@ -102,6 +104,9 @@ not_hands 'A。記錄完整的 log 就好'
 not_hands '照記錄下方的 D3'
 not_hands '請記錄一次失敗原因'
 not_hands '紀錄完再回報'
+not_hands '放在 bin/ 目錄下就好'
+not_hands '收錄完再發'
+not_hands '附錄下方表格'
 assert_eq "$(decide_in other-repo '{"question": "選哪個？", "recommended": "A，照你上一題說的最小改動"}')" "('human', 'decision')" "其他 repo 不再判要人動手時仍留給人"
 # MR 合併的決定題留給人（Scenario Outline，正例）
 assert_eq "$(decide_in opsx-workflow '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
