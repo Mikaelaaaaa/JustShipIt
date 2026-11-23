@@ -98,6 +98,10 @@ not_hands '錄影第一格就是看板，跟主圖重複'
 not_hands '建議你確認第一項'
 not_hands '照派工指示停，所以開這題請你決定'
 not_hands '開新卡。改 skill 要再跑 eval，又是一輪你跑的指令'
+not_hands 'A。記錄完整的 log 就好'
+not_hands '照記錄下方的 D3'
+not_hands '請記錄一次失敗原因'
+not_hands '紀錄完再回報'
 assert_eq "$(decide_in other-repo '{"question": "選哪個？", "recommended": "A，照你上一題說的最小改動"}')" "('human', 'decision')" "其他 repo 不再判要人動手時仍留給人"
 # MR 合併的決定題留給人（Scenario Outline，正例）
 assert_eq "$(decide_in opsx-workflow '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
