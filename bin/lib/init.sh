@@ -351,6 +351,16 @@ init_repo() {
     say "init: openspec/ 寫進 $common/info/exclude"
   fi
 
+  # git 端 commit 閘門：config-based hook 跟 core.hooksPath 的同名 hook 一起跑，所以不動 core.hooksPath。git 用 shell 跑這行，路徑要包引號
+  local hook_cmd="bash '$OPSX_ROOT/hooks/git-prepare-commit-msg.sh'"
+  if [ "$(git -C "$top" config --get hook.opsx.event)" = prepare-commit-msg ] && [ "$(git -C "$top" config --get hook.opsx.command)" = "$hook_cmd" ]; then
+    say "init: hook.opsx 已有"
+  else
+    git -C "$top" config hook.opsx.event prepare-commit-msg
+    git -C "$top" config hook.opsx.command "$hook_cmd"
+    say "init: git 端 commit 閘門寫進 git 設定（hook.opsx.event、hook.opsx.command）"
+  fi
+
   register_source "$top" "$name"
   register_orca "$top" "$name"
   merge_claude_settings "$OPSX_PY" --add-dir "$top"

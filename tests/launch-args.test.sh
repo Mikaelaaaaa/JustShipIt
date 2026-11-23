@@ -35,10 +35,13 @@ python3 -I -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["env"]=={
 assert_file "$S"   # 另一個模式那份不被蓋掉
 
 # --- codex：不寫 settings ---
+# codex 沒有 --settings 的 env：OPSX_CARD 用 shell_environment_policy 帶進它執行的指令（git 端 commit 閘門靠它認出 agent）
 launch_args codex gpt-5-codex autopilot Acmecorp-CS codex-card "$TOP"
-assert_eq "${LAUNCH_ARGS[*]}" "-a never -s workspace-write --add-dir $TOP/openspec --add-dir $SD"
+assert_eq "${LAUNCH_ARGS[*]}" "-a never -s workspace-write --add-dir $TOP/openspec --add-dir $SD -c shell_environment_policy.set.OPSX_CARD=\"codex-card\""
 launch_args codex gpt-5-codex interactive Acmecorp-CS codex-card "$TOP"
-assert_eq "${LAUNCH_ARGS[*]}" "-a on-request -s workspace-write --add-dir $TOP/openspec --add-dir $SD"
+assert_eq "${LAUNCH_ARGS[*]}" "-a on-request -s workspace-write --add-dir $TOP/openspec --add-dir $SD -c shell_environment_policy.set.OPSX_CARD=\"codex-card\""
+launch_args claude claude-opus-5-5 autopilot Acmecorp-CS card-a "$TOP"
+case "${LAUNCH_ARGS[*]}" in *shell_environment_policy*) fail "claude 的參數不加 codex 設定：${LAUNCH_ARGS[*]}" ;; esac
 assert_no_file "$SD/settings/Acmecorp-CS-codex-card-autopilot.json"
 assert_no_file "$SD/settings/Acmecorp-CS-codex-card-interactive.json"
 
