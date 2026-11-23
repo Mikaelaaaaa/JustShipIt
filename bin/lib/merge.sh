@@ -37,17 +37,29 @@ print("no\t"+m["state"]+"\t"+",".join(bad))')"
   esac
   local sha; sha="$(printf '%s' "$verdict" | cut -f2)"
   [ -n "$sha" ] || die "merge: glab 沒回 MR 的 head sha，核准綁不到 commit，不核准"
-  # 對重抓到的 head 判斷，看板刷新之後才推的 commit 也擋得到
-  local map_line; map_line="$(OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I - "$d/report.md" "$sha" <<'PY'
-import os, sys
-sys.path.insert(0, os.environ["OPSX_LIB"]); import mapline
-with open(sys.argv[1], encoding="utf-8") as f:
+
+  # 五條件之外，agent 要停手、邏輯表要對應最新 head：跟 collect 標「可以合併」同一個判斷。看板刷新到按下按鈕之間 agent 可能又開工
+  local agents="" blocked
+  agents="$(runtime_list 2>/dev/null)" || agents=""
+  blocked="$(printf '%s' "$agents" | OPSX_M_KEY="$repo/$slug" OPSX_M_SLUG="$slug" OPSX_M_GATES="$(st_open_gates "$d")" OPSX_M_REPORT="$d/report.md" \
+    OPSX_M_MR="$mr" OPSX_M_SD="$OPSX_STATE_DIR" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
+import json, os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import jsonfile, mergeready
+raw = sys.stdin.read()
+agents = None   # herdr 叫不通或回的東西讀不懂：跟 collect 一樣當讀不到，不擋（design D11）
+if raw:
+    try:
+        agents = json.loads(raw)["result"]["agents"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        agents = None
+card = jsonfile.load(os.path.join(os.environ["OPSX_M_SD"], "dispatch.json")).get(os.environ["OPSX_M_KEY"])
+status = mergeready.agent_status_of(agents, card.get("pane")) if card else None
+with open(os.environ["OPSX_M_REPORT"], encoding="utf-8") as f:
     report = f.read()
-if not mapline.at_head(report, sys.argv[2]):
-    print(mapline.line_of(report) or "沒有 ## 邏輯表 那一行")
-PY
-)" || die "merge: 讀不了 $d/report.md，判斷不了邏輯表，不核准"
-  [ -z "$map_line" ] || die "merge: $slug 的邏輯表沒對到 MR head ${sha:0:7}（report.md：${map_line}），不核准。重產邏輯表再按合併"
+has_map = os.path.isfile(os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "logic-map.md"))
+print("、".join(mergeready.blockers(os.environ["OPSX_M_SLUG"], json.loads(os.environ["OPSX_M_MR"]), os.environ["OPSX_M_GATES"] != "0", status, report, has_map)))')" \
+    || die "merge: 判斷 $slug 能不能合併時出錯，不核准"
+  [ -z "$blocked" ] || die "merge: $slug 還不能合併（${blocked}），不核准。等 agent 做完、看板再標「可以合併」"
 
   # 寫核准（綁 sha，不刪；見 grant-gate 的 merge_gate）到受保護位置，dispatch.json 只讀：卡一定要在 dispatch.json（要有 agent 去執行），
   # 而且不能是互動模式（互動模式沒有 grant-gate，合併會停在 pane 的權限框，看板上的按鈕永遠轉不完）

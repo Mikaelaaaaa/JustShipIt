@@ -50,28 +50,30 @@ assert.strictEqual(other.scrollLeft, 0, '換卡從 0 開始');
 restoreLogicMapScroll(drawer(null), pos);
 const fresh = pre('r/x'); restoreLogicMapScroll(drawer(fresh), logicMapScroll(drawer(null)));
 assert.strictEqual(fresh.scrollLeft, 0, '原本沒有邏輯表段時從 0 開始');
-assert.ok(/const lmPos=logicMapScroll\(\$\('#drawer'\)\);[\s\S]*\$\('#drawer'\)\.innerHTML=[\s\S]*restoreLogicMapScroll\(\$\('#drawer'\),lmPos\)/.test(html),
-  'renderDrawer 要在重建 innerHTML 前記下、之後放回');
+// 細節頁畫在 #view：render() 重寫 #view 前記下、之後放回
+const r = html.slice(html.indexOf('function render(){'), html.indexOf('\n}', html.indexOf('function render(){')));
+assert.ok(/const lmPos=logicMapScroll\(\$\('#view'\)\);[\s\S]*setView\(\$\('#view'\),[\s\S]*restoreLogicMapScroll\(\$\('#view'\),lmPos\)/.test(r),
+  'render 要在重寫 #view 前記下、之後放回：' + r);
 
-// 位置：合併請求段之後、紀錄段之前
-assert.ok(html.includes('${mr}${logicMapSection(c)}${logSec}'), 'renderDrawer 要把邏輯表段放在 mr 與 logSec 之間');
+// 位置：細節頁的合併請求段之後、紀錄段之前
+const pc = html.slice(html.indexOf('function pageCard('), html.indexOf('\n}', html.indexOf('function pageCard(')));
+assert.ok(pc.includes('${mr}${logicMapSection(c)}${logSec}'), 'pageCard 要把邏輯表段放在 mr 與 logSec 之間');
 
-// 合併請求段的合併鈕跟著快照：MR ready 而且邏輯表對到 head 才有，沒對到時是「卡在 …」文字（board-mergeable-needs-map D1）
+// 合併請求段的合併鈕跟等待你段一樣看 waiting.type：MR 五條件全綠但邏輯表沒對到、pane 還在跑時沒有合併鈕（board-mergeable-needs-map）
 const ms = html.indexOf('  const mr=c.mr&&c.mr.url?'), me = html.indexOf('\n', ms);
-if (ms < 0) throw new Error('index.html 找不到 renderDrawer 的 const mr=');
-const mrSection = new Function('c', 'COND', html.slice(es, ee) + html.slice(ms, me) + ';return mr;');
-const COND = [['opened', '開著']];
-const mrCard = at => ({mr: {url: 'https://x/-/merge_requests/1', state: 'ready', conditions: {opened: true}}, logic_map_at_head: at});
-assert.ok(mrSection(mrCard(true), COND).includes('data-act="merge"'), '邏輯表對到 head：有合併鈕');
-const off = mrSection(mrCard(false), COND);
-assert.ok(!off.includes('data-act="merge"') && off.includes('卡在 ready'), '邏輯表沒對到 head：沒有合併鈕，顯示卡在 …：' + off);
-const red = mrSection({mr: {...mrCard(true).mr, state: 'pipeline:failed'}, logic_map_at_head: true}, COND);
-assert.ok(!red.includes('data-act="merge"') && red.includes('卡在 pipeline:failed'), '邏輯表對到 head 但 MR 不是 ready：沒有合併鈕：' + red);
+if (ms < 0) throw new Error('index.html 找不到細節頁的 const mr=');
+const mrSection = c => new Function('c', html.slice(es, ee) + html.slice(ms, me) + ';return mr;')(c);
+const MR = {url: 'https://x/-/merge_requests/1', state: 'ready'};
+assert.ok(mrSection({mr: MR, waiting: {type: '可以合併'}}).includes('data-act="merge"'), '可以合併：有合併鈕');
+const off = mrSection({mr: MR, waiting: null});
+assert.ok(!off.includes('data-act="merge"') && off.includes('卡在 ready'), 'MR ready 但不是可以合併：沒有合併鈕，顯示卡在 …：' + off);
+const gate = mrSection({mr: MR, waiting: {type: '等待決定'}});
+assert.ok(!gate.includes('data-act="merge"'), 'MR ready 但等的是別的 gate：沒有合併鈕：' + gate);
 
-// 看板原型的樣本快照：等待類型是可以合併的卡，抽屜合併請求段也有合併鈕
+// 看板原型的樣本快照：等待類型是可以合併的卡，合併請求段也有合併鈕
 const sample = JSON.parse(fs.readFileSync(require('node:path').join(process.argv[2], '..', '..', 'tests', 'fixtures', 'collect-sample.json'), 'utf8'));
 const ready = sample.cards.filter(c => c.waiting && c.waiting.type === '可以合併');
 assert.ok(ready.length > 0, '樣本要有可以合併的卡');
-for (const c of ready) assert.ok(mrSection(c, COND).includes('data-act="merge"'), `樣本 ${c.slug} 的合併請求段要有合併鈕`);
+for (const c of ready) assert.ok(mrSection(c).includes('data-act="merge"'), `樣本 ${c.slug} 的合併請求段要有合併鈕`);
 JS
 echo ok

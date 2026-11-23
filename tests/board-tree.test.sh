@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# session 卡與樹（specs/board-web「session 卡一行」「session 樹」）的純函式部分。
+# 卡片細節頁的 session 摘要與樹（specs/board-pages「session 樹」）的純函式部分。
 # 函式寫在網頁的 inline script 裡，這裡用 node 把它們從 index.html 切出來直接執行，DOM 接線手動驗。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 command -v node >/dev/null || fail "需要 node 才能跑 session 樹測試"
@@ -8,12 +8,15 @@ node - "$OPSX_ROOT/herdr-board/web/index.html" <<'JS' || fail "session 樹"
 const fs = require('node:fs');
 const assert = require('node:assert');
 const html = fs.readFileSync(process.argv[2], 'utf8');
-const START = 'function sessionLine', END = 'function rowSession';
+const START = '/* session 樹 start */', END = '/* session 樹 end */';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0) throw new Error(`index.html 找不到標記 ${START}`);
 if (e < s) throw new Error(`index.html 找不到 ${START} 之後的標記 ${END}`);
-const {sessionLine, treeRows, answerBody, homeSect} =
-  new Function(html.slice(s, e) + ';return {sessionLine, treeRows, answerBody, homeSect};')();
+const esc = x => String(x == null ? '' : x).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const GRANT_OF = {'這次': 'this', '這張卡': 'card', '這個 repo 永遠': 'repo'};
+const {sessionLine, treeRows, answerBody, sessionOf, treeSection} =
+  new Function('esc', 'GRANT_OF', 'pendSession', 'live', html.slice(s, e) + ';return {sessionLine, treeRows, answerBody, sessionOf, treeSection};')(
+    esc, GRANT_OF, x => x, {pending: []});
 
 // 整段 inline script 要能編譯：DOM 接線不在這裡跑，至少不能有語法錯
 new Function(html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>')));
@@ -33,19 +36,29 @@ const SESSION = {
   }],
 };
 
-// session 卡一行
+// Scenario session 摘要的文字
 assert.strictEqual(sessionLine(SESSION), 'fb · 主 change 1/2 · 子 change 5/7 · bt review', 'session 一行的文字');
 assert.ok(sessionLine({...SESSION, current: null}).endsWith('已合併'), '全部合併：結尾是已合併');
 assert.strictEqual(sessionLine({...SESSION, current: {slug: 'bt', stage: null}}),
   'fb · 主 change 1/2 · 子 change 5/7 · bt', '目前站沒有 stage 就只寫 slug');
 
-// 收進 session 的主 change 不單獨出現；session 依自己的 section 放
-const cards = [{repo: 'r', slug: 'bt', section: '進行中', session: 'r/fb'}, {repo: 'r', slug: 'solo', section: '進行中'}];
-const run = homeSect(cards, [SESSION], '進行中');
-assert.deepStrictEqual(run.cards.map(c => c.slug), ['solo'], '帶 session 的卡不單獨畫');
-assert.deepStrictEqual(run.sessions.map(x => x.feature), ['fb'], 'session 卡在進行中');
-assert.deepStrictEqual(homeSect(cards, [{...SESSION, section: '已完成', current: null}], '已完成').sessions.map(x => x.feature),
-  ['fb'], '全部合併的 session 卡在已完成');
+// 卡的 session 是 <repo>/<feature>：細節頁找它的 session 畫樹（D6：樹從首頁搬到卡片細節頁）
+const main = {repo: 'r', slug: 'bt', section: '進行中', session: 'r/fb'};
+assert.strictEqual(sessionOf(main, [SESSION]), SESSION, '帶 session 的卡找到自己的 session');
+assert.strictEqual(sessionOf({repo: 'r', slug: 'solo'}, [SESSION]), null, '沒有 session 的卡');
+// Scenario 沒有 session 不畫樹
+assert.strictEqual(treeSection({repo: 'r', slug: 'solo', section: '進行中'}, [SESSION]), '', '沒有 session 不畫摘要與樹');
+assert.strictEqual(treeSection({...main, session: 'r/other'}, [SESSION]), '', 'session 不在 collect 裡也不畫');
+const tree = treeSection(main, [SESSION]);
+assert.ok(tree.includes('fb · 主 change 1/2 · 子 change 5/7 · bt review'), '樹上方是 session 摘要：' + tree);
+const lines = [...tree.matchAll(/<div class="tree( sub)?[^"]*"><span class="slug">([^<]*)<\/span><span class="t">([^<]*)<\/span>/g)].map(m => [m[2], m[3]]);
+assert.deepStrictEqual(lines, [['bt', 'fb working · apply'], ['ct', 'subagent-1 · apply'], ['as', '— · propose · g1 要不要 X']], '畫出的樹依序三行：' + tree);
+// Scenario 從樹上回子 change 的 gate：as 那行的選項按鈕帶主 change、子 change、gate 與選項文字，接線把 dataset 交給 answerBody
+const btn = /<button[^>]*data-act="tree-answer"[^>]*>第一項<\/button>/.exec(tree);
+assert.ok(btn, '有 waiting 的子 change 行畫回答選項：' + tree);
+for (const attr of ['data-main="bt"', 'data-sub="as"', 'data-gate="g1"', 'data-text="第一項"']) assert.ok(btn[0].includes(attr), `按鈕帶 ${attr}：${btn[0]}`);
+assert.ok(html.includes("if(a==='tree-answer'){const s=c&&sessionOf(c,data.sessions);if(s)answerTree(s,btn.dataset);return;}"), 'tree-answer 接到 answerTree');
+assert.ok(html.includes('${treeSection(c,data.sessions)}'), '細節頁畫 session 樹');
 
 // 樹的行
 const rows = treeRows(SESSION);

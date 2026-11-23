@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 看板的單卡 deep link：#card=<repo>/<slug> 開頁後切到卡所在的 tab 並展開抽屜，只處理一次（specs/board-web「單卡 deep link」）。
+# 看板的單卡 deep link：#card=<repo>/<slug> 開頁後換成那張卡的細節頁 #card/<repo>/<slug>，只處理一次（specs/board-web「單卡 deep link」）。
 # 解析與決定寫在網頁的 inline script 裡，這裡用 node 把「card deep link」兩個標記之間切出來，配假的 window 與 UI 動作執行。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 command -v node >/dev/null || fail "需要 node 才能跑 deep link 的網頁測試"
@@ -12,8 +12,8 @@ const START = '/* card deep link start */', END = '/* card deep link end */';
 const s = html.indexOf(START), e = html.indexOf(END);
 if (s < 0) throw new Error(`index.html 找不到標記 ${START}`);
 if (e < s) throw new Error(`index.html 找不到 ${START} 之後的標記 ${END}`);
-const {parseHash, deepLinkTarget, readLoadHash, applyDeepLink} =
-  new Function(html.slice(s, e) + ';return {parseHash, deepLinkTarget, readLoadHash, applyDeepLink};')();
+const {parseHash, deepLinkTarget, readLoadHash, applyDeepLink, route, splitHash} =
+  new Function(html.slice(s, e) + ';return {parseHash, deepLinkTarget, readLoadHash, applyDeepLink, route, splitHash};')();
 
 const fakeWin = (hash, search) => {
   const w = {stored: {}, urls: [],
@@ -22,30 +22,33 @@ const fakeWin = (hash, search) => {
     history: {replaceState(_s, _t, u) { w.urls.push(u); w.location.hash = u.slice(u.indexOf('#')); }}};
   return w;
 };
+const pageOf = hash => route(splitHash(hash).path);
 
 // Scenario token 與 card 一起帶
 let w = fakeWin('#token=abc&card=opsx-workflow/tui-keys');
 assert.strictEqual(readLoadHash(w), 'opsx-workflow/tui-keys', '解析出 card key');
 assert.deepStrictEqual(w.stored, {'opsx-token': 'abc'}, 'token 存進 sessionStorage');
 assert.ok(!w.location.hash.includes('token='), '網址列不再含 token：' + w.location.hash);
-assert.strictEqual(w.location.hash, '#home', 'inbox 要等 collect 才知道，先放首頁');
-// URL 編碼的 repo 名照 open-board 的編法解回來
+assert.strictEqual(w.location.hash, '#card/opsx-workflow/tui-keys', '網址列換成那張卡的細節頁');
+assert.deepStrictEqual(pageOf(w.location.hash), {page: 'card', repo: 'opsx-workflow', slug: 'tui-keys', file: null}, '換過的 hash 對到細節頁');
+// URL 編碼的 repo 名照 open-board 的編法解回來，換成細節頁時再編一次
 assert.strictEqual(parseHash('#token=t&card=a%26b%23c/tui-keys').card, 'a&b#c/tui-keys', 'card 要 URL 解碼');
-// 只帶 card 也抹成 #home
+w = fakeWin('#token=t&card=a%26b%23c/tui-keys');
+readLoadHash(w);
+assert.deepStrictEqual(pageOf(w.location.hash), {page: 'card', repo: 'a&b#c', slug: 'tui-keys', file: null}, '特殊字元的 repo 名來回不變：' + w.location.hash);
+// 只帶 card
 w = fakeWin('#card=r/x');
 assert.strictEqual(readLoadHash(w), 'r/x', '只帶 card');
 assert.deepStrictEqual(w.stored, {}, '沒有 token 不寫 sessionStorage');
-assert.strictEqual(w.location.hash, '#home', '只帶 card 也換成 #home');
+assert.strictEqual(w.location.hash, '#card/r/x', '只帶 card 也換成細節頁');
 
-// Scenario 舊 hash 不變
-assert.deepStrictEqual(parseHash('#log'), {token: null, card: null, tab: 'log'}, '#log 開紀錄 tab');
-assert.deepStrictEqual(parseHash('#inbox'), {token: null, card: null, tab: 'inbox'}, '#inbox 開收件匣');
-assert.deepStrictEqual(parseHash('#home'), {token: null, card: null, tab: 'home'}, '#home');
-assert.deepStrictEqual(parseHash(''), {token: null, card: null, tab: 'home'}, '沒有 hash 是首頁');
+// Scenario 舊 hash 不變：#log 開紀錄頁，#token=abc 存 token 後停在 #board
+assert.deepStrictEqual(parseHash('#log'), {token: null, card: null}, '#log 沒有 token 與 card');
+assert.deepStrictEqual(pageOf('#log'), {page: 'log'}, '#log 開紀錄頁');
 w = fakeWin('#token=abc');
 assert.strictEqual(readLoadHash(w), null, '沒有 card');
 assert.deepStrictEqual(w.stored, {'opsx-token': 'abc'}, '#token=abc 存 token');
-assert.strictEqual(w.location.hash, '#home', '#token=abc 停在 #home');
+assert.strictEqual(w.location.hash, '#board', '#token=abc 停在 #board');
 w = fakeWin('#log');
 assert.strictEqual(readLoadHash(w), null, '#log 沒有 card');
 assert.deepStrictEqual(w.urls, [], '#log 不改網址');
@@ -62,41 +65,36 @@ const cards = [
   {repo: 'opsx-workflow', slug: 'idea', section: '收件匣'},
   {repo: 'other', slug: 'tui-keys', section: '收件匣'},
 ];
-assert.deepStrictEqual(deepLinkTarget(cards, 'opsx-workflow/tui-keys'), {tab: 'home', open: 'opsx-workflow/tui-keys'}, '進行中的卡在首頁');
-assert.deepStrictEqual(deepLinkTarget(cards, 'opsx-workflow/idea'), {tab: 'inbox', open: 'opsx-workflow/idea'}, '收件匣的卡在 inbox');
-assert.deepStrictEqual(deepLinkTarget(cards, 'other/tui-keys'), {tab: 'inbox', open: 'other/tui-keys'}, '同 slug 不同 repo 要分開');
-assert.deepStrictEqual(deepLinkTarget(cards, 'nope/x'), {tab: 'home', missing: true}, '找不到');
-assert.deepStrictEqual(deepLinkTarget([], 'nope/x'), {tab: 'home', missing: true}, '空 cards 也是找不到');
+assert.deepStrictEqual(deepLinkTarget(cards, 'opsx-workflow/tui-keys'), {page: 'card', path: 'card/opsx-workflow/tui-keys'}, '進行中的卡開細節頁');
+assert.deepStrictEqual(deepLinkTarget(cards, 'opsx-workflow/idea'), {page: 'card', path: 'card/opsx-workflow/idea'}, '收件匣的卡同樣開細節頁');
+assert.deepStrictEqual(deepLinkTarget(cards, 'other/tui-keys'), {page: 'card', path: 'card/other/tui-keys'}, '同 slug 不同 repo 要分開');
+assert.deepStrictEqual(deepLinkTarget(cards, 'nope/x'), {page: 'board', missing: true}, '找不到');
+assert.deepStrictEqual(deepLinkTarget([], 'nope/x'), {page: 'board', missing: true}, '空 cards 也是找不到');
 
 const LOADED = Date.parse('2026-11-11T12:00:00.400+08:00');   // 開頁時間（ms），collect 的 generated_at 只到秒
 const FRESH = '2026-11-11T12:00:05+08:00', OLD = '2026-11-11T11:30:00+08:00', SAME_SECOND = '2026-11-11T12:00:00+08:00';
-const fakeUi = (deepLink) => {
-  const env = {toasts: [], loadedAt: LOADED, ui: {tab: 'home', open: null, deepLink}};
-  env.showTab = (t) => { env.ui.tab = t; };
-  env.openDrawer = (k) => { env.ui.open = k; };
+const fakeUi = (deepLink, path) => {
+  const env = {toasts: [], loadedAt: LOADED, path: path || 'board', ui: {deepLink}};
+  env.go = (p) => { env.path = p; };
   env.toast = (msg, bad) => { env.toasts.push([msg, bad]); };
   return env;
 };
 
 // Scenario 開進行中的卡
-let env = fakeUi('opsx-workflow/tui-keys');
+let env = fakeUi('opsx-workflow/tui-keys', 'card/opsx-workflow/tui-keys');
 applyDeepLink(env, cards, FRESH);
-assert.strictEqual(env.ui.tab, 'home', '進行中：tab home');
-assert.strictEqual(env.ui.open, 'opsx-workflow/tui-keys', '進行中：抽屜開那張卡');
+assert.strictEqual(env.path, 'card/opsx-workflow/tui-keys', '進行中：細節頁');
 assert.deepStrictEqual(env.toasts, [], '找得到不提示');
 
 // Scenario 開收件匣的卡
-env = fakeUi('opsx-workflow/idea');
+env = fakeUi('opsx-workflow/idea', 'card/opsx-workflow/idea');
 applyDeepLink(env, cards, FRESH);
-assert.strictEqual(env.ui.tab, 'inbox', '收件匣：tab inbox');
-assert.strictEqual(env.ui.open, 'opsx-workflow/idea', '收件匣：抽屜開那張卡');
+assert.strictEqual(env.path, 'card/opsx-workflow/idea', '收件匣：同樣是細節頁');
 
 // Scenario 找不到卡
-env = fakeUi('nope/x');
-env.ui.tab = 'inbox';
+env = fakeUi('nope/x', 'card/nope/x');
 applyDeepLink(env, cards, FRESH);
-assert.strictEqual(env.ui.tab, 'home', '找不到：停首頁');
-assert.strictEqual(env.ui.open, null, '找不到：抽屜不開');
+assert.strictEqual(env.path, 'board', '找不到：回看板頁');
 assert.strictEqual(env.toasts.length, 1, '找不到：提示一次');
 assert.strictEqual(env.toasts[0][0], '找不到這張卡', '提示文字');
 applyDeepLink(env, cards, FRESH);
@@ -104,15 +102,14 @@ assert.strictEqual(env.toasts.length, 1, '下一輪 collect 不再提示');
 
 // Scenario server 先回開頁前的舊快取：剛建的卡還不在裡面，等較新的 collect
 const newCard = {repo: 'opsx-workflow', slug: 'me-20261111-1200', section: '收件匣'};
-env = fakeUi('opsx-workflow/me-20261111-1200');
+env = fakeUi('opsx-workflow/me-20261111-1200', 'card/opsx-workflow/me-20261111-1200');
 applyDeepLink(env, cards, OLD);
-assert.deepStrictEqual([env.ui.tab, env.ui.open, env.toasts.length], ['home', null, 0], '舊快取找不到：不切 tab、不提示');
+assert.deepStrictEqual([env.path, env.toasts.length], ['card/opsx-workflow/me-20261111-1200', 0], '舊快取找不到：不切頁、不提示');
 assert.strictEqual(env.ui.deepLink, 'opsx-workflow/me-20261111-1200', '舊快取找不到：deep link 留著');
 applyDeepLink(env, cards, OLD);
 assert.strictEqual(env.toasts.length, 0, '同一份舊快取再來一次仍等');
 applyDeepLink(env, [...cards, newCard], FRESH);
-assert.strictEqual(env.ui.tab, 'inbox', '較新的 collect 有卡：切到 inbox');
-assert.strictEqual(env.ui.open, 'opsx-workflow/me-20261111-1200', '較新的 collect 有卡：開抽屜');
+assert.strictEqual(env.path, 'card/opsx-workflow/me-20261111-1200', '較新的 collect 有卡：細節頁');
 assert.deepStrictEqual(env.toasts, [], '最後找到了就不提示');
 // 較新的仍沒有才提示
 env = fakeUi('nope/x');
@@ -122,27 +119,26 @@ assert.strictEqual(env.toasts.length, 1, '較新的 collect 仍找不到才提�
 // 舊快取裡就有這張卡：直接開，不必等
 env = fakeUi('opsx-workflow/idea');
 applyDeepLink(env, cards, OLD);
-assert.strictEqual(env.ui.open, 'opsx-workflow/idea', '舊快取找得到就照開');
+assert.strictEqual(env.path, 'card/opsx-workflow/idea', '舊快取找得到就照開');
 // generated_at 只到秒：開頁那一秒開始的 collect 算新的，不多等一輪
 env = fakeUi('nope/x');
 applyDeepLink(env, cards, SAME_SECOND);
 assert.strictEqual(env.toasts.length, 1, '開頁同一秒的 collect 算新的');
 
-// Scenario 只處理一次
+// Scenario 只處理一次：開過細節頁、使用者回到看板頁後，下一輪 collect 不再切頁
 env = fakeUi('opsx-workflow/idea');
 applyDeepLink(env, cards, FRESH);
-env.ui.open = null; env.ui.tab = 'home';
+env.path = 'board';
 applyDeepLink(env, cards, FRESH);
-assert.strictEqual(env.ui.open, null, '關掉後下一輪 collect 抽屜維持關閉');
-assert.strictEqual(env.ui.tab, 'home', '下一輪 collect 不再切 tab');
+assert.strictEqual(env.path, 'board', '下一輪 collect 維持在看板頁');
 
 // 沒有 card：什麼都不做
 env = fakeUi(null);
 applyDeepLink(env, cards, FRESH);
-assert.deepStrictEqual([env.ui.tab, env.ui.open, env.toasts.length], ['home', null, 0], '沒有 deep link 不動');
+assert.deepStrictEqual([env.path, env.toasts.length], ['board', 0], '沒有 deep link 不動');
 JS
 
-# 接線：開頁用 readLoadHash 把 card 記進 ui.deepLink，成功的 collect 交給 applyDeepLink
+# 接線：開頁用 readLoadHash 把 card 記進 ui.deepLink，成功的 collect 交給 applyDeepLink，切頁走 go（帶上篩選條件）
 node - "$OPSX_ROOT/herdr-board/web/index.html" <<'JS' || fail "deep link 接線"
 const fs = require('node:fs');
 const assert = require('node:assert');
@@ -152,6 +148,7 @@ const ui = html.slice(html.indexOf('const ui={'), html.indexOf('\n', html.indexO
 assert.ok(ui.includes('deepLink:'), 'ui 要帶 deepLink：' + ui);
 const sc = html.slice(html.indexOf('function showCollect('), html.indexOf('function showCollectError('));
 assert.ok(sc.includes('applyDeepLink('), 'showCollect 要呼叫 applyDeepLink：' + sc);
-assert.ok(/applyDeepLink\(\{[^}]*loadedAt:[^}]*\},j\.cards,j\.generated_at\)/.test(sc), 'showCollect 要帶開頁時間與這份 collect 的 generated_at：' + sc);
+assert.ok(/applyDeepLink\(\{[^}]*go,[^}]*loadedAt:[^}]*\},j\.cards,j\.generated_at\)/.test(sc), 'showCollect 要帶 go、開頁時間與這份 collect 的 generated_at：' + sc);
+assert.ok(html.includes("function go(path){location.hash='#'+path+qs(F);}"), 'go 換 hash 並保留篩選條件');
 JS
 echo ok

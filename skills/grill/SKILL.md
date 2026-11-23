@@ -56,6 +56,7 @@ Read all of these before the first question. A dispatch worktree has no `openspe
 Explore writes facts into 已知 and exclusions into 不做, but some of them were choices the user never saw. A plan that drops a role check because 已知 called it unused, or skips a channel because 不做 listed it, has made a product decision without asking. So:
 
 - **Every 不做 item is a branch.** Confirm it with the user, even when it looks obvious. Leaving something out is a choice.
+- **Every new behaviour has failure branches.** For each new path the card adds, list what happens when it does not succeed: the tool or call returns an error, a precondition is not met (the account is not connected, the record is gone, the user lost access), whether the failure is logged or audited, and what the user sees (including in another UI language). Each one the code cannot answer is a bucket-3 branch. Asked here, it becomes a D and a negative Scenario; left out, it surfaces only when the logic map reads the finished code, after review and CI.
 - **An 已知 entry that hides a choice is a branch.** It hides a choice when the state it describes could be kept or changed, and this card's scope touches it. "role_gate has no reader at runtime" hides a choice: the card has to decide whether to wire a reader or delete it.
 - **A pure fact in 已知 is not asked.** It says where code lives or how it works, and the card does not have to decide whether to change it.
 
@@ -79,6 +80,8 @@ Every branch goes into exactly one bucket. Only the third bucket reaches the use
 3. **Only the user can answer it.** Product choice, preference, risk appetite, priority between two valid designs, anything that depends on what they want rather than what is true. These are the questions you ask.
 
 If you are unsure which bucket a branch belongs to, try bucket 1 for a few minutes before defaulting to bucket 3.
+
+A problem you find while grilling that is outside this card's scope (`../review/SKILL.md` Step 3, 範圍內／範圍外) is not a branch and goes in no bucket. Open a card for it with `opsx new`, with the same flags as `../apply/SKILL.md` skeleton row 6; then, only when the printed slug is a fresh card, run `opsx note <slug> --repo <top> -- "做到 propose 完成就停（留在待指派），不要 apply"` (skip `opsx note` when it merged). Whether to handle it here or open another card is never asked: 「另開卡」 is never a gate option. 範圍內的產品取捨, whether or how to change something inside this card's scope, is still bucket 3.
 
 ## How to ask
 

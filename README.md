@@ -1,34 +1,101 @@
-# opsx-workflow
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/justshipit-logo-dark.svg" />
+    <img src="docs/assets/brand/justshipit-logo-light.svg" alt="JustShipIt" width="420" />
+  </picture>
+</p>
 
-A Claude Code plugin that runs a change from inbox card to pull request, with a board to watch it, and leaves the merge to a human.
+<p align="center"><b>A Claude Code plugin that takes each change from an inbox card to a reviewed pull request, tracks every card on one board, and leaves the merge to you.</b></p>
 
-## 示範
+<p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a></p>
 
-![opsx 看板示範：三個示範專案的卡片從收件匣到完成](docs/assets/opsx-board-demo.gif)
+跟一般 agent workflow 不一樣的地方：
 
-看板顯示每張卡現在在哪一站、哪裡卡住在等你。示範資料是虛構的三個專案（shop-web、shop-api、cli-tool）。
+- **合併永遠是人按的。** agent 把 PR 推到可合併就停，合併核准只有你寫得進去。
+- **先 spec、再測試、再 review，才開 PR。** 每個改動都有 spec 與先寫的測試，review 過了才送出，一般的卡由三位 reviewer 平行審。
+- **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
+- **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
 
-## 為什麼做
+<a href="docs/assets/board-demo.mp4"><img src="docs/assets/board-demo.gif" alt="JustShipIt 看板操作錄影：開看板，點一張卡從右側滑出抽屜，按允許回 gate，再切到變更、已歸檔、紀錄三頁。點圖看高畫質 mp4" width="100%" /></a>
 
-- 用 Claude Code 同時做好幾件事時，最難的不是寫 code，是記得每件事做到哪、哪個 agent 在等我回答。
-- 每次都從頭跟 agent 講規矩（先想清楚、先寫測試、不要碰 main）很累。這些規矩該寫進流程，不該靠記得。
-- 讓 agent 自己跑可以，但合併是最後一道人工關卡，不能讓 agent 代按。
+## <a id="why"></a>解決什麼問題
 
-## 功能重點
+同時讓好幾個 Claude Code agent 做事，難的是記得每件事做到哪、哪個 agent 在等你。JustShipIt 把「先想清楚、先寫測試、不碰 main」寫進固定流程，所有卡放在同一個看板，需要你時才找你，合併永遠由你決定。
 
-- **一條固定流程**：收件 → explore → grill → propose → apply → review → pr → babysit → archive，每一站是一個 skill，產出一份落在 `openspec/changes/<卡>/` 的文件。
-- **先寫測試**：apply 每條 task 先寫測試、看它紅，再寫 code。review 在測試沒綠、task 沒測試時拒絕開始。
-- **大卡自動拆**：太大的卡拆成 session、主 change、子 change，確認一次後照 workplan 自動做，見 [references/work-split.md](references/work-split.md)。
-- **看板**：herdr 裡的網頁與右側 pane，顯示待處理、進行中、待指派、已完成與收件匣，按鈕背後都有對應的 `opsx` 子命令。
-- **授權閘門**：agent 做到需要你決定或授權的事就寫一筆 gate 然後繼續做別的，不在終端機乾等。
-- **背景派工與自動接力**：`opsx dispatch` 開 worktree 與 pane 派給 agent；`opsx coordinate` 定時收尾已合併的卡、重派死掉的卡。
+## <a id="how"></a>怎麼運作
 
-## 快速開始
+一個想法先變成一張收件卡，之後依序經過 explore、grill、propose、apply、review、pr、babysit，每一站是一個 skill，產出的文件都留在 `openspec/changes/<卡>/`。agent 在 worktree 裡做，測試沒綠、review 沒過就不會往下走。需要你授權或做選擇時，它寫一筆 gate 然後先做別的。
 
-需要 Claude Code 2.1.275 以上（並在 Claude Code 設定開啟沙盒，下面的安全模型靠它）、Python 3.11 以上、openspec CLI（`npm i -g @fission-ai/openspec`）、`gh` 或 `glab`（開 PR 與 MR），看板與派工另外需要 herdr。定時同步與 `opsx coordinate` 的排程只在 macOS（launchd）裝得起來。
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg" />
+  <img src="docs/assets/architecture-light.svg" alt="架構圖：一張卡從收件經 explore、grill、propose、apply、review、pr、babysit，由人合併後 archive。opsx lead、drive、coordinate 在背景推進，agent pane 寫 gate 與狀態給看板，PR 開在 GitHub 或 GitLab，人只回 gate 與按合併" width="100%" />
+</picture>
+
+三個角色在背景推進：
+
+- `opsx drive`：`opsx dispatch <卡> --mode autopilot` 開 worktree 與 herdr pane 後在背景啟動，每輪看卡的狀態送下一站，從 explore 推到 babysit。卡上有開著的 gate 時它等你回。MR 開了之後，開著、不是 draft、沒衝突、CI 綠、沒有未解的 review 五項都綠就停。
+- `opsx coordinate`：launchd 每 5 分鐘跑一輪，收尾已合併的卡、通知等你回的 gate、重派 pane 死掉的卡，並派依賴都已合併的 P0、P1 卡。它不送站，也不合併。
+- `opsx lead`：協調者 session。卡停下來要人處理時會收到通知，把每個 gate 連同建議轉給你，不替你回。它也列出可合併的卡與不會互相衝突的合併順序，合併後停掉 pane 並歸檔。
+
+你要做的只有兩件事：
+
+- **回 gate。** push、開 MR、安裝套件這類要授權的事，或要你選的事，都會變成一筆 gate。在看板回，或跑 `opsx answer <卡> --gate <id> <文字>`。
+- **合併永遠留給人。** 在看板按「合併」或跑 `opsx merge <卡>`，只寫一次性核准，由 agent 執行那一次合併，agent 自己合不了。合併前可以看邏輯表，判斷這支 PR 實際做了什麼。
+
+## <a id="features"></a>功能
+
+- **固定流程。** 每一站一個 skill，每一站留下文件，事後查得到每個決定的來源。
+- **先寫測試。** apply 每條 task 先寫測試、看它紅，再寫 code。review 在測試沒綠時拒絕開始。
+- **三位 reviewer。** spec 對照、程式品質、對抗式審查平行跑，範圍內的問題退回 apply，範圍外的開成新卡。
+- **邏輯表。** 從 diff 畫出功能清單、流程圖與條件表，只看 code，不看說明。
+- **大卡自動拆。** 太大的卡拆成 session、主 change、子 change，確認一次後照 workplan 做，見 [references/work-split.md](references/work-split.md)。
+- **授權閘門。** 沒給過授權的動作一律寫成 gate，agent 不在終端機乾等。
+
+### 看板
+
+看板的資料全由 `opsx collect` 從卡的檔案、狀態目錄、herdr 與 MR 狀態算出來，自己不存狀態。
+
+- 頂端是導覽（看板、變更、已歸檔、紀錄）、搜尋與一個篩選按鈕。
+- 總覽先看等你處理的卡、各階段分布、agent 與 MR、各 repo 進度。
+- 欄內的卡依功能分組，可收合。
+- 點一張卡從右側滑出抽屜，gate 在抽屜裡按選項就能回。
+- 卡片細節頁讀卡目錄裡的文件，也能停止、重新指派或改等級。
+- 已合併的卡可以封存，背後跑 `openspec archive`。
+- herdr 右側 pane 是同一份清單的終端機版本。
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/board-web-framed.png" alt="看板：頂端導覽與搜尋、總覽，下面是依階段排的欄，欄內依功能分組" /><br /><sub>看板：一眼看到哪些卡在等你、每一欄做到哪</sub></td>
+    <td width="50%"><img src="docs/assets/drawer-web-framed.png" alt="抽屜：點卡片後從右側滑出，上方是等你允許的 gate 與選項按鈕，下方是進度與卡片資訊" /><br /><sub>抽屜：不離開看板就能回 gate、看進度</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/card-detail-web-framed.png" alt="卡片細節頁：gate、操作按鈕、卡目錄的文件清單與內容" /><br /><sub>細節頁：讀卡目錄的每份文件，停止或重新指派這張卡</sub></td>
+    <td width="50%"><img src="docs/assets/changes-web-framed.png" alt="變更頁：依 repo 分組列出每個 openspec change 的狀態、階段與等級" /><br /><sub>變更頁：依 repo 看每個 change 的階段與等級</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/archived-web-framed.png" alt="已歸檔頁：依 repo 分組列出做完的卡，每張一行標題與 slug" /><br /><sub>已歸檔：依 repo 查做完的卡</sub></td>
+    <td width="50%"><img src="docs/assets/log-web-framed.png" alt="紀錄頁：依日期分組的時間軸，每列是時間、卡、誰做的、內容與類別標籤，上方可篩你回的、替你做的決定、指派與合併" /><br /><sub>紀錄：你回的、替你做的決定、指派與合併，一條時間軸</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/opsx-tui-demo-framed.png" alt="herdr 右側 TUI 看板：待處理、進行中、待指派、收件匣、已完成，一行一卡" /><br /><sub>herdr 右側 pane：▲ 是等你回的 gate，● 是 agent 正在做的卡，Enter 跳到那張卡的 pane</sub></td>
+    <td width="50%"></td>
+  </tr>
+</table>
+
+<sub>截圖中的專案與卡片都是虛構的示範資料。</sub>
+
+## <a id="install"></a>安裝
+
+需要：
+
+- Claude Code 2.1.275 以上，並在設定開啟沙盒，安全模型靠它
+- Python 3.11 以上
+- openspec CLI：`npm i -g @fission-ai/openspec`
+- `gh` 或 `glab`，用來開 PR 與 MR
+- herdr，看板與派工用
 
 ```
-/plugin install opsx-workflow --marketplace Mikaelaaaaa/opsx-workflow
+/plugin install opsx-workflow --marketplace Mikaelaaaaa/JustShipIt
 ```
 
 裝完在終端機跑一次全域初始化，再到每個要用的 repo 根目錄初始化：
@@ -38,37 +105,17 @@ bash <plugin root>/bin/opsx init --global
 opsx init
 ```
 
-然後 `opsx new -- "一句話說你要做什麼"` 開一張收件卡，在看板按派工，或自己在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
+之後用 `opsx new -- "一句話說你要做什麼"` 開一張收件卡，在看板按派工，或在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
 
-設定檔改了什麼、沙盒與授權檔、herdr socket、新電腦 onboarding 都在 [docs/setup.md](docs/setup.md)。
+| 平台 | 支援程度 |
+|------|---------|
+| macOS | 全部。`opsx init --global` 用 launchd 裝每日 `opsx sync` 與每 5 分鐘的 `opsx coordinate` |
+| Linux | skills 與 `opsx` CLI 可用。沒有 `launchctl`，`opsx sync` 與 `opsx coordinate` 要自己排程 |
+| Windows | 沒測過。`opsx` 是 bash 腳本 |
 
-## 流程
+使用者層設定、沙盒與授權檔、herdr socket、新電腦 onboarding 見 [docs/setup.md](docs/setup.md)。
 
-```mermaid
-flowchart LR
-  inbox[收件] --> explore --> grill --> propose --> apply --> review --> pr
-  pr --> babysit
-  babysit --> human{{合併：人}}
-  human --> archive
-```
-
-- `explore` 讀 code、列出已知與待決；`grill` 一次問你一題，只問只有你能答的。
-- `propose` 寫 proposal、design、spec、tasks；`apply` 照 tasks 先測試後實作，一個 change 一個 commit。
-- `review` 三位 reviewer 平行審，Bug 與 Must-fix 退回 apply；`pr` 開 MR 或 PR；`babysit` 看 CI 與 review 留言。
-- **合併永遠留給人。** 在看板按「合併」或跑 `opsx merge <卡>`，只寫一次性核准，由 agent 執行那一次合併，agent 自己合不了。
-- 沒有 openspec 殼的小想法也可以先 `/opsx-workflow:explore` 隨便聊，想清楚再開卡。
-
-## 看板
-
-資料全是投影（`opsx collect` 從卡的檔案、狀態目錄、herdr 與 MR 狀態算出來），看板自己不存狀態。
-
-- 網頁：herdr 裡叫 action `open-board`，或 `bash herdr-board/scripts/open-board.sh`。
-- 右側 pane：herdr 裡叫 action `open-pane`，同一份清單，↑↓ 選、Enter 跳到 pane。
-- 收件匣 tab：還沒派出的卡，依來源分組；`opsx sync` 每天把指派給你的 issue 與程式碼裡的 `shortcut:` 註解撈進來。
-
-快捷鍵、收件匣子命令與每日同步見 [docs/setup.md](docs/setup.md)。
-
-## 常用指令
+## <a id="commands"></a>常用指令
 
 | 指令 | 做什麼 |
 |------|--------|
@@ -77,23 +124,44 @@ flowchart LR
 | `opsx new -- <一句話>` | 開一張收件卡 |
 | `opsx dispatch <卡>` | 派給 agent：開 worktree、pane，送出第一句 |
 | `opsx answer <卡> --gate <id> <文字>` | 回 agent 留下的 gate |
-| `opsx merge <卡>` | 核准合併（一次性，沙盒外執行） |
+| `opsx merge <卡>` | 一次性核准合併，在沙盒外執行 |
 | `opsx stop <卡>` | 停下派出去的卡 |
-| `opsx sync` | 把 issue 與 `shortcut:` 註解撈進收件匣 |
+| `opsx sync` | 把指派給你的 issue 與程式碼裡的 `shortcut:` 註解撈進收件匣 |
 | `opsx lead` | 開協調者 session，回報全部卡的進度 |
 
 完整清單：`opsx --help`。
 
-## 安全模型
+## <a id="security"></a>安全模型
 
-- 開啟 Claude Code 沙盒後，agent 在沙盒內跑，只能寫目前 repo、worktree 與 opsx 狀態目錄；opsx 不替你開沙盒。
-- 做到 push、開 MR、遷移資料庫這類事，授權閘門先看你給過什麼授權；沒給就寫成 gate 等你回。
-- 合併核准存在沙盒內寫不到的位置，只有你在沙盒外（終端機或看板）才寫得進去（同樣要先開沙盒）。
+- 開啟 Claude Code 沙盒後，agent 只能寫目前 repo、worktree 與 opsx 狀態目錄。JustShipIt 不替你開沙盒。
+- push、開 MR、遷移資料庫這類動作，授權閘門先看你給過什麼授權。沒給就寫成 gate。
+- 合併核准存在沙盒內寫不到的位置，只有你在沙盒外的終端機或看板寫得進去。
 - herdr socket 只有協調者 session 連得到，一般 agent 的 herdr 動作走受限的佇列。
 
-細節與已知沒驗證的地方見 [docs/setup.md](docs/setup.md)。
+細節與尚未驗證的地方見 [docs/setup.md](docs/setup.md)。
 
-## 路線圖
+## <a id="docs"></a>文件
 
-- **1.0 全自動**：任一台電腦裝好就能用；卡從收件到 PR 自己跑完，合併留給人。
-- **2.0 Orca**：卡的 worktree 在 Orca IDE 裡開得到，驗證過後執行層從 herdr 換成 Orca。
+| 文件 | 內容 |
+|------|------|
+| [docs/setup.md](docs/setup.md) | 安裝、使用者層設定、沙盒與授權檔、herdr socket、onboarding、看板與收件匣子命令 |
+| [references/work-split.md](references/work-split.md) | 大卡怎麼拆成 session、主 change、子 change |
+| [references/priority.md](references/priority.md) | 卡的等級 P0、P1、P2 怎麼算 |
+| [references/grants.md](references/grants.md) | 授權三級：哪些直接做、哪些要授權、哪些只有人能做 |
+| [UPSTREAM.md](UPSTREAM.md) | 從別處搬進來或蒸餾過的檔，來源與版本 |
+
+## <a id="status"></a>狀態
+
+- **可用。** 流程的每一站、網頁看板與 herdr 右側 pane、授權閘門、背景派工與協調。
+- **部分。** Linux 上沒有內建排程。Windows 沒測過。
+- **規劃中。** 1.0 任一台電腦裝好就能從收件跑到 PR。2.0 卡的 worktree 能在 Orca IDE 裡開，執行層從 herdr 換成 Orca。
+
+## <a id="contributing"></a>參與開發
+
+- 跑測試：`bash tests/run.sh [pattern]`，`pattern` 依測試檔名過濾，不給就全跑。
+- 這個 repo 自己的改動也走 opsx 流程：開卡、explore、grill、propose、apply、review、pr。
+- [UPSTREAM.md](UPSTREAM.md) 列出從別處搬進來或蒸餾過的檔，升上游版本時拿它逐檔 diff。
+
+## <a id="license"></a>授權
+
+[MIT](LICENSE)

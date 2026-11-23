@@ -38,14 +38,23 @@ runtime_need() { # <pane|tab> <值>
   return 2
 }
 
-# 模式必填：漏寫時看不出呼叫者要不要等 agent 做完
+# 模式必填：漏寫時看不出呼叫者要不要等 agent 做完。
+# nowait 送給有 pane 的卡之後看輸入框（runtime_submit_check）；wait 等 agent 做完才回，字不會留在框裡。
+# 回的是 herdr 送話的結束碼：話已送出，檢查本身出錯只警告
 runtime_prompt() { # <對象> <一行> <wait|nowait>
   runtime_target "$@" || return; shift "$RT_ARGC"
   case "$#:${2:-}" in
     2:wait) herdr agent prompt "$RT_NAME" "$1" --wait ;;
-    2:nowait) herdr agent prompt "$RT_NAME" "$1" ;;
+    2:nowait) herdr agent prompt "$RT_NAME" "$1" || return
+      [ -z "$RT_PANE" ] || runtime_submit_check "$RT_WHO" "$1" || warn "runtime_prompt: 話已送給 ${RT_WHO}，送出後的輸入框檢查失敗（見上面的錯誤）"
+      return 0 ;;
     *) warn "runtime_prompt: ${RT_WHO} 的模式只有 wait、nowait，收到：${2-（漏寫）}"; return 2 ;;
   esac
+}
+
+# 剛送給卡的一行還留在輸入框就補按一次 Enter（bin/lib/submit.py）；補了仍在時 stderr 印一行含 pane id
+runtime_submit_check() { # <卡片身分> <剛送的一行>
+  "$OPSX_PY" -I "$OPSX_ROOT/bin/lib/submit.py" check "$OPSX_STATE_DIR" "$1" "$2" >/dev/null
 }
 
 # 不給 --lines 讀 pane 原文（bash 呼叫者自己 tail）；給了讀 agent 的文字畫面（python 呼叫者的形式）
@@ -206,10 +215,11 @@ $(herdr pane read "$pane" 2>/dev/null | tail -20)"
 }
 
 # 回報一行給協調者 session。輸入框有字時排進佇列（bin/lib/coordq.py），不打斷使用者打字；送出或排進佇列回 0。
-# 送不出去（它不在、herdr 掛了）記 coordinator.log 並回 1。
+# 送不出去都記 coordinator.log。名字對不到活著的 pane 時 coordq 已發桌面錯誤（退出 3），算送過、回 0；其他情形回 1。
 coordinator_say() { # <一行>
-  local err
-  err="$("$OPSX_PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" "$1" 2>&1 >/dev/null)" && return 0
+  local err rc=0
+  err="$("$OPSX_PY" -I "$OPSX_ROOT/bin/lib/coordq.py" say "$OPSX_STATE_DIR" "$1" 2>&1 >/dev/null)" || rc=$?
+  [ "$rc" -eq 0 ] && return 0
   printf '%s ?? 回報 %s 送不出去：%s\n' "$(now_iso)" "$COORDINATOR_AGENT" "$(printf '%s' "$err" | head -c 200 | tr '\n' ' ')" | opsx_append "$OPSX_STATE_DIR/coordinator.log" || true
-  return 1
+  [ "$rc" -eq 3 ]
 }

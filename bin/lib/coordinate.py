@@ -1,4 +1,4 @@
-"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
+"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、照建議答 opsx-workflow 的 decision gate、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
 
 每個動作是一條外部指令（opsx / git / openspec）。推節點（送 /<stage>）是每張卡的 drive 的事，這裡不送。
 合併永遠由人按（板上的「合併」或 forge 網頁），這裡從不呼叫 opsx merge。
@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from argslost import args_lost, claude_argv  # noqa: E402
@@ -25,12 +26,17 @@ import late  # noqa: E402
 import priority  # noqa: E402
 import runtime  # noqa: E402
 import safefile  # noqa: E402
+import submit  # noqa: E402
+import workplanwrite  # noqa: E402
 
+# 討論卡：派工指示有一條含這句。開卡端寫的是「做到 propose 完成就停（留在待指派），不要 apply」，檔裡只放前半句，括號裡改了也認得
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "propose-stop-note.txt"), encoding="utf-8") as _f:
+    PROPOSE_STOP = _f.read().strip()
 MAX_DISPATCH = 6
-# 同時活著的 pane 數上限預設值；<state>/max-working 可改
+# 同時工作中的 pane 數上限預設值；<state>/max-working 可改
 DEFAULT_MAX_WORKING = 8
-# herdr 回這幾種 agent_status 的 pane 佔派工名額（done 是 agent 還在、做完一段）；找不到（unknown）就是死了
-LIVE_AGENT = ("working", "idle", "blocked", "done")
+# 只有工作中的 pane 佔派工名額；idle、blocked、done 的 pane 在等人或做完一段，不擋派工
+LIVE_AGENT = ("working",)
 REDISPATCH_MINUTES = 10
 # relaunch 失敗後同一個 pane 不再試的時間；跟重派同一個節流，不會每輪對壞掉的 pane 送 Esc、/exit
 RELAUNCH_MINUTES = REDISPATCH_MINUTES
@@ -40,6 +46,8 @@ CLOCK_SKEW_MINUTES = 1
 PID_MAX = 2**31 - 1
 # 真實訊息是 `Usage limit reached[ again] · …`，前面只有 Claude Code 畫的 ⎿ │ 與空白；引用、清單、diff 行都不算
 USAGE_LIMIT_LINE = re.compile(r"[\s⎿│]*Usage limit reached(?: again)?\s*·")
+# 換帳號或按 esc 之後 Claude Code 不再自己續跑，停在這行等人送話。跟上限訊息一樣只容許 Claude Code 畫的空白、⎿、│ 在前面
+AUTO_CONTINUE_LINE = re.compile(r"[\s⎿│]*Automatic continue stopped")
 USAGE_LIMIT_STALE_MINUTES = 30
 USAGE_LIMIT_WARNING = "grace allowance"   # 「還有一小段寬限」是警告，agent 還在跑，不算停下
 USAGE_LIMIT_RESET = re.compile(r"(?:limit resets|continuing automatically at)\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)", re.IGNORECASE)
@@ -65,6 +73,8 @@ GATE_HUMAN = {
     "hands": ("?? %(key)s gate %(gate)s 要人動手，不代答：%(q100)s → %(pick60)s", "要你動手"),
     "approval": ("?? %(key)s gate %(gate)s 要授權，不代答：%(q100)s", "要你授權"),
     "decision": ("?? %(key)s gate %(gate)s 要你決定，不代答：%(q100)s → %(pick60)s", "要你決定"),
+    # gaterule.decide 回「協調者代跑」：不記 ??，這題不用人看；通知照樣先送協調者 session
+    "coordinator-run": ("-- %(key)s gate %(gate)s 交協調者代跑，coordinate 不跑也不答：%(rec100)s", "要協調者代跑"),
 }
 
 
@@ -89,6 +99,7 @@ class Round:
         self.now = datetime.datetime.now().astimezone()
         self.memo = None
         self.dispatch_file = None
+        self.agents = None
         self.plans = {}
         self.levels = {}
         self.level_errors = {}
@@ -99,11 +110,13 @@ class Round:
         self.stages = {}
         self.woken_cards = set()
         self.max_working = None
-        # 這輪開始時活著的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
+        # 這輪開始時工作中的 pane，與這輪成功新開的 pane 數（新派、開 session、重開死掉的 pane）
         self.busy_panes = set()
         self.opened = 0
         self.worktrees = {}
         self.coordinator_up = None
+        # 這輪畫面停在 Automatic continue stopped 的卡，一個 pane 一張（usage_limit_seen 讀畫面時收集）
+        self.auto_stopped = []
 
     def log(self, msg):
         line = "%s %s" % (self.now.strftime("%Y-%m-%d %H:%M:%S"), msg)
@@ -136,8 +149,12 @@ class Round:
         herdr = [e["message"] for e in data["errors"] if e["source"] == "herdr"]
         if herdr:
             raise CoordinateError("herdr 讀不到，agent 狀態不可得，這輪不動：%s" % "；".join(herdr))
+        rc, out, err = self.run(runtime.list_agents())
+        if rc != 0:
+            raise CoordinateError("herdr agent list 失敗（rc %d），數不出名額：%s" % (rc, err[:300]))
+        self.agents = parse_agents(out)
         self.memo = read_json(self.memo_path, "coordinator memo")
-        for k in ("_parked", "_redispatched", "_notified", "_relaunched"):
+        for k in ("_parked", "_redispatched", "_notified", "_relaunched", "_continued"):
             self.memo.setdefault(k, {})   # 沒有這個 key 就是還沒記過任何一張
         self.dispatch_file = read_json(os.path.join(self.state, "dispatch.json"), "dispatch.json")
         check_dispatch_entries(self.dispatch_file)
@@ -154,13 +171,18 @@ class Round:
             self.plans[top] = read_prs(os.path.join(top, "openspec", "workplan.yaml"))
         return self.plans[top]
 
-    def level(self, top, slug):
-        """卡的 {level, reason, overridden}，算不出來是 {error}。workplan 的 milestone 欄位不合格時那個 repo 每張卡都是 error。"""
+    def repo_levels(self, top):
+        """priority.levels(top)，每輪每個 repo 算一次。workplan 的 milestone 欄位不合格時是空 dict，每張卡都當成算不出來。"""
         if top not in self.levels and top not in self.level_errors:
             try:
                 self.levels[top] = priority.levels(top)
             except priority.PriorityError as e:
                 self.level_errors[top] = str(e)
+        return self.levels.get(top, {})
+
+    def level(self, top, slug):
+        """卡的 {level, reason, overridden}，算不出來是 {error}。workplan 的 milestone 欄位不合格時那個 repo 每張卡都是 error。"""
+        self.repo_levels(top)
         if top in self.level_errors:
             return {"error": self.level_errors[top]}
         if slug not in self.levels[top]:
@@ -257,7 +279,7 @@ class Round:
         shared = self.session_siblings(key, top)
         # 單卡派的卡屬於 session 代管的 feature、session 還活著：依賴它的下一個主 change 要叫醒。
         # chain.children 從磁碟讀這張的條目，opsx stop 標 stopped 之前叫醒，不然它會當成人停的而不接
-        owner = self.session_feature_of(top, c["slug"])
+        owner = self.session_feature_of(top, c["repo"], c["slug"])
         session = self.dispatch_file.get("%s/@%s" % (c["repo"], owner)) if owner and not shared else None
         wake_session = bool(session) and chain.session_alive(session)
         stop = entry and entry.get("mode") != "stopped" and not shared
@@ -357,11 +379,16 @@ class Round:
             self.dispatch_file[child] = new
             self.woken_cards.add(child)
             # 用 session 條目找名字：dry-run 不寫子卡條目，用子卡 key 會退回子卡 slug
-            rc, out, err = self.act(runtime.prompt("[%s] /opsx-workflow:%s %s" % (slug, self.stages[child], slug), "nowait", card="%s/@%s" % (c["repo"], feature), dispatch=path))
+            session_key = "%s/@%s" % (c["repo"], feature)
+            text = "[%s] /opsx-workflow:%s %s" % (slug, self.stages[child], slug)
+            rc, out, err = self.act(runtime.prompt(text, "nowait", card=session_key, dispatch=path))
             if rc != 0:
                 self.log("?? %s 送不到 session %s，條目已寫，下一輪由 session 重派接手：%s" % (child, feature, (err or out)[:200]))
             else:
-                self.args_checked.add("%s/@%s" % (c["repo"], feature))
+                self.args_checked.add(session_key)
+                self.woke((self.dispatch_file.get(session_key) or {}).get("pane"))
+                if not self.dry:
+                    self.confirm_sent(session_key, text)
 
     def close_session(self, top, repo, feature):
         """同 feature 沒有活成員了：停 session、移 worktree、刪已合併成員的分支、拿掉 session 條目。哪一步失敗就停在那一步，留給人。"""
@@ -429,15 +456,16 @@ class Round:
         if self.dry:
             self.log("DRY workplan %s 標 %s" % (path, "、".join("%s %s" % (n, v) for _, n, v in marks)))
             return True
-        with open(path, encoding="utf-8") as f:
-            lines = f.read().split("\n")
-        for key, name, value in marks:
-            i = status_line(lines, key, name)
-            if i is None:
-                self.log("?? %s 找不到 %s 的 status 行，不收尾" % (path, name))
-                return False
-            lines[i] = re.sub(r"status:.*$", "status: " + value, lines[i])
-        safefile.write_atomic(path, "\n".join(lines))
+        with workplanwrite.WorkplanLock(top):
+            with open(path, encoding="utf-8") as f:
+                lines = f.read().split("\n")
+            for key, name, value in marks:
+                i = status_line(lines, key, name)
+                if i is None:
+                    self.log("?? %s 找不到 %s 的 status 行，不收尾" % (path, name))
+                    return False
+                lines[i] = re.sub(r"status:.*$", "status: " + value, lines[i])
+            safefile.write_atomic(path, "\n".join(lines))
         self.plans.pop(top, None)
         if archived:
             self.log("ok   workplan 的 change %s 已歸檔、沒更新，跟著標 done" % "、".join(archived))
@@ -454,6 +482,30 @@ class Round:
         只送到桌面的鍵值帶 DESKTOP_ONLY 前綴：協調者之後在、沒卡住的那輪補送，收下（送出或排進佇列）才換成時間；桌面通知一個鍵只發一次。
         herdr 的通知沒有點擊動作，內文要寫去哪裡處理。"""
         self.send_notification("%s/%s/%s" % (scope or card_key(c), kind, ident), "[%s] %s" % (card_key(c), event), body)
+
+    def remember_coordinator(self):
+        """每輪開頭查一次協調者：在就把它的 Claude session id 記進 coordinator.json（SessionStart hook 憑它把名字掛回換過的 pane），
+        同時填好這輪的 coordinator_up，之後不再多查。dry 不寫檔。"""
+        rc, out, _ = self.run(runtime.get(agent=COORDINATOR))
+        self.coordinator_up = rc == 0
+        if rc != 0 or self.dry:
+            return
+        try:
+            agent = json.loads(out)["result"]["agent"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            self.log("?? 協調者 %s 的 herdr agent get 讀不懂，這輪沒記 session id：%s" % (COORDINATOR, out.replace("\n", " ")[:200]))
+            return
+        sid = coordq.session_of(agent)
+        if not sid:
+            return
+        # 身分檔寫不進去只少了自動掛名，不能讓整輪 coordinate 停下
+        try:
+            old = coordq.remember(self.state, sid)
+        except OSError as e:
+            self.log("?? 協調者身分檔 coordinator.json 寫不進去，這輪沒記 session id：%s" % e)
+            return
+        if old is not None and old != sid:
+            self.log("?? 協調者 %s 的 session 從 %s 換成 %s（pane %s）；不是 /clear 的話，名字可能掛到了別的 session" % (COORDINATOR, old, sid, agent.get("pane_id")))
 
     def coordinator_reachable(self):
         """協調者這輪在不在。每輪只查一次、不寫 log：協調者不在時，只送到桌面的事件不必每輪各試一次 prompt。
@@ -480,6 +532,9 @@ class Round:
         if result == "unavailable":
             if sent is not None:
                 return
+            if coordq.lost(why):
+                self.log("?? 協調者 %s 對不到活著的 pane，%s 改發桌面錯誤：%s" % (COORDINATOR, key, why.replace("\n", " ")[:200]))
+                title = coordq.lost_title(title)
             rc, out, err = self.act(runtime.notify(title, body, sound="request"))
             why = "" if rc == 0 else (err or out)
             result = "sent" if rc == 0 else "error"
@@ -498,16 +553,20 @@ class Round:
             return
         result, why = coordq.flush(self.state, read=self.run, act=self.act)
         if result == "unavailable":
-            self.notify_queue()
+            self.notify_queue(why)
         elif result == "error":
             self.log("?? 協調者佇列這輪送不出去，留到下一輪：%s" % why.replace("\n", " ")[:200])
 
-    def notify_queue(self):
+    def notify_queue(self, why):
         lines, files = coordq.take(self.state)
         if not lines:
             coordq.done(files)
             return
-        rc, out, err = self.act(runtime.notify("[opsx] 協調者不在，排隊的 %d 則事件" % len(lines), coordq.merge(lines), sound="request"))
+        title = "[opsx] 協調者不在，排隊的 %d 則事件" % len(lines)
+        if coordq.lost(why):
+            self.log("?? 協調者 %s 對不到活著的 pane，排隊的 %d 則改發桌面錯誤：%s" % (COORDINATOR, len(lines), why.replace("\n", " ")[:200]))
+            title = coordq.lost_title("[opsx] 排隊的 %d 則事件" % len(lines))
+        rc, out, err = self.act(runtime.notify(title, coordq.merge(lines), sound="request"))
         if rc == 0:
             coordq.done(files)
             return
@@ -535,25 +594,57 @@ class Round:
         for key in [k for k in self.memo["_notified"] if k.startswith(prefix) and k != kept]:
             del self.memo["_notified"][key]
 
-    def notify_sub_gates(self, sessions):
-        """session 裡子 change 的 open gate。子 change 由主 change 的 session 轉給 subagent，協調者不答；
-        記 ?? 並通知，人才看得到（卡本身的 waiting 只帶主 change 的 gate）。"""
+    def notify_sub_gates(self, sessions, repo_paths):
+        """session 裡子 change 的 open gate（卡本身的 waiting 只帶主 change 的 gate）。gaterule 回 answer 的照建議答，
+        送話由主 change 的 session 轉給 subagent；其餘記 ?? 並通知，人才看得到。"""
         for s in sessions:
             for m in s.get("mains") or []:
                 for sub in m.get("subs") or []:
                     w = sub.get("waiting")
                     if not w:
                         continue
+                    verdict = gaterule.decide(w, s["repo"])
+                    if verdict[0] == "answer":
+                        main = {"repo": s["repo"], "slug": m["slug"], "dispatch": None}
+                        if self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"]):
+                            # 答案送進主 change 的 pane；主 change 沒有自己的條目時是 session 的 pane
+                            entry = self.dispatch_file.get("%s/%s" % (s["repo"], m["slug"])) or self.dispatch_file.get("%s/@%s" % (s["repo"], s["feature"]))
+                            self.woke((entry or {}).get("pane"))
+                        continue
                     c = {"repo": s["repo"], "slug": "%s/%s" % (m["slug"], sub["slug"])}
                     self.log("?? %s 子 change 的 gate %s 要人看：%s" % (card_key(c), w["gate_id"], one_line(w.get("question") or "")[:100]))
                     self.notify_gate(c, w, "要人看（子 change）")
+
+    def answer_gate(self, c, top, w, pick, sub=None):
+        """照建議答 gaterule 回 answer 的 gate（opsx-workflow 的 decision）。sub 是子 change 名，這時 c 是它的主 change。
+        送不到 agent 就重派；其他失敗記 ?? 並通知人。答成功回 True。"""
+        target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
+        text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
+        args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
+        rc, out, err = self.act(args)
+        if rc == 0:
+            self.log("ok   %s gate %s 照建議答：%s" % (card_key(target), w["gate_id"], one_line(pick)[:100]))
+            if c["dispatch"]:
+                self.args_checked.add(self.pane_chain(c)[-1])   # 答案剛送進 pane，這輪不再看它的啟動參數
+                self.woke(c["dispatch"].get("pane"))
+            return True
+        if c["dispatch"] and "agent_not_found" in out + err:
+            self.redispatch(c, top, "answer 送不到")
+            return
+        self.log("?? %s gate %s 照建議答不了：%s" % (card_key(target), w["gate_id"], one_line(err)[:200]))
+        # answer.sh 寫完 gates.md 才送話：這行代表題已關，只是 agent 要等下次讀 gates.md 才看到
+        if "gates.md 與 decisions 已寫" in err:
+            self.notify_gate(target, w, "已答、送不進 pane")
+            return
+        self.notify_gate(target, w, "照建議答不了，要你回")
 
     def notify_gate(self, c, w, why):
         self.notify(c, "gate", w["gate_id"], "gate %s %s" % (w["gate_id"], why), "看板：" + one_line(w.get("question") or ""))
 
     def usage_limit_seen(self, live):
         """派出去、沒在 working 也不是 unknown 的 agent，畫面最後 10 行有沒有用量上限訊息。
-        working 的不讀：它在跑，代表已經續上。回 (顯示訊息的 pane 清單, 最晚的重置時刻或 None)。"""
+        working 的不讀：它在跑，代表已經續上。回 (顯示訊息的 pane 清單, 最晚的重置時刻或 None)。
+        同一次讀畫面也收集停在 Automatic continue stopped 的卡到 self.auto_stopped。"""
         hits, times, panes = [], [], set()
         for c in live:
             if not c["dispatch"] or c["agent_status"] in ("working", "unknown"):
@@ -571,6 +662,8 @@ class Round:
             if rc != 0:
                 self.log("?? %s 的畫面讀不到，用量上限看不了：%s" % (card_key(c), err[:200]))
                 continue
+            if auto_continue_stopped(out):
+                self.auto_stopped.append(c)
             hit, resets_at = parse_usage_limit(out, self.now)
             if hit:
                 hits.append(pane)
@@ -609,11 +702,81 @@ class Round:
             del self.memo["_usage_limit"]
         return False
 
+    def send_continue(self, live):
+        """停在 Automatic continue stopped 的 pane 送「繼續」，暫停中也送：這行只在換帳號或按 esc 後出現，等重置時刻不會自己續跑。
+        同一個 pane 不滿 REDISPATCH_MINUTES 不再送；_continued 只留還在 dispatch.json 裡的 pane。
+        pane 上任一張卡 parked、被 opsx stop 停掉、有 open gate，就是在等人，不替它續跑。"""
+        continued = self.memo["_continued"]
+        known = {e.get("pane") for e in self.dispatch_file.values()}
+        for pane in [p for p in continued if p not in known]:
+            del continued[pane]
+        path = os.path.join(self.state, "dispatch.json")
+        for c in self.auto_stopped:
+            key, pane = card_key(c), c["dispatch"]["pane"]
+            on_pane = [x for x in live if x["dispatch"] and x["dispatch"].get("pane") == pane]
+            if any(card_key(x) in self.memo["_parked"] or x["dispatch"].get("mode") == "stopped" or x["open_gates"] for x in on_pane):
+                self.log("-- %s 的 pane %s 停在 Automatic continue stopped，卡在等人（parked、stopped 或有 open gate），不送「繼續」" % (key, pane))
+                continue
+            if not continue_due(continued.get(pane), self.now):
+                self.log("-- %s 的 pane %s 停在 Automatic continue stopped，%s 才送過「繼續」，不再送" % (key, pane, continued[pane]))
+                continue
+            rc, out, err = self.act(runtime.prompt("繼續", "nowait", card=key, dispatch=path))
+            if rc != 0:
+                self.log("?? %s 的 pane %s 停在 Automatic continue stopped，送「繼續」失敗：%s" % (key, pane, (err or out)[:200]))
+                continue
+            continued[pane] = self.now.isoformat(timespec="seconds")
+            self.woke(pane)
+            self.log("ok   %s 的 pane %s 停在 Automatic continue stopped，送了「繼續」" % (key, pane))
+            if not self.dry:
+                self.confirm_sent(key, "繼續")
+
+    def confirm_sent(self, key, text):
+        """送出後的輸入框檢查（submit.check）；補了 Enter 字仍在框裡時記一行 ?? 含 pane id。"""
+        result, pane = submit.check(self.state, key, text, self.run, self.act, time.sleep)
+        if result == "stuck":
+            self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是剛送的「%s」，到 pane 看一下" % (key, pane, text))
+
+    def submit_sweep(self, live):
+        """閒著的 pane 輸入框裡還是 opsx 送的那句（dispatch 條目的 last_prompt）就補按 Enter，再看一次：框不再是那句才清 last_prompt，
+        還是那句記一行 ??。超過 REDISPATCH_MINUTES 的 last_prompt 不補、直接清，免得之後人打出同一句被送出。
+        一個 pane 一輪比對讀一次，跟同 pane 每個條目（session 與成員）的 last_prompt 比。
+        session 條目（<repo>/@<feature>）不是卡，pane 的狀態取自派在同一個 pane 的卡；其中一張不是 idle 或 done 就不補。"""
+        status = {}
+        for c in live:
+            if c["dispatch"] and c["dispatch"].get("pane"):
+                status.setdefault(c["dispatch"]["pane"], set()).add(c["agent_status"])
+        path = os.path.join(self.state, "dispatch.json")
+        prompts, expired = {}, {}
+        for key, entry in self.dispatch_file.items():
+            if not entry.get("pane") or not entry.get("last_prompt"):
+                continue
+            if prompt_fresh(entry.get("last_prompt_at"), self.now):
+                prompts.setdefault(entry["pane"], {})[key] = entry["last_prompt"]
+            else:
+                expired[key] = entry["last_prompt"]
+        if expired and not self.dry:
+            jsonfile.update(path, functools.partial(submit.forget, sent=expired))
+        for pane, texts in prompts.items():
+            if not status.get(pane) or not status[pane] <= {"idle", "done"}:
+                continue
+            result, matched = submit.nudge(pane, texts, self.run, self.act, time.sleep)
+            if self.dry:
+                continue
+            if result == "entered":
+                self.woke(pane)
+                jsonfile.update(path, functools.partial(submit.forget, sent=matched))
+            elif result == "stuck":
+                self.log("?? %s 的 pane %s 補按了 Enter，輸入框仍是 opsx 送的那句，到 pane 看一下" % ("、".join(matched), pane))
+
     def handle_gate(self, c, top):
-        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置停 pane 或通知人。gate 一律由人答，這裡不答。"""
+        """派出去的卡的第一個 open gate：照 gaterule.decide 的處置照建議答、停 pane、通知人，或通知協調者 session 代跑。
+        代跑由協調者 session 做，這裡不跑建議裡的指令。"""
         w, key = c["waiting"], card_key(c)
-        verdict = gaterule.decide(w)
+        verdict = gaterule.decide(w, c["repo"])
         q = w.get("question") or ""
+        if verdict[0] == "answer":
+            self.answer_gate(c, top, w, verdict[1])
+            return
         if verdict[0] == "park" and chain.merged_into_main(top, self.workplan(top), verdict[1]):
             self.log("?? %s gate %s 等的 %s 已合進 main，不停 pane，要你回 gate：%s" % (key, w["gate_id"], verdict[1], q[:100]))
             self.notify_gate(c, w, "等的 %s 已合進 main，要你回" % verdict[1])
@@ -632,7 +795,7 @@ class Round:
                         scope=session_scope(c))
             return
         pick = w.get("recommended") or (w.get("options") or [None])[0] or ""
-        line, why = GATE_HUMAN[verdict[1]]
+        line, why = GATE_HUMAN["coordinator-run" if verdict[0] == "coordinator" else verdict[1]]
         self.log(line % {"key": key, "gate": w["gate_id"], "q100": q[:100], "q120": q[:120], "pick60": pick[:60],
                          "rec100": (w.get("recommended") or "")[:100]})
         self.notify_gate(c, w, why)
@@ -775,8 +938,9 @@ class Round:
         self.count_reopened(c)
 
     def count_reopened(self, c):
-        """重派成功開了新 pane。舊 pane 還活著（drive 死了）時它已在 busy_panes 裡，stop 關掉它再開一個，不多佔名額。"""
-        if c["agent_status"] not in LIVE_AGENT:
+        """重派成功開了新 pane。舊 pane 在 busy_panes 裡（drive 死了、agent 還在工作）時 stop 關掉它再開一個，不多佔名額；
+        不在 busy_panes 裡的（agent 閒著或死了、舊條目沒記 worktree、pane id 被重用）新 pane 多佔一個名額。"""
+        if c["dispatch"].get("pane") not in self.busy_panes:
             self.opened += 1
 
     def check_args(self, c, top):
@@ -828,7 +992,9 @@ class Round:
         rc, out, err = self.act(["opsx", "relaunch", c["slug"], "--repo", top])
         at = self.now.isoformat(timespec="seconds")
         self.memo["_relaunched"][key] = {"at": at, "ok": rc == 0}
-        if rc != 0:
+        if rc == 0:
+            self.woke(pane)
+        else:
             self.log("?? %s opsx relaunch 失敗，%d 分鐘內不再試：%s" % (key, RELAUNCH_MINUTES, (err or out).replace("\n", " ")[:200]))
             self.notify(c, "relaunch", at, "relaunch 失敗", "pane %s 留著沒關，到 pane 看；%d 分鐘後 coordinator 再試" % (pane, RELAUNCH_MINUTES),
                         scope=key)
@@ -853,8 +1019,13 @@ class Round:
                 self.log("-- %s 等的 gate %s 被人答掉，記成已答，照派卡規則重派" % (key, parked["gate"]))
                 parked["answered"] = True
 
+    def woke(self, pane):
+        """這輪叫醒了一個 pane（答 gate、送繼續、補按 Enter、relaunch）：它接著會工作，照佔名額，同一個 pane 只算一次。"""
+        if pane:
+            self.busy_panes.add(pane)
+
     def slots_used(self):
-        """佔掉的派工名額：這輪開始時活著的 pane，加上這輪新開的。"""
+        """佔掉的派工名額：這輪開始時工作中的 pane，加上這輪新開的。"""
         return len(self.busy_panes) + self.opened
 
     def woken_by(self, key, parked, top):
@@ -880,10 +1051,12 @@ class Round:
             key, top = card_key(c), repo_paths[c["repo"]]
             entry = self.dispatch_file.get(key)
             parked = self.memo["_parked"].get(key)
+            # 收件匣的討論卡派去跑 explore 到 propose：還沒有 tasks.md，P2 也派
+            discuss = c["section"] == "收件匣" and stops_at_propose(c)
             if parked:
                 # gate 由人答。還沒答：等的 PR 合了（不管是卡自己 /archive 標的，還是這裡收尾時標的）就通知人，不派。
                 # 人答了（settle_parked 記成已答，或上一輪派失敗）就往下照派卡規則重派
-                if c["section"] not in ("待指派", "待處理"):
+                if c["section"] not in ("待指派", "待處理", "進行中", "等待中"):
                     continue
                 if not parked.get("answered"):
                     newly = self.woken_by(key, parked, top)
@@ -892,16 +1065,16 @@ class Round:
                         self.notify(c, "gate", parked["gate"], "gate %s 等的 PR 合了，要你回" % parked["gate"],
                                     "看板：停下之後合進 main 的 PR：%s；回了這個 gate 才重派" % "、".join(newly))
                     continue
-            elif c["section"] != "待指派":
+            elif c["section"] != "待指派" and not discuss:
                 continue
             elif key in self.woken_cards:
                 continue   # 這輪收尾時已交給 session；collect 是收尾前讀的，還當它待指派
             elif entry and entry.get("mode") == "stopped":
                 continue   # 人在板上停掉的
-            if not os.path.isfile(os.path.join(c["path"], "tasks.md")) or c["mr"]:
+            if not (discuss or os.path.isfile(os.path.join(c["path"], "tasks.md"))) or c["mr"]:
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本那個 pane 的工作；交給 session 的話，它的 worktree 會擋住 session
-            owner = None if parked else self.session_feature_of(top, c["slug"])
+            owner = None if parked else self.session_feature_of(top, c["repo"], c["slug"])
             if owner:
                 self.log("-- %s 屬於 feature %s，由那個 session 做，不單獨派" % (key, owner))
                 continue
@@ -927,7 +1100,7 @@ class Round:
                 self.log("?? %s 等級算不出來：%s" % (key, got["error"]))
                 continue
             # parked 的卡是這裡自己停下的，重派是接回原本的工作，不算自動派新卡
-            if got["level"] == "P2" and not parked:
+            if got["level"] == "P2" and not parked and not discuss:
                 self.log("-- %s 是 P2（%s），不自動派" % (key, got["reason"]))
                 continue
             # P0（自己判出或繼承來的）排最前、一起派，不佔每輪上限；在跑的卡一律不停
@@ -975,9 +1148,9 @@ class Round:
                 return k, v
         return None
 
-    def session_feature_of(self, top, slug):
+    def session_feature_of(self, top, repo, slug):
         pr = pr_of(self.workplan(top), slug)
-        for f in session_features(read_features(os.path.join(top, "openspec", "workplan.yaml"))):
+        for f in session_features(top, repo, read_features(os.path.join(top, "openspec", "workplan.yaml")), self.repo_levels(top), self.dispatch_file):
             if pr is not None and any(p.get("name") == pr.get("name") for p in f.get("prs") or []):
                 return f.get("name")
         return None
@@ -990,10 +1163,11 @@ class Round:
             prs = self.workplan(top)
             status = {p.get("name"): p.get("status") for p in prs}
             features = read_features(os.path.join(top, "openspec", "workplan.yaml"))
+            levels = self.repo_levels(top)
             for f in features:
-                if not chain.session_managed(f) and (len(f.get("prs") or []) >= 2 or f.get("depends-on")):
+                if not AGENT_NAME.match(f.get("name") or "") and (chain.counted_prs(top, f, levels) >= 2 or f.get("depends-on")):
                     self.log("?? %s 的 feature %s 不是合法的 agent 名，開不了 session，它的卡照單卡派" % (repo, f.get("name")))
-            for f in session_features(features):
+            for f in session_features(top, repo, features, levels, self.dispatch_file):
                 name = f.get("name")
                 if all(p.get("status") == "merged" for p in f.get("prs") or []):
                     continue
@@ -1066,13 +1240,90 @@ class Round:
         return entry.get("mode") != "stopped" or ("worktree" in entry and os.path.isdir(entry["worktree"]))
 
 
-def live_panes(pairs):
-    """(pane, agent_status) 裡佔派工名額的 pane 集合：agent 還在的才算，同一個 pane 代管幾張卡都只算一次。"""
-    return {pane for pane, status in pairs if pane and status in LIVE_AGENT}
+def parse_agents(out):
+    """herdr agent list 輸出裡的 result.agents。讀不懂（不是 JSON、沒有 result.agents、不是物件的 list）丟 CoordinateError。"""
+    try:
+        agents = json.loads(out)["result"]["agents"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：%s" % e) from e
+    if not isinstance(agents, list):
+        raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 要是 list，拿到 %r" % (agents,))
+    for a in agents:
+        if not isinstance(a, dict):
+            raise CoordinateError("herdr agent list 讀不懂，數不出名額：result.agents 的元素要是物件，拿到 %r" % (a,))
+    return agents
+
+
+def read_stopped(path):
+    """<state>/stop-said/<repo>-<slug> 的兩行（Stop hook 最後一次放行的原因與時間）：{reason, at}。
+    跟 collect 的 stopped_of 同一個讀法：沒有檔、不到兩行、時間讀不懂都當沒停住。時間沒有時區也當沒停住，hook 寫的都帶時區，
+    沒帶的跟現在相減會 TypeError。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().split("\n")
+    except (OSError, UnicodeDecodeError):
+        return None
+    if len(lines) < 2 or not lines[0] or not lines[1]:
+        return None
+    try:
+        at = datetime.datetime.fromisoformat(lines[1])
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    return {"reason": lines[0], "at": at}
+
+
+def own_work_keys(entries, state, repo_paths, now):
+    """dispatch.json 條目裡 agent 在跑自己背景工作的 key：herdr 回 idle 或 done，但 Stop hook 最後記的停住原因是等背景工作或
+    等背景 subagent、在 STALE_WAIT_SECONDS 內，或停在等背景 subagent 而子 change 的 subagent 還在跑。這些 pane 在吃記憶體，照佔名額。
+    repo_paths 找不到的 repo 不看子 change。
+    幾筆條目共用一個 pane（feature session、fan-out 父卡）時只看停住時間最新的那筆：hook 只改 pane 現在那張卡的紀錄，
+    其他成員留著的是舊的。"""
+    newest = {}
+    for key, e in entries.items():
+        repo, slug = key.split("/", 1)
+        s = read_stopped(os.path.join(state, "stop-said", "%s-%s" % (repo, slug)))
+        pane = e.get("pane")
+        if s and pane and (pane not in newest or s["at"] > newest[pane][1]["at"]):
+            newest[pane] = (key, s)
+    keys = set()
+    for key, s in newest.values():
+        repo, slug = key.split("/", 1)
+        if not s["reason"].startswith(STALE_WAIT_REASONS):
+            continue
+        if 0 <= (now - s["at"]).total_seconds() <= STALE_WAIT_SECONDS:
+            keys.add(key)
+        elif (s["reason"].startswith("等背景 subagent") and repo in repo_paths
+              and subagent_running(os.path.join(repo_paths[repo], "openspec", "changes", slug), now)):
+            keys.add(key)
+    return keys
+
+
+def live_panes(entries, agents, own_work):
+    """dispatch.json 的條目與 herdr agent list 裡佔派工名額的 pane 集合。協調者與 opsx dispatch 的警告共用這個數法。
+    一筆條目讓它的 pane 佔名額：條目沒停、沒被 opsx 關掉，記了 worktree，herdr 有這個 pane 的 agent 而且狀態在 LIVE_AGENT 裡（工作中），
+    或是 idle、done 而條目的 key 在 own_work 裡（own_work_keys：在跑自己的背景工作），
+    agent 的 cwd 或 foreground_cwd 是那個 worktree 或在它底下。比 cwd 是因為 herdr 會重用 pane id，只憑 id 會把別人的 pane 算進來。
+    卡有沒有歸檔、是卡還是 session 的條目、repo 有沒有被 collect 掃到都不看；同一個 pane 代管幾張卡都只算一次。"""
+    by_pane = {a.get("pane_id"): a for a in agents}
+    busy = set()
+    for key, e in entries.items():
+        a = by_pane.get(e["pane"]) if e.get("pane") else None
+        if not a or not e.get("worktree") or not chain.session_alive(e):
+            continue
+        status = a.get("agent_status")
+        if status not in LIVE_AGENT and not (status in ("idle", "done") and key in own_work):
+            continue
+        root = os.path.realpath(e["worktree"])
+        cwds = [os.path.realpath(a[k]) for k in ("cwd", "foreground_cwd") if a.get(k)]
+        if any(p == root or p.startswith(root + "/") for p in cwds):
+            busy.add(e["pane"])
+    return busy
 
 
 def read_max_working(path):
-    """同時活著的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
+    """同時工作中的 pane 數上限。launchd、--kick 與 opsx dispatch 的警告都讀這個檔；沒有檔是預設值，內容不合法就拒跑。"""
     if not os.path.exists(path):
         return DEFAULT_MAX_WORKING
     with open(path, encoding="utf-8") as f:
@@ -1084,7 +1335,11 @@ def read_max_working(path):
 
 def parse_usage_limit(text, now):
     """畫面文字裡有沒有用量上限訊息，以及它說的重置時刻：(有沒有, 時刻或 None)。
-    訊息只寫時刻（7pm），沒有日期：取 now 之後的下一個該時刻。多個時刻取最晚的。"""
+    訊息只寫時刻（7pm），沒有日期：取 now 之後的下一個該時刻。多個時刻取最晚的。
+    畫面停在 Automatic continue stopped（auto_continue_stopped）：那個 pane 已經不在等重置，不算。
+    跟送「繼續」用同一個判斷，pane 不是暫停就是收到繼續。"""
+    if auto_continue_stopped(text):
+        return False, None
     if not any(USAGE_LIMIT_LINE.match(line) and USAGE_LIMIT_WARNING not in line for line in text.splitlines()):
         return False, None
     times = []
@@ -1094,6 +1349,26 @@ def parse_usage_limit(text, now):
         at = now.replace(hour=int(hour) % 12 + (12 if ampm.lower() == "pm" else 0), minute=int(minute or 0), second=0, microsecond=0)
         times.append(at if at > now else at + datetime.timedelta(days=1))
     return True, max(times) if times else None
+
+
+def auto_continue_stopped(text):
+    """畫面停在 Automatic continue stopped：那行是輸入框上面最後一行內容，之後只有空行、輸入框和狀態列。
+    之後還有內容（已送過繼續、agent 回了話）就是續上了。看不到輸入框時取整段畫面的最後一行內容。"""
+    lines = text.splitlines()
+    rules = [i for i, line in enumerate(lines) if coordq.RULE.match(line)]
+    above = lines[:rules[-2]] if len(rules) >= 2 else lines
+    content = [line for line in above if line.strip()]
+    return bool(content) and AUTO_CONTINUE_LINE.match(content[-1]) is not None
+
+
+def prompt_fresh(at, now):
+    """last_prompt 的送出時刻（ISO 字串）距 now 還不滿 REDISPATCH_MINUTES。沒記時刻的是舊版留下的，算過期。"""
+    return at is not None and now - datetime.datetime.fromisoformat(at) < datetime.timedelta(minutes=REDISPATCH_MINUTES)
+
+
+def continue_due(last, now):
+    """上次送「繼續」的時刻（memo 的 ISO 字串，沒送過是 None）距 now 滿 REDISPATCH_MINUTES 才再送。"""
+    return last is None or now - datetime.datetime.fromisoformat(last) >= datetime.timedelta(minutes=REDISPATCH_MINUTES)
 
 
 def mark_stopped(d, key, at):
@@ -1200,9 +1475,9 @@ def pr_of(prs, slug):
     return chain.find_pr(prs, slug)
 
 
-def session_features(features):
+def session_features(top, repo, features, levels, dispatch):
     """由 session 代管的 feature（chain.session_managed）：依賴合了才由 coordinate 開 session，它的卡不單獨派。"""
-    return [f for f in features if chain.session_managed(f)]
+    return [f for f in features if chain.session_managed(top, f, levels, chain.session_live(dispatch, repo, f.get("name")))]
 
 
 def deps_unmerged(slug, prs, features):
@@ -1232,7 +1507,7 @@ def status_line(lines, key, name):
         if m:
             item_indent = len(m.group(1)) + 2
             continue
-        if item_indent is None or not re.match(r"^ {%d}- name:\s*%s\s*(#.*)?$" % (item_indent, re.escape(name)), line):
+        if item_indent is None or not re.match(r"""^ {%d}- name:\s*(["']?)%s\1\s*(#.*)?$""" % (item_indent, re.escape(name)), line):
             continue
         for j in range(i + 1, len(lines)):
             if re.match(r"^ {%d}status:" % (item_indent + 2), lines[j]):
@@ -1291,6 +1566,10 @@ def drive_dead(key, disp):
 def is_merged(c):
     """forge 說合了才算；只看 workplan 的 merged 不算，那可能是卡自己 /opsx-workflow:archive 做到一半。"""
     return bool(c["mr"] and c["mr"]["merged_at"])
+
+
+def stops_at_propose(c):
+    return any(PROPOSE_STOP in n["text"] for n in c["notes"])
 
 
 def owner_gone(c):
@@ -1365,11 +1644,11 @@ def one_round(state, dry):
         r.log("!! coordinator 這輪不跑：%s" % e)
         return 1
     r.log("== coordinator 開始" + ("（dry）" if r.dry else ""))
+    r.remember_coordinator()
     r.flush_queue()
     repo_paths = data["repo_paths"]
     cards = [c for c in data["cards"] if not c["archived"]]
-    # 已合併還沒收尾的卡 pane 還開著，照佔名額
-    r.busy_panes = live_panes((c["dispatch"].get("pane"), c["agent_status"]) for c in cards if c["dispatch"])
+    r.busy_panes = live_panes(r.dispatch_file, r.agents, own_work_keys(r.dispatch_file, r.state, repo_paths, r.now))
 
     merged = [c for c in cards if is_merged(c)]
     orphans = []
@@ -1386,19 +1665,30 @@ def one_round(state, dry):
     live = [c for c in cards if c not in merged]
     r.settle_parked(live)
     paused = r.usage_limit_paused(live)
+    r.send_continue(live)
+    if not paused:
+        r.submit_sweep(live)
 
     for c in live:
         w = c["waiting"]
         if not w:
             r.forget_waiting(c, live)
-        if c["dispatch"] and w and w["type"] != "可以合併" and not paused:
+        # 可以合併、report 待你決定都不是 gate，沒有 gate 可停 pane 或回答，只通知人
+        if c["dispatch"] and w and w["type"] not in ("可以合併", "report 待你決定") and not paused:
             try:
                 r.handle_gate(c, repo_paths[c["repo"]])
             except DispatchFieldError as e:
                 r.bad_dispatch(c, e)
-        if c["mr"] and c["mr"]["state"] == "ready" and c["logic_map_at_head"]:
-            # 推了新 commit 再全綠是新的一次可以合併，所以綁 head sha
+        elif w and w["type"] not in ("可以合併", "report 待你決定") and not paused:
+            # 沒派出的卡只處理照建議答的題：留給人的看板上就看得到，也沒有 pane 可停
+            verdict = gaterule.decide(w, c["repo"])
+            if verdict[0] == "answer":
+                r.answer_gate(c, repo_paths[c["repo"]], w, verdict[1])
+        # 推了新 commit 再全綠是新的一次，所以綁 head sha
+        if w and w["type"] == "可以合併":
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
+        if w and w["type"] == "report 待你決定":
+            r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", "看 report.md 的待修與 Consider：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
         if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]
@@ -1411,7 +1701,7 @@ def one_round(state, dry):
             if reason and (c["agent_status"] != "working" or session_scope(c)):
                 r.notify(c, "mr-stuck", ident, "MR 卡在" + spaced(reason), "看板／MR：" + c["mr"]["url"])
     if not paused:
-        r.notify_sub_gates(data.get("sessions") or [])
+        r.notify_sub_gates(data.get("sessions") or [], repo_paths)
     for c in live:
         if paused or not c["dispatch"] or card_key(c) in r.memo["_parked"]:
             continue

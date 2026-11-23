@@ -110,7 +110,7 @@ out="$(cd "$R" && opsx dispatch space-card --agent claude --mode interactive --k
 assert_eq "$rc" 0 "dispatch rc: $out"
 G="$R/openspec/changes/space-card/gates.md"; assert_file "$G"
 q="$(printf '%q' "$R/.claude/worktrees/space-card")"
-grep -qF "建議: cd $q && pnpm install --frozen-lockfile" "$G" || fail "建議指令的路徑要加引號（$q）：$(cat "$G")"
+grep -qF "建議: cd $q && pnpm install --frozen-lockfile" "$G" || fail "建議指令的路徑要加引號（${q}）：$(cat "$G")"
 
 # install 失敗而且開 pane 也失敗：卡沒派出去，不留 gate，錯誤訊息說依賴沒裝好
 : > "$OPSX_FAKE_LOG"

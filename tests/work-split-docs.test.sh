@@ -22,6 +22,13 @@ for k in '2 個以上 PR' '拆成不同 feature'; do
 done
 ! grep -rqF -- '根 feature SHALL 不自動開 session' "$OPSX_ROOT/references" || fail "references/ 還有根 feature 不自動開 session 的句子"
 
+# --- Scenario（me-20261122-1148 specs/work-split）：什麼時候拆 段寫明 D5 只決定要不要拆，預設一張主 change 加子 change ---
+WHEN="$FX/when"; awk '/^## 什麼時候拆/{f=1;next} /^## /{f=0} f' "$DOC" > "$WHEN"
+for k in '只決定要不要拆' '一張主 change 加子 change' '同時能獨立上線、又必須分開審' '不當子 change' '已經有 subs/ 或列在母卡 split_into 的主 change 不再拆' '建議 行也不寫'; do
+  grep -qF -- "$k" "$WHEN" || fail "什麼時候拆 段沒有 $k"
+done
+! grep -qF 'D5 改看每個子 change' "$WHEN" || fail "沒有步驟會對子 change 跑 D5"
+
 # --- Scenario：README 與需求檔有連結 ---
 for f in README.md docs/rewrite-requirements-pstack-grill.md; do
   grep -qF 'references/work-split.md' "$OPSX_ROOT/$f" || fail "$f 沒連到 references/work-split.md"
