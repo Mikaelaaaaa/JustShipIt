@@ -74,6 +74,20 @@ reset; printf '────\n\e[38;2;138;144;149m❯ \e[0m\e[2m提示\e[22m真�
 OPSX_TEST_AGENT_READ="$FX/undim" look queued "22 關掉 dim 之後的字算有字"
 # 輸入框有好幾行：第一行是 ❯ 開頭，後面接著打的字
 reset; awk '{ print } /^❯$/ && !d { print "第二行"; d=1 }' "$SAMPLE" > "$FX/multi"; OPSX_TEST_AGENT_READ="$FX/multi" look queued "❯ 之後還有一行字"
+# 上框線帶 session 標題：實跑樣本（2026-11-23 協調者 pane w9:pM，--format ansi，輸入框裡是 dim 的提示字 /autocompact 400k）
+TITLED="$OPSX_ROOT/tests/fakes/herdr-samples/coordinator-titled.ansi"
+reset; OPSX_TEST_AGENT_READ="$TITLED" look sent "實跑樣本：上框線帶標題，輸入框只有 dim 的提示字"
+# ❯ 後面接的是 NBSP，不是一般空白
+perl -pe 's/^(❯\xc2\xa0\e\[0m)\e\[2m\/autocompact 400k/${1}幫我看一下/' "$TITLED" > "$FX/titled-typed.ansi"
+grep -q '^❯.*幫我看一下' "$FX/titled-typed.ansi" || fail "手寫的帶標題有字樣本沒換到輸入框那一行"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-typed.ansi" look queued "手寫樣本：上框線帶標題，❯ 後面有一般顏色的字"
+# 下框線之下的 agent 樹：實跑樣本沒抓到展開的樹，照 inbox 的描述手寫接在狀態列後面
+printf '\e[38;2;63;185;80m⏺\e[0m main\r\n  \e[38;2;138;144;149m◯\e[0m Verify compaction settings\r\n' > "$FX/tree"
+cat "$TITLED" "$FX/tree" > "$FX/titled-tree.ansi"; cat "$FX/titled-typed.ansi" "$FX/tree" > "$FX/titled-tree-typed.ansi"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-tree.ansi" look sent "上框線帶標題、下面有 agent 樹，輸入框只有提示字"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-tree-typed.ansi" look queued "上框線帶標題、下面有 agent 樹，輸入框有字"
+reset; printf '───── x ──\n❯\n────\n' > "$FX/onechar"; OPSX_TEST_AGENT_READ="$FX/onechar" look sent "標題只有一個字"
+reset; printf '──── 正文裡的一句\n❯\n────\n' > "$FX/notrule"; OPSX_TEST_AGENT_READ="$FX/notrule" look queued "只有開頭是橫線的一行不算框線"
 
 # --- 輸入框空了把佇列合成一則送出（正例） ---
 reset; printf '[a] 停住：等 reviewer\n[b] gate g1 要人看\n' > "$Q"
@@ -81,6 +95,25 @@ assert_eq "$(say '[c] 停住：等人答 gate')" sent
 assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator 排隊 3 則：[a] 停住：等 reviewer；[b] gate g1 要人看；[c] 停住：等人答 gate" "合成一則"
 assert_no_file "$Q"
 assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)" 0 "沒有留下補送中的批次"
+
+# --- 合成時同卡同主旨只留最新一則（Scenario Outline，正例＋反例） ---
+dedup() { # <送出> <說明>：佇列由呼叫前的 printf 寫好
+  : > "$OPSX_FAKE_LOG"; flush || fail "$2 的 flush rc：$(cat "$FX/err")"
+  assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator $1" "$2"
+  assert_no_file "$Q"
+}
+reset; printf '[r/a] MR 卡在衝突：舊\n[r/b] gate g1 要人看：x\n[r/a] MR 卡在衝突：新\n' > "$Q"
+dedup "排隊 2 則：[r/b] gate g1 要人看：x；[r/a] MR 卡在衝突：新" "同卡同主旨留最新，排在它的位置"
+reset; printf '[r/a] gate g1 要你動手：x\n[r/a] gate g2 要你動手：y\n' > "$Q"
+dedup "排隊 2 則：[r/a] gate g1 要你動手：x；[r/a] gate g2 要你動手：y" "同卡不同 gate 都留"
+reset; printf '[r/a] MR 卡在衝突：舊\n[r/a] MR 卡在衝突：新\n' > "$Q"
+dedup "[r/a] MR 卡在衝突：新" "去重後只剩一則，原樣送出不加前綴"
+reset; printf '[r/a] MR 卡在衝突：x\n[r/b] MR 卡在衝突：x\n' > "$Q"
+dedup "排隊 2 則：[r/a] MR 卡在衝突：x；[r/b] MR 卡在衝突：x" "不同卡同主旨都留"
+reset; printf '[a] 停住：等 reviewer\n[r/a] 停住：等 reviewer\n' > "$Q"
+dedup "排隊 2 則：[a] 停住：等 reviewer；[r/a] 停住：等 reviewer" "方括號裡的字不同就是不同主旨"
+reset; printf '[r/a] 沒有冒號的一行\n[r/a] 沒有冒號的一行\n' > "$Q"
+dedup "[r/a] 沒有冒號的一行" "沒有「：」時整行當主旨"
 
 # 事件裡的換行換成空白：合成的一則永遠只有一行
 reset; assert_eq "$(say "$(printf '[c] 第一行\n第二行')")" sent

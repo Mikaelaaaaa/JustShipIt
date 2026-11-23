@@ -27,7 +27,8 @@ QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 LOCK = QUEUE + ".lock"
 IDENTITY = "coordinator.json"
-RULE = re.compile(r"^\s*─{3,}\s*$")
+# 輸入框的框線：整行橫線，或橫線中間夾 session 標題、結尾仍是橫線（Claude Code 把 session 名稱畫進上框線）
+RULE = re.compile(r"^\s*─{3,}(\s+\S(.*\S)?\s+─+)?\s*$")
 PROMPT = "❯"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 
@@ -144,10 +145,18 @@ def one_line(text):
     return " ".join(text.splitlines())
 
 
+def subject(line):
+    """事件的主旨：第一個「：」之前的字，含 [卡] 前綴；沒有「：」時是整行。"""
+    return line.split("：", 1)[0]
+
+
 def merge(lines):
-    if len(lines) == 1:
-        return lines[0]
-    return "排隊 %d 則：%s" % (len(lines), "；".join(lines))
+    """同卡同主旨只留最新一則，排在它在佇列裡的位置；舊的那則內容已過時。"""
+    last = {subject(line): i for i, line in enumerate(lines)}
+    kept = [line for i, line in enumerate(lines) if last[subject(line)] == i]
+    if len(kept) == 1:
+        return kept[0]
+    return "排隊 %d 則：%s" % (len(kept), "；".join(kept))
 
 
 def queue_lock(state):

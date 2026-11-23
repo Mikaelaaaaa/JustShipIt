@@ -36,6 +36,11 @@ assert_eq "$(conts)" 1 "停住的 pane 送一次繼續：$(cat "$OPSX_FAKE_LOG")
 grep ' ok ' "$LOG" | grep -q 'w5:pAP' || fail "log 要有一行 ok 含 pane id：$(cat "$LOG")"
 assert_grep '^agent read w5:pAP --source visible --format ansi$' "$OPSX_FAKE_LOG"
 assert_eq "$(jq -r '."demo/c1".last_prompt' "$DISP")" 繼續 "繼續經過送出後的輸入框檢查"
+# 上框線帶 session 標題的 pane：停住那行之後是帶標題的上框線、輸入框、下框線、狀態列
+rm -f "$MEMO"; : > "$OPSX_FAKE_LOG"
+printf '  ⎿  Interrupted\n%s\n\n──── c1 session ─\n❯\n────\n  ⏵⏵ auto mode on\n' "$STOP" > "$AR"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(conts)" 1 "上框線帶標題的 pane 也送一次繼續：$(cat "$OPSX_FAKE_LOG")"
 
 # --- 送繼續的節流：一般場景（3 分鐘、30 分鐘）；邊界（9 分 59 秒、10 分鐘）用判斷式驗，一輪的 now 在測試算時刻之後才取 ---
 throttle() { # <幾分鐘前> <次數>
