@@ -10,7 +10,7 @@ decide(waiting, repo) 回傳四種處置之一：
 """
 import re
 
-# 建議或選項裡有這些字，代表要人動手
+# 建議裡有這些字，代表要人動手
 HUMAN_WORDS = ("你", "使用者", "沙盒外", "自己跑", "本人", "人工", "跑指令", "跑腳本", "錄", "貼路徑")
 HUMAN_QUESTION = ("只有你能做", "誰來跑")
 # 協調者會照抄建議去跑，git merge origin/main 這類指令也不能交給它，所以代跑檢查刻意用寬的字詞比對
@@ -73,8 +73,8 @@ def decide(w, repo):
         return ("human", "merge")
     if not pick:
         return ("human", "no-pick")
-    if any(k in pick for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
+    if any(k in (w.get("recommended") or "") for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
     if repo == ANSWER_REPO:
-        return ("answer", pick) if w.get("recommended") else ("human", "no-pick")
+        return ("answer", pick) if w.get("recommended") else ("human", "no-rec")
     return ("human", "decision")

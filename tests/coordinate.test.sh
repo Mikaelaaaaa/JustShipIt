@@ -175,8 +175,9 @@ assert_no_file "$MEMO"
 
 # --- 合併永遠由人按：五條件全綠的卡，coordinator 也不呼叫 opsx merge、不直接合、memo 不記核准（D3） ---
 mkcard m
-cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"'},{"slug":"x"}]'
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}},{"slug":"x"}]'
 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^notification show \[demo/m\] 可以合併')" 1 "這輪要走到可以合併：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(count '^opsx merge')" 0 "coordinator 從不呼叫 opsx merge：$(cat "$OPSX_FAKE_LOG")"
 assert_not_grep 'pr merge' "$OPSX_FAKE_LOG"; assert_not_grep 'mr merge' "$OPSX_FAKE_LOG"
 assert_not_grep '_approved' "$MEMO"
@@ -695,7 +696,49 @@ sleep 0 & dead=$!; wait "$dead"
 cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$dead"'},"agent_status":"idle"}]'
 round || fail "rc: $(cat "$FX/out")"
 assert_grep "^opsx dispatch u --agent claude" "$OPSX_FAKE_LOG"
+assert_grep "drive pid $dead 已經不在" "$LOG"
 rm -f "$MEMO" "$DISP"
+
+# --- drive pid 被別的程序用了：命令列不是這張卡的 drive 就重派 ---
+use_fakes ps
+sleep 30 & live=$!
+reused() { # <命令列> <重派：0 或 1> <原因片段，空字串是不檢查>
+  export OPSX_TEST_PS_CMD="$1"
+  cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+  round || fail "rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx dispatch u ')" "$2" "命令列 $1"
+  [ -z "$3" ] || assert_grep "$3" "$LOG"
+  rm -f "$MEMO" "$DISP"
+}
+reused "bash /x/bin/opsx drive u --repo $R" 0 ""
+reused "bash /x/bin/opsx drive u" 0 ""
+reused "/usr/bin/vim notes.md" 1 "drive pid $live 被別的程序用了（/usr/bin/vim notes.md）"
+reused "bash /x/bin/opsx drive u-2 --repo $R" 1 "被別的程序用了"
+reused "bash /x/bin/opsx drive uu --repo $R" 1 "被別的程序用了"
+# 重開機後 pid 常被 root 程序拿走：signal 0 沒有權限（pid 1），一樣讀命令列、一樣重派
+export OPSX_TEST_PS_CMD="/sbin/launchd"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 1 "pid 被 root 程序用了要重派"
+assert_grep "drive pid 1 被別的程序用了（/sbin/launchd）" "$LOG"
+rm -f "$MEMO" "$DISP"
+# 別的程序的命令列可能很長、帶換行：原因只留第一行的前 100 字，跟其他外部文字一樣
+long="/x/Helper$(printf 'a%.0s' $(seq 1 300))"
+export OPSX_TEST_PS_CMD="$long
+--second-line"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_grep "被別的程序用了（${long:0:100}）" "$LOG"
+assert_not_grep "${long:0:101}" "$LOG"
+assert_not_grep "second-line" "$LOG"
+rm -f "$MEMO" "$DISP"
+# 讀不到命令列（沙盒裡 ps 跑不起來）：分不出來，不重派
+unset OPSX_TEST_PS_CMD
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 0 "讀不到命令列不重派"
+rm -f "$MEMO" "$DISP"
+kill "$live"
 
 # --- 派工照等級（priority-dispatch）---
 # incident <slug> <impact> <evidence>：收件卡的事實；evidence 給空字串就是沒證據
@@ -2991,6 +3034,14 @@ owsweep opsx-workflow gr '"type":"等待決定","needs":"run","waits_on":null,"q
 owsweep opsx-workflow gh '"type":"等待決定","needs":null,"waits_on":null,"question":"這段怎麼驗","recommended":"你在 sandbox 外跑","options":["你在 sandbox 外跑"]'
 owsweep opsx-workflow stale-wait-20261120101500 "$OWQ"
 owsweep opsx-workflow g2 '"type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":["B","C"]'
+# 留給人的通知寫明缺的是什麼：有選項沒建議（正例）
+grep '??' "$LOG" | grep 'gate g2' | grep '有選項沒有建議，要你選' | grep -q 'B、C' || fail "有選項沒建議的 ?? 行要寫有選項並帶出選項：$(cat "$LOG")"
+assert_eq "$(count '^notification show \[opsx-workflow/oa\] gate g2 有選項沒有建議，要你選')" 1 "有選項沒建議的通知標題：$(cat "$OPSX_FAKE_LOG")"
+grep -q '沒有選項也沒有建議' "$LOG" && fail "有選項的題不能說沒有選項：$(cat "$LOG")"
+# 沒選項沒建議（反例）
+owsweep opsx-workflow g4 '"type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":[]'
+grep '??' "$LOG" | grep 'gate g4' | grep -q '沒有選項也沒有建議' || fail "沒選項沒建議的 ?? 行照舊：$(cat "$LOG")"
+grep -q '有選項沒有建議' "$LOG" && fail "沒選項的題不能說有選項：$(cat "$LOG")"
 # waits-on 的卡已歸檔：不答、不停 pane、通知一次
 mkdir -p "$OW/openspec/changes/archive/2026-11-11-wa"
 owsweep opsx-workflow gw '"type":"等待決定","needs":null,"waits_on":"wa","question":"等 wa 合進 main 之後再做","recommended":"B","options":["B"]'
