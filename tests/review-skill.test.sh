@@ -253,8 +253,14 @@ GATE0='Before reading the round: when the newest `logic-map-undecided-r*` gate i
 assert_fixed "$GATE0" "$STEP0"
 [ "$(line_of "$GATE0" "$SK")" -lt "$(line_of 'Read the round from report.md' "$SK")" ] || fail "Step 0 認 gate 的段落要在算輪數之前"
 assert_not_fixed 'and stop there' "$STEP0"
-# --- R2.2 每輪自己的 gate id，認最新一個 ---
-assert_fixed 'with id `logic-map-undecided-r<N>`, where N is this review round' "$FX/undecided"
+# --- R2.2 每輪自己的 gate id，認最新一個；logic-map-undecided-gate D2：取比現有都大的號，至少等於輪次，pr／babysit 同一條 ---
+assert_fixed 'with id `logic-map-undecided-r<N>`, where N is the largest existing `logic-map-undecided-r*` number plus 1, and at least this review round' "$FX/undecided"
+assert_fixed '`/opsx-workflow:pr` and babysit take N the same way' "$FX/undecided"
+assert_fixed 'Never reuse an id' "$FX/undecided"
+assert_not_fixed 'where N is this review round' "$FX/undecided"
+# --- logic-map-undecided-gate D3：處理過的項在 logic-map.md 行尾留標記，bug 與程式整理不加 ---
+assert_fixed 'append ` · 開卡 <slug>` (card opened) or ` · gate <gate id>` (entered the gate) at the end of that item'"'"'s line under `### ⚠ 要看的地方` in logic-map.md; nothing follows it.' "$FX/undecided"
+assert_fixed '`bug：` and `程式整理` items get no mark.' "$FX/undecided"
 # --- R2.1 改程式的答案也進待修，pr 與 Stop hook 才擋得到；R2.3 群組編號接現有最大的 R ---
 assert_fixed 'list it under `### 待修（範圍內）` in report.md with its task id' "$FX/answered"
 assert_fixed 'numbered after the largest `## R<k>.` group already in tasks.md, not after the round' "$FX/answered"

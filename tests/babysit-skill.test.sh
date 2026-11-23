@@ -65,6 +65,32 @@ for k in 'In `check` and `threads-only`' 'before step 5' '## 邏輯表' 'equal t
   grep -qF -- "$k" "$FX/entry" || fail "入口比對缺 $k"
 done
 
+# --- logic-map-undecided-gate D1：入口與步 8 重產後跑 review Step 4 的 Logic map, undecided；gate 開著不寫結論、不回 thread ---
+UND='run the **Logic map, undecided** rule of `../review/SKILL.md` Step 4 on the rebuilt map; while its gate is open, write no mergeable verdict and reply to no thread'
+grep -qF -- "$UND" "$FX/entry" || fail "入口重產後缺 Logic map, undecided"
+assert_fixed "$UND" "$STEP"
+assert_fixed 'After every regeneration in this step' "$STEP"
+
+# --- logic-map-undecided-gate D4：check／threads-only 一進來先看最新的 undecided gate，比 Logic map first 早；merge 模式不做 ---
+grep -F '**Undecided gate first.**' "$ENTRY" > "$FX/undecided"; [ -s "$FX/undecided" ] || fail "步 1 缺 Undecided gate first"
+for k in 'In `check` and `threads-only`' 'as `../pr/SKILL.md` does at its start' \
+  'look at the newest `logic-map-undecided-r*` gate in gates.md' 'If it is open, stop and repeat its question.' \
+  'If it is answered and has no `寫回:` line, run the **Logic map gate answered** step of `../review/SKILL.md` Step 4 first' \
+  'when tasks.md has an unchecked `R` task, continue to `/opsx-workflow:apply <slug>`' \
+  'otherwise continue here, not to `/opsx-workflow:pr`'; do
+  grep -qF -- "$k" "$FX/undecided" || fail "入口 undecided gate 缺 $k"
+done
+python3 -I - "$FX/undecided" <<'PY' || fail "Undecided gate first 要在 Logic map first 之前，merge 模式不做"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+und = text.index("**Undecided gate first.**")
+lm = text.index("**Logic map first.**")
+if not und < lm:
+    sys.exit("順序")
+if "The `merge <sha>` mode does none of this" not in text[und:lm]:
+    sys.exit("merge 模式")
+PY
+
 # --- D10 skip：mr: none 只在 workplan 還標 mr: none 時算已處理（入口與步 8）---
 MRNONE='`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workplan.yaml` still has `mr: none`'
 grep -qF -- "$MRNONE" "$FX/entry" || fail "入口缺 skip：mr: none 的條件"
