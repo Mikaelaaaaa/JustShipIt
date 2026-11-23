@@ -233,5 +233,36 @@ done
 for p in "$FX/wt|git \"commit\" -m x" "$N|(cd $N; git \"commit\" -m x)" "$FX/wt|git \"commit\" -m \"(cd x)\""; do
   c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" allow "不該擋：${c}｜$(reason "$out")"
 done
+# 一次性別名 commit 跟一般 commit 一樣：前面子程序裡的 cd 要擋
+# 驗收：openspec/changes/agent-20261123-0958/specs/commit-gate-detect/spec.md
+for c in 'bash -c "cd /tmp"; git -c alias.ci=commit ci -m x' "sh -c 'cd /tmp'; git -c alias.ci=commit ci -m x" '(cd /tmp); git -c alias.ci=commit ci -m x' 'eval "cd /tmp"; git -c alias.ci=commit ci -m x' 'bash -c "cd /tmp"; git -c "alias.ci=commit" ci -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別名 commit 前面子程序的 cd 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C（${c}）: $(reason "$out")"
+done
+# 一般 commit 與別名 commit 合計兩個以上要擋；同一個 git 同時比中兩種寫法只算一個
+for c in 'git -C /tmp -c alias.ci=commit ci -m a; git -c alias.ci=commit ci -m b' 'git -C /tmp -c alias.ci=commit ci -m a; git commit -m b' 'git -C /tmp commit -m a; git -c alias.ci=commit ci -m b'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫（${c}）: $(reason "$out")"
+done
+for p in "allow|$FX/wt|git -c alias.ci=commit ci -m x" "deny|$R|git -c alias.ci=commit ci -m x" "allow|$FX/wt|git add \$(git ls-files -m) && git -c alias.ci=commit ci -m x" "allow|$FX/wt|git -c alias.ci=commit commit -m x"; do
+  want="${p%%|*}"; p="${p#*|}"; c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"
+  assert_eq "$(decision "$out")" "$want" "單一別名 commit 照目錄判：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' && fail "單一 commit 不能算成兩個（${c}）: $(reason "$out")"
+done
+# command -p（可重複、合寫）、command --、command -p --、builtin -- 之後是命令位置
+for pre in 'command -p' 'command -p --' 'command --' 'builtin --' 'command -pp' 'command -p -p'; do
+  c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後的 cd 要照目錄判：${c}｜$(reason "$out")"
+done
+for pre in 'command -p' 'builtin --'; do
+  c="$pre cd $FX/wt && git commit -m x"; out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "前綴之後 cd 到卡的 worktree 放行：${c}｜$(reason "$out")"
+done
+for pre in 'command -p' 'command --' 'builtin --'; do
+  c="$pre export GIT_CONFIG_COUNT=1; git ci -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後設 GIT_CONFIG_* 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '別名' || fail "deny 要提到別名（${c}）: $(reason "$out")"
+done
+# command -v、-V 只印描述，後面的 cd 不切目錄
+for pre in 'command -v' 'command -V' 'command -pv'; do
+  c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "command -v 後面的 cd 不算：${c}｜$(reason "$out")"
+done
 git -C "$R" worktree remove --force "$FX/wt"
 echo "commit-gate-detect ok"
