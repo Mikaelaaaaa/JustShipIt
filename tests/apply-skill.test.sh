@@ -83,9 +83,14 @@ has 'When the repo has `tests/run.sh` (only the file name counts, not its conten
 ! grep -qF 'In this repo the command is `bash tests/run.sh' "$SK" || fail "apply SKILL.md 不能無條件寫 bash tests/run.sh"
 ! grep -qF '(`bash tests/run.sh <name>` filters by file name)' "$SK" || fail "apply SKILL.md 的檔名過濾說明要限於有 tests/run.sh 的 repo"
 ! grep -qF 'and read its output file: `tests/run.sh` prints' "$SK" || fail "apply SKILL.md 的 START 進度說明要限於有 tests/run.sh 的 repo"
-# 開 gate 那一步寫明 opsx-workflow 的 decision 由協調者照建議答（specs/opsx-autonomy「agent 規則寫明誰答 gate」）
-grep -E '^\| 5 \|' "$SK" | grep -qF 'opsx-workflow repo' || fail "apply 第 5 步要寫 opsx-workflow 的 decision 由協調者照建議答"
-grep -E '^\| 5 \|' "$SK" | grep -qF 'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' || fail "apply 第 5 步要寫哪些 opsx decision 仍留給人（D2）"
-grep -E '^\| 5 \|' "$SK" | grep -qF 'in other repos, a 要不要另開卡／併進這張 gate' || fail "apply 第 5 步要寫另開卡題的範圍判斷只在其他 repo（D13）"
+# 開 gate 那一步寫明每個 repo 有建議的 decision 由協調者照建議答（specs/opsx-autonomy「agent 規則寫明誰答 gate」）
+grep -E '^\| 5 \|' "$SK" > "$FX/apply5"
+grep -qF 'in every repo' "$FX/apply5" || fail "apply 第 5 步要寫 in every repo"
+grep -qF 'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' "$FX/apply5" || fail "apply 第 5 步要寫哪些 decision 仍留給人"
+grep -qF 'deploys, changes CI, touches secrets, spends money or speaks outside the team' "$FX/apply5" || fail "apply 第 5 步要寫第三級、花錢、對外的題仍留給人（D2）"
+grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註「協調者代決」（D3）"
+! grep -qF 'every gate in other repos' "$FX/apply5" || fail "apply 第 5 步不該再把其他 repo 的 gate 都交人"
+! grep -qF 'In the opsx-workflow repo the coordinator answers' "$FX/apply5" || fail "apply 第 5 步不該再把代答限定在 opsx-workflow"
+! grep -qF '協調者判定' "$FX/apply5" || fail "apply 第 5 步不該再有範圍判斷的答案文字（D5）"
 ! grep -qF 'The coordinator never answers any gate' "$SK" || fail "apply SKILL.md 不該再寫協調者不答任何 gate"
 echo ok
