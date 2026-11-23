@@ -86,6 +86,7 @@ branch_user() { # <top>
 }
 
 # 在 <top> 用 openspec 建殼，inbox.md 寫成 <內容檔>；slug 已存在就依序加 -2、-3。印實際的 slug。
+# 任何日期的 archive/<YYYY-MM-DD>-<slug> 也算已存在：openspec archive 撞到同名目錄會拒絕，舊名重用也會讓紀錄指到兩張卡。
 # 建好就掛進 workplan（workplanwrite.py attach），<父卡> 沒給時從卡的 source: agent:<卡> 取。
 # 掛不進去只警告、照樣印 slug：卡已經建好，退出非零會讓呼叫端或 agent 再建一張。
 # 總長超過 32 時截中段、保留最後一段（issue 編號）：gh-<repo>-1 撞名要變 gh-<re>-1-2，不能變成 issue #2 的 gh-<repo>-2。
@@ -97,7 +98,7 @@ new_shell() { # <top> <slug> <inbox 內容檔> [<父卡>]
   while :; do
     res="$top/openspec/.reserve-$slug"
     if err="$(mkdir "$res" 2>&1)"; then
-      [ -e "$top/openspec/changes/$slug" ] || break
+      [ -e "$top/openspec/changes/$slug" ] || compgen -G "$top/openspec/changes/archive/????-??-??-$slug" >/dev/null || break
       rmdir "$res"
     elif [ ! -w "$top/openspec" ]; then
       die "建不了保留目錄 ${res}（${top}/openspec 不可寫）"
