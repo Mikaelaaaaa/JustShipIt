@@ -74,7 +74,7 @@ reset; printf '────\n\e[38;2;138;144;149m❯ \e[0m\e[2m提示\e[22m真�
 OPSX_TEST_AGENT_READ="$FX/undim" look queued "22 關掉 dim 之後的字算有字"
 # 輸入框有好幾行：第一行是 ❯ 開頭，後面接著打的字
 reset; awk '{ print } /^❯$/ && !d { print "第二行"; d=1 }' "$SAMPLE" > "$FX/multi"; OPSX_TEST_AGENT_READ="$FX/multi" look queued "❯ 之後還有一行字"
-# 上框線帶 session 標題：實跑樣本（2026-11-23 協調者 pane w9:pM，--format ansi，輸入框裡是 dim 的提示字 /autocompact 400k）
+# 上框線帶 session 標題：實跑樣本（--format ansi，只留輸入框附近幾行，輸入框裡是 dim 的提示字 /autocompact 400k）
 TITLED="$OPSX_ROOT/tests/fakes/herdr-samples/coordinator-titled.ansi"
 reset; OPSX_TEST_AGENT_READ="$TITLED" look sent "實跑樣本：上框線帶標題，輸入框只有 dim 的提示字"
 # ❯ 後面接的是 NBSP，不是一般空白
@@ -96,6 +96,8 @@ printf '────\n❯\n────\n  ⏵⏵ auto mode on\n──── Tas
 printf '────\n❯ 打到一半\n────\n  ⏵⏵ auto mode on\n────\n  ◯ x\n' > "$FX/below-rule"; judge typed "$FX/below-rule" "輸入框下方有整行橫線，輸入框有字"
 printf '────\n❯\n────\n\n❯ 舊的一句\nDo you want to proceed?\n  1. Yes\n' > "$FX/dialog-prompt"; judge unknown "$FX/dialog-prompt" "最後一行 ❯ 的正上方不是框線"
 judge unknown "$FX/dialog" "沒有 ❯ 開頭的行"
+# 下方有框線、正上方不是框線：只有上框線檢查擋得住
+printf '────\n❯\n────\n說明\n❯ 舊的一句\n────\n' > "$FX/no-top"; judge unknown "$FX/no-top" "最後一行 ❯ 的正上方不是框線，下方有框線"
 
 # --- 輸入框空了把佇列合成一則送出（正例） ---
 reset; printf '[a] 停住：等 reviewer\n[b] gate g1 要人看\n' > "$Q"
