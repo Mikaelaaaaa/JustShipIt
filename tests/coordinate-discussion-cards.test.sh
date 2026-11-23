@@ -63,6 +63,12 @@ for st in idle done; do
   round || fail "rc: $(cat "$FX/out")"
   assert_eq "$(count '^opsx (stop|dispatch)')" 0 "${st}、0 個勾的討論卡不收也不重派：$(cat "$OPSX_FAKE_LOG")"
 done
+# 帶補卡記號、還沒 opsx release 的討論卡：照舊不收也不重派（放不放掉由 propose 自己跑 opsx release）
+rm -f "$MEMO"; printf '{"demo/s-fill":%s}' "$D" > "$DISP"
+card_dir s-fill P1 "$T3"
+cards "[$(live_card s-fill "$(notes '做到 propose 完成就停（協調者補卡）')" idle)]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx (stop|dispatch)')" 0 "補卡記號、沒放掉的討論卡不收也不重派：$(cat "$OPSX_FAKE_LOG")"
 
 # --- 人在 explore 中途停掉的收件匣討論卡不派 ---
 rm -f "$MEMO"

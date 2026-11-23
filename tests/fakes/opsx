@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 假 opsx（coordinate 測試用）：每個呼叫記成一行「opsx <參數>」到 $OPSX_FAKE_LOG。
 # collect 印 $OPSX_TEST_COLLECT_JSON 的內容；$OPSX_TEST_ON_COLLECT 有值時先用 bash 跑那支腳本（讓測試睡一下、或在一輪中途插一件事）。
-# 其他子命令在 $OPSX_TEST_FAIL_<子命令> 有值時把它印到 stderr 並退出 1。
+# 其他子命令在 $OPSX_TEST_FAIL_<子命令> 有值時把它印到 stderr 並退出 1；只對一張卡失敗用 $OPSX_TEST_FAIL_<子命令>_<第一個參數>（參數要是合法變數名字元）。
 printf 'opsx %s\n' "$*" >> "${OPSX_FAKE_LOG:?}"
 case "$1" in
   collect) [ -n "${OPSX_TEST_ON_COLLECT:-}" ] && bash "$OPSX_TEST_ON_COLLECT"
@@ -11,5 +11,7 @@ case "$1" in
         [ -z "${OPSX_TEST_LATE_ERR:-}" ] || printf '%s\n' "$OPSX_TEST_LATE_ERR" >&2
         exit "${OPSX_TEST_LATE_RC:-0}" ;;
   *) var="OPSX_TEST_FAIL_$1"
-     if [ -n "${!var:-}" ]; then printf '%s\n' "${!var}" >&2; exit 1; fi ;;
+     if [ -n "${!var:-}" ]; then printf '%s\n' "${!var}" >&2; exit 1; fi
+     one="OPSX_TEST_FAIL_${1}_${2//[^A-Za-z0-9_]/_}"
+     if [ -n "${!one:-}" ]; then printf '%s\n' "${!one}" >&2; exit 1; fi ;;
 esac

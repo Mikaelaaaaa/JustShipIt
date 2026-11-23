@@ -13,7 +13,8 @@ cards() {
 import json, sys
 top, given = sys.argv[1], json.loads(sys.argv[2])
 base = {"repo": "demo", "kind": "dev", "stage": "apply", "section": "待指派", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": []}
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": [],
+        "since": None, "dedup_checked": None}
 out = [{**base, **c, "path": "%s/openspec/changes/%s" % (top, c["slug"])} for c in given]
 print(json.dumps({"repo_paths": {"demo": top}, "cards": out, "errors": []}, ensure_ascii=False))
 PY

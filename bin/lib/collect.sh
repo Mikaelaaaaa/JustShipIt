@@ -10,6 +10,7 @@
 #         not_dispatched_planned[], at}}（每個 repo 一份；沒設 current_milestone 或 workplan 壞了時 milestone、goal 為 null，數全部活的 main change）}
 # 每張卡：{repo, slug, title, kind, stage, section, since, waiting, open_gates[{id, opened_at}], dispatch, status, agent_status, mr,
 #        source, upstream, stale, priority{level, reason, overridden}（已歸檔或算不出來時 null）,
+#        dedup_checked（inbox frontmatter 的判過重複記號，opsx dedup 寫；沒有或空值時 null）,
 #        notes[{at, text}]（inbox.md ## 派工指示，舊的在前）,
 #        merged[{id, when, source, text, kind_of_work, type 或 area, evidence?}]（inbox.md 的 ## 併入： 段，依檔案順序；已歸檔的卡是 []）,
 #        logic_map（卡目錄 logic-map.md 的全文，已歸檔的卡也讀；沒有檔時 null，讀不了時 null 並記一筆 errors）,
@@ -250,7 +251,7 @@ def one_liner(inbox):
     return m.group(1).strip() if m else None
 
 def frontmatter(inbox, key):
-    m = re.search(r"^%s:\s*(.*)$" % key, inbox, re.M)
+    m = re.search(r"^%s:[ \t]*(.*)$" % key, inbox, re.M)
     return m.group(1).strip() or None if m else None
 
 # 段落範圍跟 note.sh 的 note_append 寫入時認的一樣，兩邊認定不同就會寫得進去、看板看不到
@@ -416,7 +417,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     inbox = read(os.path.join(d, "inbox.md"))
     key = "%s/%s" % (c["repo"], c["slug"])
     disp = dispatch.get(key)
-    if disp and disp.get("mode") == "stopped": disp = None
+    if disp and (disp.get("mode") == "stopped" or disp.get("released_at")): disp = None
     agent_status = mergeready.agent_status_of(agents, disp.get("pane")) if disp else None
     if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
@@ -445,6 +446,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "grants_repo": grants.get(c["repo"]), "path": d,
         "source": frontmatter(inbox, "source"), "upstream": frontmatter(inbox, "upstream"), "stale": frontmatter(inbox, "stale") == "true",
         "priority": priority_of(c["repo"], c["slug"], c["archived"], os.path.join(d, "inbox.md")),
+        "dedup_checked": frontmatter(inbox, "dedup_checked"),
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(c["slug"], os.path.join(d, "inbox.md")),
         "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
@@ -607,7 +609,7 @@ else:
     debt = {r: [{k: h[k] for k in keep if k in h} for h in hits] for r, hits in debt_raw.items()}
 
 # 孤兒 pane：cwd（或 foreground_cwd）在 <repo>/.claude/worktrees/<slug>/ 底下（或 dispatch.json 記的 worktree），
-# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
+# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped 或 released_at（opsx release 放掉）、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
 # 三個都要：只看 cwd，人在同名 worktree 自己開的 pane 會被認領；只看 pane id，herdr 重用 id 時會指到別人的 pane。
 # 判斷只在這裡算一次，coordinate / reap / 看板都讀 orphans。
 # workplan 標 merged 的卡（stage archive）還沒歸檔，agent 可能正在跑 /archive，不算。
@@ -637,6 +639,7 @@ def orphan_reason(key, pane):
     if entry.get("pane_closed_at") or entry.get("reaped_at"): return None
     # 這次沒掃到的 repo（同名被丟掉、sources.toml 壞了）看不到它的卡，判不出 pane 還有沒有人用
     if key[0] not in repo_paths: return None
+    if entry.get("released_at"): return "released"
     # session 條目不是卡：走到這裡代表 pane 上已沒有活成員（live_panes 先擋掉了）
     if key[1].startswith("@"): return "session-done"
     c = card_by_key.get(key)
@@ -649,12 +652,12 @@ def orphan_reason(key, pane):
     if entry.get("mode") == "stopped": return "stopped"
     return None
 
-# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
+# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped 也沒有 released_at）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
 # worktree_of 又是最後一筆勝出，所以 pane 上只要還有活卡，這個 pane 就不是孤兒，不管 worktree 現在算給誰。
 live_panes = set()
 for k, e in dispatch.items():
     key = tuple(k.split("/", 1)); c = card_by_key.get(key)
-    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped": continue
+    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped" or e.get("released_at"): continue
     live_panes.add(str(e.get("pane")))
     if e.get("via"): live_panes.add(str((dispatch.get("%s/%s" % (key[0], e["via"])) or {}).get("pane")))
 
