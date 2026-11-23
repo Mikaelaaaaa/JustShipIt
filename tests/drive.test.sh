@@ -442,6 +442,15 @@ kill -0 "$other" 2>/dev/null || fail "被重用的程序不能被殺"
 assert_eq "$(jq -r '."Acmecorp-CS/retry-backoff".drive_pid' "$OPSX_STATE_DIR/dispatch.json")" null "跑完清掉的是自己的 pid，不是那個程序的"
 kill "$other"; unset OPSX_TEST_PS_CMD
 
+# --- 舊 pid 被 root 程序拿走（signal 0 沒有權限）→ 一樣讀命令列、覆寫 ---
+reset_apply
+printf '{"Acmecorp-CS/retry-backoff":{"mode":"autopilot","pane":"p42","grants":[],"drive_pid":1}}' > "$OPSX_STATE_DIR/dispatch.json"
+export OPSX_TEST_PS_CMD="/sbin/launchd"
+out="$(opsx drive retry-backoff 2>&1)"
+echo "$out" | grep -q "已經有一支 drive" && fail "pid 被 root 程序用了不該拒絕: $out"
+[ -s "$OPSX_FAKE_LOG" ] || fail "覆寫後 drive 要照常跑、碰 herdr: $out"
+unset OPSX_TEST_PS_CMD
+
 # --- 不在 dispatch.json（被 stop）→ 立刻結束，不碰 herdr ---
 : > "$OPSX_FAKE_LOG"; printf '{}' > "$OPSX_STATE_DIR/dispatch.json"
 out="$(opsx drive retry-backoff 2>&1)"; assert_eq "$?" 0; assert_eq "$(cat "$OPSX_FAKE_LOG")" "" "stopped card 不該碰 herdr"

@@ -713,6 +713,13 @@ reused "bash /x/bin/opsx drive u" 0 ""
 reused "/usr/bin/vim notes.md" 1 "drive pid $live 被別的程序用了（/usr/bin/vim notes.md）"
 reused "bash /x/bin/opsx drive u-2 --repo $R" 1 "被別的程序用了"
 reused "bash /x/bin/opsx drive uu --repo $R" 1 "被別的程序用了"
+# 重開機後 pid 常被 root 程序拿走：signal 0 沒有權限（pid 1），一樣讀命令列、一樣重派
+export OPSX_TEST_PS_CMD="/sbin/launchd"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx dispatch u ')" 1 "pid 被 root 程序用了要重派"
+assert_grep "drive pid 1 被別的程序用了（/sbin/launchd）" "$LOG"
+rm -f "$MEMO" "$DISP"
 # 讀不到命令列（沙盒裡 ps 跑不起來）：分不出來，不重派
 unset OPSX_TEST_PS_CMD
 cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
