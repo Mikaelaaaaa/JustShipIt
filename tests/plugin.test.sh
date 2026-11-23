@@ -264,6 +264,14 @@ assert_eq "$rc" 1 "舊版 opsx server 占著要回 1: $err"
 case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) fail "stderr 要說是舊版並給停掉它的指令：$err";; esac
 kill -0 "$legacy_srv" 2>/dev/null || fail "舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
 assert_eq "$(cat "$FX/open.log")" "" "舊版占著不開瀏覽器"
+# pidfile 記的就是那支舊版（升級後第一次按）：一樣不停它，pidfile 留著
+printf '%s\n' "$legacy_srv" > "$OPSX_STATE_DIR/board-$port5.pid"
+err="$(OPSX_BOARD_PORT="$port5" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "pidfile 指到舊版 opsx server 也要回 1: $err"
+case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) fail "pidfile 指到舊版時 stderr 要說是舊版並給停掉它的指令：$err";; esac
+kill -0 "$legacy_srv" 2>/dev/null || fail "pidfile 指到的舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
+assert_eq "$(cat "$OPSX_STATE_DIR/board-$port5.pid")" "$legacy_srv" "舊版占著時 pidfile 不動"
+assert_eq "$(cat "$FX/open.log")" "" "pidfile 指到舊版也不開瀏覽器"
 kill "$legacy_srv"
 # --- 停不掉、5 秒內沒停：回 1、印 board.log 尾巴、不開瀏覽器 ---
 # 假 opsx server：healthz 回 argv[2] 給的 pid（self 是自己的 pid），而且不理 SIGTERM

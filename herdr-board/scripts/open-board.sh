@@ -49,13 +49,14 @@ lock="$state/board.lock"
 for _ in $(seq 1 100); do mkdir "$lock" 2>/dev/null && break; sleep 0.1; done
 trap 'rmdir "$lock" 2>/dev/null' EXIT
 if ! alive; then
+  # 舊版 server 不論 pidfile 記的是不是它都不停：先判，再 kill pidfile 的 pid
+  if [ "$(health)" = legacy ]; then
+    echo "opsx board: port ${port} 上是不回 pid 的舊版 opsx server，先停掉它：kill \$(lsof -tiTCP:${port} -sTCP:LISTEN)，再開一次" >&2; exit 1
+  fi
   pid="$(cat "$pidfile" 2>/dev/null || true)"; [ -n "$pid" ] && kill "$pid" 2>/dev/null || true   # token 不見或 healthz 不對：重起
   rm -f "$pidfile"
   # port 上還有別支 opsx server（pidfile 沒記到，或剛 kill 還沒退）：停掉它，新 server 才綁得到 port、token 也跟檔案一致
   other="$(health)"
-  if [ "$other" = legacy ]; then
-    echo "opsx board: port ${port} 上是不回 pid 的舊版 opsx server，先停掉它：kill \$(lsof -tiTCP:${port} -sTCP:LISTEN)，再開一次" >&2; exit 1
-  fi
   [ -z "$other" ] || kill "$other" || fail_log "停不掉 port ${port} 上的 opsx server（pid ${other}）"
   for _ in $(seq 1 50); do [ -z "$(health)" ] && break; sleep 0.1; done
   [ -z "$(health)" ] || fail_log "port ${port} 上的 opsx server 5 秒內沒停"
