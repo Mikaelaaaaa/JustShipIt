@@ -57,6 +57,20 @@ fi
 # commit 實際作用的目錄決定對卡，不是 session cwd；hook_cwd 認 OPSX_CWD
 join_dir() { case "$2" in /*) printf '%s' "$2" ;; *) printf '%s/%s' "$1" "$2" ;; esac; }
 unreadable_dir() { case "$1" in *[\"\'\$\`~\\]*|*[*?\[\{]*) return 0 ;; esac; return 1; }
+in_quotes() { # <文字>：讀到結尾時還在引號裡就成立。單引號裡不認跳脫，雙引號裡與引號外認 \ 跳脫
+  local s="$1" q='' i c
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    if [ -z "$q" ]; then
+      case "$c" in \\) i=$((i + 1)) ;; \"|\') q="$c" ;; esac
+    elif [ "$q" = '"' ]; then
+      case "$c" in \\) i=$((i + 1)) ;; \") q='' ;; esac
+    elif [ "$c" = "'" ]; then
+      q=''
+    fi
+  done
+  [ -n "$q" ]
+}
 check_dir() { # <路徑>：讀不出來就記進 bad_dirs
   case "$1" in
     '""'|"''") bad_dirs="$bad_dirs 引號包住的路徑" ;;
@@ -94,8 +108,8 @@ env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
 bad_env=''
 [[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
 # 子程序（( )、$( )、反引號、sh -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來（雙引號裡的 $( ) 沒有括號，sh -c 的內容被攤平成外層的 cd），
-# 所以看原文最後一個 commit 之前那段：引號裡提到的 commit 字樣排在前面時，不能把要看的範圍截短。
-# 只有一個 commit 時，commit 訊息在它之後，不受影響
+# 所以看原文第一個不在引號裡的 commit 之前那段：echo "git -c alias.x" 這類引號裡的字樣不是指令，不能把範圍截短；
+# commit 訊息與 heredoc 本文在 commit 之後，不受影響。全部比中都在引號裡（bash -c "… git commit"）就看第一個
 sub_re='(\(|`|(^|[^[:alnum:]_])(ba|z|k|da)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]+-[[:alnum:]]*c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
 # 原文寫 git "commit" 或 -c "alias.ci=commit" 時對不上，改在去掉引號字元的原文上找
@@ -103,12 +117,14 @@ raw="$cmd"
 [[ "$raw" =~ $find_re ]] || raw="${cmd//[\"\']/}"
 raw_m=''; raw_before=''
 if [[ "$raw" =~ $find_re ]]; then
-  raw_m="${BASH_REMATCH[0]}"
-  rest_raw="$raw"
+  raw_m="${BASH_REMATCH[0]}"; raw_before="${raw%%"$raw_m"*}"
+  rest_raw="$raw"; seen=''
   while [[ "$rest_raw" =~ $find_re ]]; do
-    last_m="${BASH_REMATCH[0]}"; rest_raw="${rest_raw#*"$last_m"}"
+    m="${BASH_REMATCH[0]}"; pre="${rest_raw%%"$m"*}"
+    # 比中的第一個字可能是 git 前面那個引號（git_word 會吃掉前一個字），所以一起算
+    if ! in_quotes "$seen$pre${m:0:1}"; then raw_m="$m"; raw_before="$seen$pre"; break; fi
+    seen="$seen$pre$m"; rest_raw="${rest_raw#*"$m"}"
   done
-  raw_before="${raw%"$last_m$rest_raw"}"
 fi
 sub_cd=0
 [[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1

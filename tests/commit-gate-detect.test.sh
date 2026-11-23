@@ -257,6 +257,13 @@ for p in "$R|git -C /tmp -c alias.ci=commit ci -m a"$'\n'"git -c alias.ci=commit
   c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
   reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫（${c}）: $(reason "$out")"
 done
+# commit 自己的訊息裡提到 git commit、(、cd 不算子程序 cd
+for c in 'git commit -m "fix(scope): cd and git commit flow"' $'git commit -m "$(cat <<\'EOF\'\nfix(gate): cd before git commit runs\nEOF\n)"' $'git commit -F - <<\'EOF\'\nfix(gate): cd before git commit\nEOF' 'git commit -m "fix(x): cd then git -c alias.ci=commit ci"'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "訊息裡的字樣不算子程序 cd：${c}｜$(reason "$out")"
+done
+# 一次性 include.path 加一個 commit 照兩個 commit 擋（D7）
+out="$(cgin "$FX/wt" 'git -c include.path=/x status && git commit -m y')"; assert_eq "$(decision "$out")" deny "include.path 加一個 commit 要擋: $(reason "$out")"
+reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫: $(reason "$out")"
 # command -p（可重複、合寫）、command --、command -p --、builtin -- 之後是命令位置
 for pre in 'command -p' 'command -p --' 'command --' 'builtin --' 'command -pp' 'command -p -p'; do
   c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後的 cd 要照目錄判：${c}｜$(reason "$out")"
