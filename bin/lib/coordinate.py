@@ -1560,7 +1560,7 @@ def drive_dead(key, slug, disp):
     if st == drivepid.GONE:
         return "drive pid %d 已經不在" % pid
     if st == drivepid.OTHER:
-        return "drive pid %d 被別的程序用了（%s）" % (pid, cmd)
+        return "drive pid %d 被別的程序用了（%s）" % (pid, one_line(cmd))
     return None
 
 

@@ -720,6 +720,16 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx dispatch u ')" 1 "pid 被 root 程序用了要重派"
 assert_grep "drive pid 1 被別的程序用了（/sbin/launchd）" "$LOG"
 rm -f "$MEMO" "$DISP"
+# 別的程序的命令列可能很長、帶換行：原因只留第一行的前 100 字，跟其他外部文字一樣
+long="/x/Helper$(printf 'a%.0s' $(seq 1 300))"
+export OPSX_TEST_PS_CMD="$long
+--second-line"
+cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":1},"agent_status":"idle"}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_grep "被別的程序用了（${long:0:100}）" "$LOG"
+assert_not_grep "${long:0:101}" "$LOG"
+assert_not_grep "second-line" "$LOG"
+rm -f "$MEMO" "$DISP"
 # 讀不到命令列（沙盒裡 ps 跑不起來）：分不出來，不重派
 unset OPSX_TEST_PS_CMD
 cards '[{"slug":"u","section":"進行中","dispatch":{"mode":"autopilot","agent":"claude","pane":"w1:p1","drive_pid":'"$live"'},"agent_status":"idle"}]'
