@@ -100,6 +100,15 @@ assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這�
 assert_eq "$(decide_in opsx-workflow '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "opsx 沒建議、第一個選項含你，不算要你動手"
 assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'decision')" "其他 repo 沒建議、第一個選項含你，留在 decision"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
+# 要人動手只看建議與題目，沒建議時選項裡的字不算（Scenario Outline，正例＋反例）
+assert_eq "$(decide_in opsx-workflow '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-rec')" "選項含「錄」不算要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-rec')" "選項含「你」不算要人動手"
+assert_eq "$(decide_in other-repo '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'decision')" "其他 repo 選項含「錄」是要你決定"
+assert_eq "$(decide_in opsx-workflow '{"question": "這段怎麼驗", "recommended": "你在 sandbox 外跑", "options": ["你在 sandbox 外跑", "略過"]}')" "('human', 'hands')" "建議含「你」要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "先錄一段畫面", "options": ["先錄一段畫面", "略過"]}')" "('human', 'hands')" "建議含「錄」要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "這只有你能做", "options": ["A", "B"]}')" "('human', 'hands')" "邊界：題目端命中，沒建議也算"
+assert_eq "$(decide_in other-repo '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "用 A", "options": ["照你說的", "用 A"]}')" "('answer', '用 A')" "邊界：有建議時不看選項"
 # decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
 # terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
 missing_human_text() { # <gaterule.py> <coordinate.py> → 沒有文字的理由代碼，空白分隔；全有時印空行

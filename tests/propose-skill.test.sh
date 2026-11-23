@@ -87,4 +87,15 @@ has 'covers every row' "$TASKS"
 # --- Scenario：不重抄 instruction 的關鍵字表（反例）---
 hasnt '\| Scenario Outline \| 參數化場景' "$P"
 hasnt '正確的、適當的、合理的' "$P"
+
+# --- inbox-autofill specs/dispatch-release：協調者補的卡 propose 完跑 opsx release 就停 ---
+C6="$FX/6c"; sec "$P" "### 6c." > "$C6"; [ -s "$C6" ] || fail "propose 少 6b 之後的 6c 段"
+for k in '協調者補卡' 'opsx release <name>' '不接 apply' 'opsx check <name>' 'Only a card whose `## 派工指示` contains 「協調者補卡」'; do has "$k" "$C6"; done
+# 6c 排在 6b 之後；6b 原句不動
+[ "$(grep -n '^### 6b\.' "$P" | cut -d: -f1)" -lt "$(grep -n '^### 6c\.' "$P" | cut -d: -f1)" ] || fail "6c 要在 6b 之後"
+has 'A P0 or P1 card with that note continues to apply as usual and opens no gate. A card without that note gets no such gate.' "$P"
+has 'use exactly this line as its 問題 line: 問題: <name> 已 propose 完，要派 apply 嗎？' "$P"
+CONT="$OPSX_ROOT/references/continue.md"
+has 'except that propose step 6b still opens its gate for a P2 card and stops.' "$CONT"
+grep -F '協調者補卡' "$CONT" | grep -qF 'opsx release' || fail "continue.md 要有一句說補卡記號的卡 propose 完跑 opsx release 就停"
 echo ok
