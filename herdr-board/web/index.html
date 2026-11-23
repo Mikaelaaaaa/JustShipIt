@@ -436,8 +436,17 @@ function applyDeepLink(env,cards,generatedAt){
 /* card deep link end */
 const deepLinkAtLoad=readLoadHash(window);const pageLoadedAt=Date.now();
 function token(){try{return sessionStorage.getItem('opsx-token')||'';}catch(e){return '';}}
+/* collect 錯誤訊息 start */
+/* 401 分兩句：沒拿到 token 是網址的問題，拿到了還被拒是 server 那邊的 token 不同 */
+async function fetchCollect(fetchFn,tok){
+  const r=await fetchFn('/api/collect',{headers:{'X-Opsx-Token':tok}});
+  if(r.status===401)throw new Error((tok?'token 被 server 拒絕':'網址沒帶 token，或瀏覽器擋了 sessionStorage')+'：從 herdr 的 open-board 重開一次');
+  if(!r.ok)throw new Error('collect '+r.status+'：'+(await r.text()).slice(0,200));
+  return r.json();
+}
+/* collect 錯誤訊息 end */
 const api={
-  async collect(){const r=await fetch('/api/collect',{headers:{'X-Opsx-Token':token()}});if(r.status===401)throw new Error('token 不對：從 herdr 的 open-board 重開一次');if(!r.ok)throw new Error('collect '+r.status+'：'+(await r.text()).slice(0,200));return r.json();},
+  async collect(){return fetchCollect(fetch,token());},
   async log(since){const r=await fetch('/api/log'+(since?'?since='+encodeURIComponent(since):''),{headers:{'X-Opsx-Token':token()}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error('log '+r.status+'：'+(j.error||j.stderr||''));return j;},
   async output(card){const r=await fetch('/api/output?card='+encodeURIComponent(card),{headers:{'X-Opsx-Token':token()}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error('output '+r.status+'：'+(j.error||''));return j;},
   /* 400、404 也帶 {ok:false,error}，照樣交給檔案區顯示 */

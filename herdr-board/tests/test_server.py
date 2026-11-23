@@ -749,6 +749,68 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["ok"], True)
 
+    def test_healthz_reports_pid(self):
+        status, _, body = self.req("/healthz")
+        self.assertEqual(status, 200)
+        out = json.loads(body)
+        self.assertEqual(out["app"], "opsx-board")
+        self.assertEqual(out["pid"], self.proc.pid)
+
+    def test_healthz_ignores_wrong_token(self):
+        status, _, _ = self.req("/healthz", token="x" * 40)
+        self.assertEqual(status, 200)
+
+
+class LogLineTest(unittest.TestCase):
+    """server log 每行是 <方法> <路徑> <狀態碼>，路徑不含 query（specs/board-web「log 帶狀態碼」）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = pathlib.Path(tempfile.mkdtemp(prefix="opsx-server-log."))
+        state = cls.tmp / "state"
+        state.mkdir()
+        fixture = cls.tmp / "collect.json"
+        fixture.write_text(json.dumps({"generated_at": "t", "scopes": [], "cards": [], "unmatched_agents": [], "errors": []}))
+        cls.logfile = cls.tmp / "board.log"
+        cls.err = cls.logfile.open("w")
+        cls.proc = subprocess.Popen(
+            [sys.executable, "-I", str(SERVER), "--port", "0", "--collect", str(fixture), "--state", str(state)],
+            stdout=subprocess.PIPE, stderr=cls.err, text=True,
+        )
+        m = re.search(r"http://127\.0\.0\.1:(\d+)/", cls.proc.stdout.readline())
+        if not m:
+            cls.proc.kill()
+            raise AssertionError("server 沒印出監聽位址：%s" % cls.logfile.read_text())
+        cls.base = "http://127.0.0.1:%s" % m.group(1)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.proc.kill()
+        cls.proc.wait()
+        cls.err.close()
+        shutil.rmtree(cls.tmp)
+
+    def last_line(self, path: str) -> str:
+        try:
+            urllib.request.urlopen(self.base + path, timeout=5)
+        except urllib.error.HTTPError:
+            pass
+        for _ in range(50):
+            lines = self.logfile.read_text().splitlines()
+            if lines and lines[-1].startswith("GET %s " % path.split("?")[0]):
+                return lines[-1]
+            time.sleep(0.05)
+        self.fail("log 沒有 %s 的行：%r" % (path, self.logfile.read_text()))
+
+    def test_line_carries_status(self):
+        self.assertEqual(self.last_line("/api/collect"), "GET /api/collect 401")
+        self.assertEqual(self.last_line("/healthz"), "GET /healthz 200")
+
+    def test_line_drops_query(self):
+        line = self.last_line("/api/collect?token=secret")
+        self.assertEqual(line, "GET /api/collect 401")
+        self.assertNotIn("secret", self.logfile.read_text())
+
 
 class NoHerdrTest(unittest.TestCase):
     """server 不在 herdr pane 裡（HERDR_ENV 沒設）：最後輸出照樣叫 herdr（specs/board-log「server 不在 herdr pane 裡」）。"""
