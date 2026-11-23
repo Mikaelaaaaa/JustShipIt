@@ -174,8 +174,9 @@ assert_no_file "$MEMO"
 
 # --- 合併永遠由人按：五條件全綠的卡，coordinator 也不呼叫 opsx merge、不直接合、memo 不記核准（D3） ---
 mkcard m
-cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"'},{"slug":"x"}]'
+cards '[{"slug":"m","section":"待處理","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$READY"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}},{"slug":"x"}]'
 round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^notification show \[demo/m\] 可以合併')" 1 "這輪要走到可以合併：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(count '^opsx merge')" 0 "coordinator 從不呼叫 opsx merge：$(cat "$OPSX_FAKE_LOG")"
 assert_not_grep 'pr merge' "$OPSX_FAKE_LOG"; assert_not_grep 'mr merge' "$OPSX_FAKE_LOG"
 assert_not_grep '_approved' "$MEMO"
