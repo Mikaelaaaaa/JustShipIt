@@ -183,7 +183,8 @@ for k in '`type: decision`' '`needs: run`' 'git -C <absolute path of this checko
 done
 grep -F -- '- `產表失敗：無 Agent 工具`:' "$MAP" > "$FX/gate-noagent"
 # 選項要寫成要人動手的字，gaterule 才判成 hands、不被代答後卡停住沒人知道
-for k in '`type: decision`' '你在看板派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行'; do
+# 建議行也要一字照寫：collect 先取 `建議:` 再看 (Recommended)，另寫一行沒有「你」的建議就會被代答
+for k in '`type: decision`' '你在看板派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行' '`建議: 你在看板派一個 claude pane 重產`'; do
   grep -qF -- "$k" "$FX/gate-noagent" || fail "無 Agent 工具 gate 缺 $k"
 done
 grep -F -- '- any other `產表失敗：<reason>`' "$MAP" > "$FX/gate-other"

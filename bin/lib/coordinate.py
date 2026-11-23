@@ -66,6 +66,8 @@ AGENT_NAME = chain.AGENT_NAME
 PROXY_PREFIX = "自動採用："
 # 協調者代答送給 agent 的答案是 PROXY_HEAD + 建議 + PROXY_TAIL；代決清單只列建議本身
 PROXY_HEAD = "協調者代決，照建議："
+# 改版前代答的答案開頭，decisions.tsv 裡還留著這種列
+PROXY_HEAD_OLD = "照建議："
 PROXY_TAIL = "（套用 ponytail 原則：最小改動、不加沒人要的東西）"
 # 代決清單每項附的題目長度
 PROXY_QUESTION_CHARS = 60
@@ -1643,7 +1645,7 @@ def proxy_rows(shell_dir, label):
     rows = [line.split("\t") for line in lines]
     gates_path = os.path.join(shell_dir, "gates.md")
     return ["%s%s %s → %s" % (label, r[4], proxy_question(gates_path, r[4]),
-                              r[3][len(PROXY_PREFIX):].removeprefix(PROXY_HEAD).removesuffix(PROXY_TAIL))
+                              r[3][len(PROXY_PREFIX):].removeprefix(PROXY_HEAD).removeprefix(PROXY_HEAD_OLD).removesuffix(PROXY_TAIL))
             for r in rows if len(r) >= 5 and r[1] == "協調者" and r[3].startswith(PROXY_PREFIX)]
 
 

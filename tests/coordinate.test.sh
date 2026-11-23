@@ -3125,6 +3125,13 @@ proxy_answer "$AGD/subs/s" g3 '子 change 的題？' '用 C' --sub s
 ready_round "代決：g2 $Q60 → 用 B；s/g3 子 change 的題？ → 用 C"
 grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF '後面這段不會出現' && fail "題目只取前 60 字：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$AGD/subs/s/decisions.tsv" "$AGD/subs/s/gates.md" "$AGD/gates.md"
+# 邊界場景：改版前代答的列開頭是「照建議：」，清單一樣只留建議本身
+rm -f "$AGD/decisions.tsv"
+printf '## g4\ntype: decision\nstatus: open\n問題: 要等嗎？\n建議: 繼續等\n' >> "$AGD/gates.md"
+bash "$OPSX_ROOT/bin/opsx" answer a --gate g4 --by coordinator --repo "$AG" -- "照建議：繼續等$PONY" > "$FX/answer-out" 2>&1 \
+  || fail "opsx answer g4 rc: $(cat "$FX/answer-out")"
+ready_round '代決：g4 要等嗎？ → 繼續等'
+rm -f "$AGD/decisions.tsv" "$AGD/gates.md"
 # 邊界場景：使用者自己答的、協調者的其他紀錄、沒有 decisions.tsv 都是無
 printf '%s\t你\t已決定\t用 A\tg1\n' "$TS" > "$AGD/decisions.tsv"
 ready_round '代決：無'

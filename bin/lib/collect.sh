@@ -205,12 +205,14 @@ FIELD = re.compile(r"^(type|needs|by|waits-on|blocks-from|action|status|opened_a
 
 # explore 的 split gate 在 `拆法:` 底下每個 PR 寫一行 `- main change`；兩行以上要人看拆的理由
 SPLIT_MAIN = re.compile(r"^\s*- main change ")
+# 邏輯表 ⚠ gate 在 `選項:` 底下逐項寫「<題號> … A … | B …」
+OPTION_ITEM = re.compile(r"^\s*[0-9]+\s")
 
 def parse_gates(text):
     gates, cur, key, in_split = [], None, None, False
     for line in text.split("\n"):
         if line.startswith("## "):
-            cur = {"id": line[3:].strip(), "main_changes": 0}; gates.append(cur); key = None; in_split = False; continue
+            cur = {"id": line[3:].strip(), "main_changes": 0, "items": []}; gates.append(cur); key = None; in_split = False; continue
         if cur is None: continue
         m = FIELD.match(line)
         if m:
@@ -220,6 +222,8 @@ def parse_gates(text):
             in_split = True
         elif in_split and SPLIT_MAIN.match(line):
             cur["main_changes"] += 1
+        elif key == "選項" and OPTION_ITEM.match(line):
+            cur["items"].append(line.strip())
         if key in ("已確認", "證據", "問題") and line.strip():
             cur[key] = (cur[key] + "\n" + line.strip()).strip()
     return gates
@@ -328,7 +332,7 @@ def gates_in_force(gates, d):
 def waiting_of(card, gates, agent_status):
     for g in gates:
         if g.get("status", "").strip() != "open": continue
-        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "evidence": g.get("證據"),
+        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "items": g["items"], "evidence": g.get("證據"),
                 "risk": g.get("風險"), "default_if_unanswered": g.get("預設"), "confirmed": g.get("已確認"),
                 "needs": "run" if g.get("needs") == "run" else None,
                 "by": "coordinator" if g.get("by") == "coordinator" else None,
