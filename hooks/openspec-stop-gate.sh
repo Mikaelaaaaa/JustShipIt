@@ -7,6 +7,7 @@
 #   grill / propose / pr / babysit 站該 invoke 下一站而沒有會擋的 open gate；
 #   babysit 站若 forge 說 MR 已合併（workplan 還沒標 merged），下一站改成 /archive；
 #   workplan 標 mr: none 且 branch 沒有 commit 的卡在 archive 站也推 /archive（workplan 標 merged 的 archive 站不推）。
+# dispatch.json 把卡標成 stopped（人按了停止）時一律放行，不計次。
 # 同一站最多擋 MAX_BLOCKS 次，再停就由這支 hook 寫「卡在接 /<站>」gate 放行；不看 stop_hook_active。
 # 背景工作（Monitor、背景 Bash、背景 subagent）還在跑時放行且不計次；「卡在接」gate 剛答覆的那一輪照擋但不計次。
 # 要求檔 §8.5。
@@ -142,7 +143,7 @@ $missing
       mr_err="$(printf '%s' "$mr" | jq -r '.error // empty')"
       [ -z "$(printf '%s' "$mr" | jq -r '.merged_at // empty')" ] || stage=archive
     else
-      mr_err="mr_json 失敗：$mr_out"
+      mr_err="mr_json 失敗：${mr_stderr:-$mr_out}"
     fi
   fi
   [ "$stage" = babysit ] && grep -q '^babysit:' "$d/report.md" && return 0
@@ -275,9 +276,12 @@ said="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
 if [ -n "$(jq -r --arg k "$(repo_name)/$slug" '.[$k].released_at // empty' "$OPSX_STATE_DIR/dispatch.json" 2>/dev/null)" ]; then
   rm -f "$state"; stop_record "propose 完放掉，等 reap 收 pane"; exit 0
 fi
+mode="$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)"
+# 人在看板按了停止：不再推它接站。opsx stop 關不掉 pane 時裡面的 claude 還活著，照擋會跟協調者答「卡在接」來回循環；重派時 dispatch 會清掉 stopped
+if [ "$mode" = stopped ]; then stop_record "人按了停止"; exit 0; fi
 
 # 啟動參數丟了：這個 claude 寫不了檔，逼它接站只會空轉到開「卡在接」gate。只有判出遺失才放行，認不得照舊擋
-lost_rc=0; lost_why="$(args_lost_status "$(repo_name)" "$slug" "$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)")" || lost_rc=$?
+lost_rc=0; lost_why="$(args_lost_status "$(repo_name)" "$slug" "$mode")" || lost_rc=$?
 # 「無法判斷啟動參數」跟放行與擋停無關，去重另記一個檔，判得出來才清，一直判不了只送一次
 case "$lost_rc" in
   1) rm -f "$state" "$said.args"; stop_record "參數遺失，跑 opsx relaunch $slug"; say_once "[$slug] 停住：參數遺失，跑 opsx relaunch $slug"; exit 0 ;;
@@ -286,8 +290,13 @@ case "$lost_rc" in
 esac
 
 # babysit 站只查一次 forge（hook 只有 10 秒）：stop_reason 看合併了沒、babysit_reason 看卡在哪，都讀這一份
-mr_out=""; mr_rc=0
-if [ "$stage" = babysit ] && [ "$(st_open_gates_blocking "$d")" -eq 0 ]; then mr_out="$(mr_json "$d" 2>&1)" || mr_rc=$?; fi
+mr_out=""; mr_rc=0; mr_stderr=""
+if [ "$stage" = babysit ] && [ "$(st_open_gates_blocking "$d")" -eq 0 ]; then
+  # stderr 分開收：成功時只讀 stdout 的 JSON，快取寫不進去的 mkdir、mktemp 錯誤不能混進去；建不了暫存檔就丟掉 stderr，失敗時錯誤文字改用 stdout
+  mr_errf="$(mktemp 2>/dev/null)" || mr_errf=/dev/null
+  mr_out="$(mr_json "$d" 2>"$mr_errf")" || mr_rc=$?
+  [ "$mr_errf" = /dev/null ] || { mr_stderr="$(cat "$mr_errf")"; rm -f "$mr_errf"; }
+fi
 
 out="$(stop_reason "$d" "$slug" "$stage")"
 # 背景工作還在跑：agent 只能等通知，這一輪不算沒接站

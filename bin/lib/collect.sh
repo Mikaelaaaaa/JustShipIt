@@ -256,8 +256,12 @@ def notes_of(inbox, slug, path):
         else: errors.append({"source": path, "message": "%s 的派工指示格式不對：%s" % (slug, l)})
     return notes
 
-# 格式以 split-out 讀的為準（inboxmerge.parse）：看板列得出來的項目一定拆得回來
-def merged_of(inbox, slug, path):
+# 格式與讀法都以 split-out 為準（inboxmerge.parse、newline=""）：看板列得出來的項目一定拆得回來
+def merged_of(slug, path):
+    try:
+        with open(path, encoding="utf-8", newline="") as f: inbox = f.read()
+    except FileNotFoundError:
+        inbox = ""
     items = []
     for head, got in inboxmerge.sections(inbox):
         if isinstance(got, ValueError):
@@ -429,7 +433,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "priority": priority_of(c["repo"], c["slug"], c["archived"], os.path.join(d, "inbox.md")),
         "dedup_checked": frontmatter(inbox, "dedup_checked"),
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
-        "merged": [] if c["archived"] else merged_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
+        "merged": [] if c["archived"] else merged_of(c["slug"], os.path.join(d, "inbox.md")),
         "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
         "stopped": stopped,
     })

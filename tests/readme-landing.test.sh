@@ -21,7 +21,6 @@ printf '%s' "$tagline" | LC_ALL=C grep -q '[^ -~]' && fail "tagline 含非 ASCII
 badges="$(grep -o 'img\.shields\.io/[^"]*' "$README")"
 [ "$(printf '%s' "$badges" | grep -c .)" -le 1 ] || fail "README 只能放一個 license badge：$badges"
 [ -z "$badges" ] || printf '%s\n' "$badges" | grep -qF 'img.shields.io/badge/license-MIT' || fail "README 的 badge 不是 license：$badges"
-printf '%s\n' "$top" | grep -qF 'Early preview' || fail "開頭沒有 Early preview 狀態標示"
 ! grep -qiE 'production[- ]ready' "$README" || fail "README 不該宣稱 production-ready"
 n="$(printf '%s\n' "$top" | grep -c '^- ')"
 [ "$n" -ge 3 ] && [ "$n" -le 4 ] || fail "開頭的差異清單要 3～4 點，現在 $n 點"
@@ -29,6 +28,8 @@ n="$(awk '/^## .*解決什麼問題$/{f=1;next} /^## /{f=0} f' "$README" | grep 
 [ "$n" -le 3 ] || fail "解決什麼問題段要兩三句，現在 $n 句"
 # 參考專案名只存 sha256，名字本身不進公開 repo
 python3 -I -c 'import hashlib,re,sys; bad="db0ee43ab2f9353ebd68b373591d62bc827688c6e56f95e89fcbedc2de7b1133"; sys.exit(any(hashlib.sha256(w.encode()).hexdigest()==bad for w in set(re.findall(r"[a-z0-9]+", open(sys.argv[1], encoding="utf-8").read().lower()))))' "$README" || fail "README 提到參考專案名"
+# 名字含連字號的參考專案：連字號詞裡每段連續的兩節以上都比對，涵蓋名字出現在更長的詞裡
+python3 -I -c 'import hashlib,re,sys; bad="ad79c67628c8c4b6d5877feefae148315c3231edad5d70fd9861979b4d194083"; ws=set(re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)+", open(sys.argv[1], encoding="utf-8").read().lower())); sys.exit(any(hashlib.sha256("-".join(p[i:j]).encode()).hexdigest()==bad for p in (w.split("-") for w in ws) for i in range(len(p)) for j in range(i+2, len(p)+1)))' "$README" || fail "README 提到參考專案名"
 
 # --- Requirement：README 含首頁必備段落，依序 ---
 want=(解決什麼問題 怎麼運作 功能 安裝 常用指令 安全模型 文件 狀態 參與開發 授權)
@@ -61,26 +62,39 @@ grep -qF '<title>JustShipIt' "$BOARD" || fail "看板 <title> 沒改成 JustShip
 grep -qE 'class="brand">.*</svg>(</span>)?JustShipIt</div>' "$BOARD" || fail "看板 brand 沒改成 JustShipIt"
 
 # --- Requirement：README 把看板當現況寫 ---
-printf '%s\n' "$top" | grep -qF 'docs/assets/board-web-framed.png' || fail "開頭主圖不是 docs/assets/board-web-framed.png"
+[ -f "$OPSX_ROOT/docs/assets/board-demo.gif" ] || fail "缺 docs/assets/board-demo.gif"
+[ -f "$OPSX_ROOT/docs/assets/board-demo.mp4" ] || fail "缺 docs/assets/board-demo.mp4"
+printf '%s\n' "$top" | grep -qF '<a href="docs/assets/board-demo.mp4"><img src="docs/assets/board-demo.gif"' || fail "開頭主圖不是連到 docs/assets/board-demo.mp4 的 docs/assets/board-demo.gif"
 for w in 舊版 新版 設計預覽 實作中 現有版本; do
   ! grep -qF -- "$w" "$README" || fail "README 含看板版本字眼：$w"
 done
 feat="$(awk '/^## .*功能$/{f=1;next} /^## /{f=0} f' "$README")"
 printf '%s\n' "$feat" | grep -qF '虛構的示範資料' || fail "功能段沒標明截圖是虛構的示範資料"
-for img in docs/assets/board-web-framed.png docs/assets/drawer-web-framed.png docs/assets/card-detail-web-framed.png docs/assets/changes-web-framed.png docs/assets/opsx-tui-demo-framed.png; do
+for img in docs/assets/board-web-framed.png docs/assets/drawer-web-framed.png docs/assets/card-detail-web-framed.png docs/assets/changes-web-framed.png docs/assets/archived-web-framed.png docs/assets/log-web-framed.png docs/assets/opsx-tui-demo-framed.png; do
   [ -f "$OPSX_ROOT/$img" ] || fail "缺 $img"
   printf '%s\n' "$feat" | grep -qF "$img" || fail "功能段沒引用 $img"
 done
 
 # --- Requirement：流程段寫出自動開發的角色 ---
 # 只看說明文字：流程圖裡的節點名不算寫出角色
-flow="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&!c' "$README")"
+flow="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f&&/^```/{c=!c;next} f&&/<picture>/{p=1} f&&/<\/picture>/{p=0;next} f&&!c&&!p' "$README")"
 for cmd in 'opsx drive' 'opsx coordinate' 'opsx lead'; do
   printf '%s\n' "$flow" | grep -qF -- "$cmd" || fail "流程段沒提 $cmd"
 done
 # 角色說明裡本來就有 gate、合併 字樣，所以認人要做的那兩條的字樣
 printf '%s\n' "$flow" | grep -qF '回 gate' || fail "流程段沒寫人要回 gate"
 printf '%s\n' "$flow" | grep -qF '合併永遠留給人' || fail "流程段沒寫人要合併"
+
+# --- Requirement：怎麼運作段用淺深色兩份架構圖 ---
+how="$(awk '/^## .*怎麼運作$/{f=1;next} /^## /{f=0} f' "$README")"
+for svg in docs/assets/architecture-light.svg docs/assets/architecture-dark.svg; do
+  [ -f "$OPSX_ROOT/$svg" ] || fail "缺 $svg"
+done
+printf '%s\n' "$how" | grep -qF '<picture>' || fail "怎麼運作段的架構圖沒用 <picture>"
+# 深淺色要配對：對調的話淺色主題會顯示深色那張，字幾乎看不見
+printf '%s\n' "$how" | grep -qF '<source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg"' || fail "怎麼運作段的深色 <source> 沒指向 docs/assets/architecture-dark.svg"
+printf '%s\n' "$how" | grep -qF '<img src="docs/assets/architecture-light.svg"' || fail "怎麼運作段的 <img> 沒指向 docs/assets/architecture-light.svg"
+! printf '%s\n' "$how" | grep -qF '```mermaid' || fail "怎麼運作段還有 mermaid，流程圖要用 SVG 架構圖"
 
 # --- Requirement：不外洩且授權段只連到 LICENSE ---
 # 禁用字樣拼接寫：這個檔自己不能被下面的追蹤檔掃描命中
