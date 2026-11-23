@@ -71,6 +71,43 @@ assert_eq "$(decide_in opsx-workflow '{"waits_on": "card-x", "recommended": "用
 assert_eq "$(decide_in opsx-workflow '{"recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "opsx MR 合併的決定題"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個"}')" "('human', 'no-pick')" "opsx 沒選項沒建議"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "你在 sandbox 外跑"}')" "('human', 'hands')" "opsx 建議要人動手"
+# 要人動手看片語（Scenario Outline，正例）：建議取自真實 gate
+hands() { assert_eq "$(decide_in opsx-workflow "{\"question\": \"下一步？\", \"recommended\": \"$1\"}")" "('human', 'hands')" "要人動手片語：$1"; }
+hands '你自己 rebase，rebase 完重跑 tests/new.test.sh'
+hands '你在 sandbox 外用 `!` 跑'
+hands '在你平常的 pane 起 claude --settings 再貼輸出'
+hands '訊息與指令都已備好，你一條命令就完成'
+hands '你在終端機跑上面那行並貼結果'
+hands '開 DevTools 錄一次回答 gate，連同機器型號貼回來'
+hands '你在 sandbox 外合併，合完我跑 /archive board-inbox'
+hands '你在沙盒外跑一次全套'
+hands '在你的終端機跑 opsx init --global'
+hands '這一步要你做，我做不到'
+hands '這題要你跑一次指令才知道'
+hands '五分鐘內可以錄完'
+hands '錄下畫面再回這題'
+hands '重新錄下畫面'
+hands '手動錄完再貼'
+# 單字「你」「錄」不算要人動手（Scenario Outline，反例）
+not_hands() { assert_eq "$(decide_in opsx-workflow "{\"question\": \"選哪個？\", \"recommended\": \"$1\"}")" "('answer', '$1')" "單字你錄不算：$1"; }
+not_hands 'A，照你上一題說的最小改動'
+not_hands 'A：跟你在 D6 的選擇一致，只影響錯誤訊息'
+not_hands '留在待指派：照派工指示，由你決定何時派'
+not_hands '不改。沒有 codex 撞到這問題的紀錄'
+not_hands '照記錄撤回'
+not_hands '1A。用相對路徑起 drive 只有在 bin/ 目錄裡手打才會發生'
+not_hands '錄影第一格就是看板，跟主圖重複'
+not_hands '建議你確認第一項'
+not_hands '照派工指示停，所以開這題請你決定'
+not_hands '開新卡。改 skill 要再跑 eval，又是一輪你跑的指令'
+not_hands 'A。記錄完整的 log 就好'
+not_hands '照記錄下方的 D3'
+not_hands '請記錄一次失敗原因'
+not_hands '紀錄完再回報'
+not_hands '放在 bin/ 目錄下就好'
+not_hands '收錄完再發'
+not_hands '附錄下方表格'
+assert_eq "$(decide_in other-repo '{"question": "選哪個？", "recommended": "A，照你上一題說的最小改動"}')" "('human', 'decision')" "其他 repo 不再判要人動手時仍留給人"
 # MR 合併的決定題留給人（Scenario Outline，正例）
 assert_eq "$(decide_in opsx-workflow '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
 assert_eq "$(decide_in opsx-workflow '{"question": "要不要先合併 MR？", "recommended": "先合併 MR 再說"}')" "('human', 'merge')" "MR 合併：合併 MR"
