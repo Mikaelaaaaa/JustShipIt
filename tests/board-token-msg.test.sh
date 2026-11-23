@@ -29,7 +29,7 @@ const errorOf = async (tok, status, body) => {
 
 (async () => {
   // Examples 一般場景
-  assert.strictEqual(await errorOf('', 401, '{"error":"token"}'), '網址沒帶 token：從 herdr 的 open-board 重開一次');
+  assert.strictEqual(await errorOf('', 401, '{"error":"token"}'), '網址沒帶 token，或瀏覽器擋了 sessionStorage：從 herdr 的 open-board 重開一次');
   assert.strictEqual(await errorOf('abc', 401, '{"error":"token"}'), 'token 被 server 拒絕：從 herdr 的 open-board 重開一次');
   // Examples 邊界場景
   const f = fakeFetch(200, '{"cards":[]}');

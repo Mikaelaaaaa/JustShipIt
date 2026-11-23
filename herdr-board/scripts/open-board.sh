@@ -35,6 +35,10 @@ if isinstance(d, dict) and d.get("app") == "opsx-board":
 ' "${url}healthz"
 }
 
+fail_log() { # fail_log <訊息>：起 server 這段的失敗都退出 1，附 board.log 尾巴
+  echo "opsx board: $1，看 ${logfile}" >&2; tail -n 20 "$logfile" >&2 || true; exit 1
+}
+
 alive() { # 回 healthz 的是 pidfile 那支、token 檔還在（token 被刪就重起，不然新 tab 永遠 401）
   local pid; pid="$(cat "$pidfile" 2>/dev/null || true)"
   [ -n "$pid" ] && [ -s "$state/board-token" ] && [ "$(health)" = "$pid" ]
@@ -52,18 +56,18 @@ if ! alive; then
   if [ "$other" = legacy ]; then
     echo "opsx board: port ${port} 上是不回 pid 的舊版 opsx server，先停掉它：kill \$(lsof -tiTCP:${port} -sTCP:LISTEN)，再開一次" >&2; exit 1
   fi
-  [ -z "$other" ] || kill "$other" || { echo "opsx board: 停不掉 port ${port} 上的 opsx server（pid ${other}）" >&2; exit 1; }
+  [ -z "$other" ] || kill "$other" || fail_log "停不掉 port ${port} 上的 opsx server（pid ${other}）"
   for _ in $(seq 1 50); do [ -z "$(health)" ] && break; sleep 0.1; done
-  [ -z "$(health)" ] || { echo "opsx board: port ${port} 上的 opsx server 5 秒內沒停" >&2; exit 1; }
+  [ -z "$(health)" ] || fail_log "port ${port} 上的 opsx server 5 秒內沒停"
   ( trap '' HUP; exec python3 -I "$root/herdr-board/server.py" --port "$port" --state "$state" ) </dev/null >>"$logfile" 2>&1 &
   new=$!
   printf '%s\n' "$new" > "$pidfile"
   for _ in $(seq 1 50); do
     [ "$(health)" = "$new" ] && break
-    kill -0 "$new" 2>/dev/null || { rm -f "$pidfile"; echo "opsx board: server 起不來，看 ${logfile}" >&2; tail -n 20 "$logfile" >&2 || true; exit 1; }
+    kill -0 "$new" 2>/dev/null || { rm -f "$pidfile"; fail_log "server 起不來"; }
     sleep 0.1
   done
-  [ "$(health)" = "$new" ] || { echo "opsx board: server 10 秒內沒回應，看 ${logfile}" >&2; exit 1; }
+  [ "$(health)" = "$new" ] || fail_log "server 10 秒內沒回應"
 fi
 
 token="$(cat "$state/board-token" 2>/dev/null || true)"

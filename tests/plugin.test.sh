@@ -265,6 +265,42 @@ case "$err" in *"舊版 opsx server"*"lsof -tiTCP:$port5 -sTCP:LISTEN"*) ;; *) f
 kill -0 "$legacy_srv" 2>/dev/null || fail "舊版 server 不該被 open-board 停掉（pid ${legacy_srv}）"
 assert_eq "$(cat "$FX/open.log")" "" "舊版占著不開瀏覽器"
 kill "$legacy_srv"
+# --- 停不掉、5 秒內沒停：回 1、印 board.log 尾巴、不開瀏覽器 ---
+# 假 opsx server：healthz 回 argv[2] 給的 pid（self 是自己的 pid），而且不理 SIGTERM
+cat > "$FX/stubborn.py" <<'PY'
+import os, signal, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+pid = os.getpid() if sys.argv[2] == "self" else int(sys.argv[2])
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = ('{"ok": true, "app": "opsx-board", "pid": %d}' % pid).encode()
+        self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def log_message(self, *a):
+        pass
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+echo "board-log-tail-marker" >> "$OPSX_STATE_DIR/board.log"
+port6="$(free_port)"
+foreign="$(python3 -I "$FX/stubborn.py" "$port6" 1 >>"$FX/stubborn.log" 2>&1 & echo $!)"
+echo "$foreign" > "$FX/kill-foreign.pid"
+wait_http "$port6"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port6" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "healthz 回停不掉的 pid 要回 1: $err"
+case "$err" in *"停不掉 port ${port6}"*"board-log-tail-marker"*) ;; *) fail "stderr 要說停不掉並印 board.log 尾巴：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "停不掉不開瀏覽器"
+kill -9 "$foreign"
+port7="$(free_port)"
+stubborn="$(python3 -I "$FX/stubborn.py" "$port7" self >>"$FX/stubborn.log" 2>&1 & echo $!)"
+echo "$stubborn" > "$FX/kill-stubborn.pid"
+wait_http "$port7"
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port7" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "不理 SIGTERM 的 opsx server 要回 1: $err"
+case "$err" in *"5 秒內沒停"*"board-log-tail-marker"*) ;; *) fail "stderr 要說 5 秒內沒停並印 board.log 尾巴：$err";; esac
+assert_eq "$(cat "$FX/open.log")" "" "舊 server 沒停不開瀏覽器"
+kill -9 "$stubborn"
 
 # --- init --global 做 herdr plugin link（herdr 在 PATH 上才做；已掛就不再 link）---
 out="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "init --global: $out"
