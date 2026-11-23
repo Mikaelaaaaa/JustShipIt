@@ -301,6 +301,25 @@ assert_eq "$rc" 1 "不理 SIGTERM 的 opsx server 要回 1: $err"
 case "$err" in *"5 秒內沒停"*"board-log-tail-marker"*) ;; *) fail "stderr 要說 5 秒內沒停並印 board.log 尾巴：$err";; esac
 assert_eq "$(cat "$FX/open.log")" "" "舊 server 沒停不開瀏覽器"
 kill -9 "$stubborn"
+# --- port 上是不說 HTTP 的程式：health() 當成沒回應，走起不來那條回 1、印 board.log 尾巴，不印 healthz 的 traceback，也不停它 ---
+port8="$(free_port)"
+raw="$(python3 -I -c '
+import socket, sys
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5)
+while True:
+    c, _ = s.accept(); c.sendall(b"NOTHTTP\r\n"); c.close()
+' "$port8" >>"$FX/raw.log" 2>&1 & echo $!)"
+echo "$raw" > "$FX/kill-raw.pid"
+for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/$port8") 2>/dev/null && break; sleep 0.1; done
+: > "$FX/open.log"
+err="$(OPSX_BOARD_PORT="$port8" bash "$OPSX_ROOT/herdr-board/scripts/open-board.sh" 2>&1 >/dev/null)"; rc=$?
+assert_eq "$rc" 1 "不說 HTTP 的程式占著要回 1: $err"
+case "$err" in *BadStatusLine*) fail "health() 不該讓 healthz 的例外漏到 stderr：$err";; esac
+case "$err" in *"opsx board: server 起不來"*"board-log-tail-marker"*) ;; *) fail "stderr 要說 server 起不來並印 board.log 尾巴：$err";; esac
+kill -0 "$raw" 2>/dev/null || fail "不是 opsx 的程式不能被停掉（pid ${raw}）"
+assert_eq "$(cat "$FX/open.log")" "" "不說 HTTP 的程式占著不開瀏覽器"
+kill -9 "$raw"
 
 # --- init --global 做 herdr plugin link（herdr 在 PATH 上才做；已掛就不再 link）---
 out="$(opsx init --global 2>&1)"; assert_eq "$?" 0 "init --global: $out"

@@ -24,11 +24,11 @@ pidfile="$state/board-${port}.pid"; logfile="$state/board.log"
 
 health() { # healthz 回 app opsx-board 時印它的 pid，沒回 pid 的舊版印 legacy；沒回應或不是 opsx-board 什麼都不印
   python3 -I -c '
-import json, sys, urllib.request
+import http.client, json, sys, urllib.request
 try:
     with urllib.request.urlopen(sys.argv[1], timeout=1) as r:
         d = json.load(r)
-except (OSError, ValueError):
+except (OSError, ValueError, http.client.HTTPException):
     sys.exit(0)
 if isinstance(d, dict) and d.get("app") == "opsx-board":
     print(d["pid"] if isinstance(d.get("pid"), int) else "legacy")
