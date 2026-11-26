@@ -314,6 +314,7 @@ round || fail "rc: $(cat "$FX/out")"
 got="$(grep -E '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")"
 assert_eq "$got" "opsx stop g --repo $R
 openspec archive g -y" "idle 超過 30 分鐘要 stop 再收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'demo/g' && fail "idle 收尾不該記 ??：$(cat "$LOG")"
 cp "$WP0" "$R/openspec/workplan.yaml"
 
 # --- 收尾：idle 超過 30 分鐘，但卡上有 open gate（在等人回）或是互動模式（人暫時離開），不收尾、記 ?? ---
@@ -334,6 +335,7 @@ round || fail "rc: $(cat "$FX/out")"
 got="$(grep -E '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")"
 assert_eq "$got" "opsx stop g --repo $R
 openspec archive g -y" "done 超過 30 分鐘要 stop 再收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'demo/g' && fail "done 收尾不該記 ??：$(cat "$LOG")"
 cp "$WP0" "$R/openspec/workplan.yaml"
 cards "[$(merged g "$(ago 40)" "$D" '"blocked"')]"
 round || fail "rc: $(cat "$FX/out")"
