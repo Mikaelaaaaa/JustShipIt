@@ -41,6 +41,8 @@ LEVEL3 = re.compile(
     r"|drop (column|database|schema)|delete from|rm -rf|reset --hard|刪除?(欄位|表|分支)|git tag|打 ?tag|push --tags"
     r"|(?<![a-z0-9])prod(uction)?(?![a-z0-9])"
     r"|\.gitlab-ci|\.github/workflows|[改動] ?ci(?![a-z])|(?<![a-z])ci ?[設檔]"
+    r"|(?<![a-z])ci[ ._-]?(ya?ml|pipelines?|config|workflows?|jobs?)(?![a-z])"
+    r"|(?<![a-z])(update|change|edit|modify|fix|tweak) (the )?ci(?![a-z])"
     r"|secrets?(?![a-z])|(?<![a-z])sops(?![a-z])|(?<![a-z0-9_])\.env(?![a-z])|金鑰|憑證|api key|credentials?(?![a-z])"
     r"|花錢|付費|費用|購買|訂閱|(?<![a-z])billing(?![a-z])|對外|對客戶|發信|寄信|send email|發公告|issue 留言|issue comment",
     re.IGNORECASE)
@@ -74,7 +76,8 @@ def chosen_option(recommended, options):
 
 def item_choices(recommended, items):
     """逐項建議（「1A 2B」）在 items 裡選中的每個選項文字，用空格接起來。items 一項一行，
-    形如「1 D3 欄位：A 直接 DROP COLUMN (Recommended) | B 保留」：以 | 分段，每段取最後一個冒號之後，看它開頭的代號。"""
+    形如「1 D3 欄位：A 直接 DROP COLUMN (Recommended) | B 保留」：第一個冒號之前是題號與標題，之後以 | 分段，
+    看每段開頭的代號。選項文字自己帶冒號（「A 改設定：刪除分支」）時整段照比。"""
     by_number = {}
     for line in items:
         m = ITEM.match(line)
@@ -82,7 +85,7 @@ def item_choices(recommended, items):
             by_number[m.group(1)] = line
     picked = []
     for number, label in ITEM_PICK.findall(recommended):
-        segments = [re.split(r"[：:]", s)[-1].strip() for s in by_number.get(number, "").split("|")]
+        segments = [s.strip() for s in re.split(r"[：:]", by_number.get(number, ""), maxsplit=1)[-1].split("|")]
         option = re.compile(r"[(（]?" + re.escape(label) + r"(?![A-Za-z0-9])", re.IGNORECASE)
         picked += [s for s in segments if option.match(s)]
     return " ".join(picked)

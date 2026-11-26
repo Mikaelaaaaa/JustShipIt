@@ -137,6 +137,14 @@ assert_eq "$(decide '{"question": "要不要在 issue 留言？", "recommended":
 assert_eq "$(decide '{"question": "下一步？", "recommended": "Deploy to prod"}')" "('human', 'level3')" "level3 邊界：大小寫不分"
 assert_eq "$(decide '{"question": "要放 Secret 嗎", "recommended": "放"}')" "('human', 'level3')" "level3 邊界：字詞在題目裡也算"
 assert_eq "$(decide '{"question": "下一步？", "recommended": "改 CI 跳過這步"}')" "('human', 'level3')" "level3 邊界：opsx-workflow 一樣交人"
+# 改 CI 的英文說法
+assert_eq "$(decide '{"question": "fix the CI pipeline cache?", "recommended": "update ci.yml to cache pnpm"}')" "('human', 'level3')" "level3：update ci.yml、CI pipeline"
+assert_eq "$(decide '{"question": "lint 太慢？", "recommended": "update ci.yml to cache pnpm"}')" "('human', 'level3')" "level3：ci.yml"
+assert_eq "$(decide '{"question": "cache 怎麼辦？", "recommended": "edit the CI config"}')" "('human', 'level3')" "level3：CI config"
+assert_eq "$(decide '{"question": "lint 太慢？", "recommended": "change CI to skip lint"}')" "('human', 'level3')" "level3：change CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "fix the CI"}')" "('human', 'level3')" "level3：fix the CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "wait for CI green"}')" "('answer', 'wait for CI green')" "level3 邊界：等 CI 綠不是改 CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "update the circuit breaker"}')" "('answer', 'update the circuit breaker')" "level3 邊界：update circuit 不是改 CI"
 # 刪資料、強推與打 tag 的說法也是第三級
 assert_eq "$(decide '{"question": "舊欄位怎麼處理？", "recommended": "寫 migration ALTER TABLE faq DROP COLUMN legacy"}')" "('human', 'level3')" "level3：drop column"
 assert_eq "$(decide '{"question": "測試庫怎麼清？", "recommended": "drop database test_db"}')" "('human', 'level3')" "level3：drop database"
@@ -200,6 +208,13 @@ assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選�
 assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B 2A", "items": '"$LMAP_ITEMS"'}')" "('answer', '1B 2A')" "邏輯表項：選的都不碰第三級（2B 的部署沒被選）"
 assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1b 2a", "items": '"$LMAP_ITEMS"'}')" "('answer', '1b 2a')" "邏輯表項邊界：代號大小寫不分，1B 保留照答"
 assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A 2A"}')" "('answer', '1A 2A')" "邏輯表項邊界：沒有 items 照建議答"
+# 選項文字自己帶冒號：只在第一個冒號切掉題號與標題
+COLON_ITEMS='["1 D2：A 改設定：刪除分支 (Recommended) | B 保留"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$COLON_ITEMS"'}')" "('human', 'level3')" "邏輯表項：選項文字帶冒號，選中的 1A 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$COLON_ITEMS"'}')" "('answer', '1B')" "邏輯表項邊界：選項帶冒號時，選 1B 保留照答"
+COLON_B_ITEMS='["1 D2 收尾：A 保留 (Recommended) | B 清理：刪除分支 feat/x"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$COLON_B_ITEMS"'}')" "('human', 'level3')" "邏輯表項：後面的選項帶冒號，選中的 1B 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$COLON_B_ITEMS"'}')" "('answer', '1A')" "邏輯表項邊界：後面的選項帶冒號，選 1A 保留照答"
 # D14：同一張卡第 3 個 logic-map-failed gate 起交人
 assert_eq "$(decide '{"gate_id": "logic-map-failed-2", "question": "產表失敗", "recommended": "重跑產表"}')" "('answer', '重跑產表')" "logic-map-failed-2 照建議答"
 assert_eq "$(decide '{"gate_id": "logic-map-failed-3", "question": "產表失敗", "recommended": "重跑產表"}')" "('human', 'stuck')" "logic-map-failed-3 交人"
