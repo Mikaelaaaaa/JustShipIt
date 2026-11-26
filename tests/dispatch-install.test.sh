@@ -50,6 +50,14 @@ assert_no_file "$R/openspec/changes/ok-card/gates.md"
 assert_grep '^pnpm-marker yes$' "$OPSX_FAKE_LOG"
 assert_no_file "$(git -C "$R/.claude/worktrees/ok-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
 
+# 從另一個 repo 帶 --repo 派工（me-20261126-0949 的派法）：pnpm 的工作目錄是目標的新 worktree，不是呼叫者的目錄
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-R far-card pnpm-lock.yaml)"
+CALLER="$(mk_repo Inst-Caller "git@gitlab.example.com:acmecorp/Inst-Caller.git")"
+out="$(cd "$CALLER" && opsx dispatch far-card --repo "$R" --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+assert_eq "$(grep '^pnpm-cwd ' "$OPSX_FAKE_LOG")" "pnpm-cwd $(cd "$R/.claude/worktrees/far-card" && pwd -P)" "從別的 repo 派工，pnpm 仍要在目標的新 worktree 裡跑：$(cat "$OPSX_FAKE_LOG")"
+
 # 既有 worktree 不裝
 : > "$OPSX_FAKE_LOG"
 R="$(new_repo Inst-B old-card pnpm-lock.yaml)"
