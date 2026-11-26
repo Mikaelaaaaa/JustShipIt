@@ -20,6 +20,19 @@ assert_fixed 'git diff --stat' "$STEP10"
 assert_fixed 'every file the task names' "$STEP10"
 assert_fixed 'do not check the task off' "$STEP10"
 
+# --- apply 第 1、10 步：刪除或取代測試檔時，每個舊 case 在 tasks.md 寫 去處：，勾 task 前核對 ---
+STEP1="$FX/step1"; awk '/^\| 1 \|/' "$AP" > "$STEP1"
+[ -s "$STEP1" ] || fail "skills/apply/SKILL.md 沒有第 1 步"
+assert_fixed 'deletes a test file or replaces it with another' "$STEP1"
+assert_fixed 'list every case in the old file' "$STEP1"
+assert_fixed '`去處：<old file>::<case> → <new file>::<case>`' "$STEP1"
+assert_fixed '`去處：<old file>::<case> → 刻意移除：<reason>`' "$STEP1"
+assert_fixed '刻意移除 without a reason is not a destination' "$STEP1"
+assert_fixed 'A case removed from a test file that stays needs no 去處 line' "$STEP1"
+assert_fixed 'When the diff deletes a test file, or the task says it replaces one' "$STEP10"
+assert_fixed 'every case of that file has a 去處 line' "$STEP10"
+assert_fixed 'every case it moved is in the new file' "$STEP10"
+
 # --- review：合併 base 分支後的確認 pass，寫 確認: <sha>、不算一輪 ---
 RV="$OPSX_ROOT/skills/review/SKILL.md"
 assert_fixed 'Base-merge confirm pass' "$RV"
