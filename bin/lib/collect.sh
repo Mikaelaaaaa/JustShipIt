@@ -320,10 +320,10 @@ def merge_blockers(card, agent_status):
         return [mergeready.NOT_READY]
     sub_open = any(g.get("status", "").strip() == "open"
                    for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
-    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
+    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, card["logic_map"], read(os.path.join(d, "gates.md")))
 
-# MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目（或連同邏輯表舊了）時才是要人看 report
-REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.STALE_MAP}
+# MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目、邏輯表沒處理的項（或連同邏輯表舊了）時才是要人看 report
+REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.UNHANDLED_MAP, mergeready.STALE_MAP}
 
 # 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人
 def gates_in_force(gates, d):
@@ -361,9 +361,9 @@ def waiting_of(card, gates, agent_status):
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": card["mr"]["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
     # 只對 pane 還在、閒著的卡：沒派出、被停掉、pane 不在或 herdr 讀不到時，唯一的動作「開啟 pane」沒有作用
-    if blockers and mergeready.OPEN_REVIEW in blockers and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
+    if blockers and {mergeready.OPEN_REVIEW, mergeready.UNHANDLED_MAP} & set(blockers) and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
         return {"type": "report 待你決定", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane"],
-                "question": mergeready.OPEN_REVIEW, "recommended": None, "evidence": card["mr"]["url"], "risk": None,
+                "question": "、".join(blockers), "recommended": None, "evidence": card["mr"]["url"], "risk": None,
                 "default_if_unanswered": "MR 不合併", "confirmed": None}
     if agent_status == "blocked":
         return {"type": "終端機等待輸入", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane", "停止", "重新指派"],
@@ -412,6 +412,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     c = {"repo": repo_, "slug": slug_, "dir": dir_, "archived": archived_ == "true", "stage": stage_,
          "mr": json.loads(read(mrfile)) if mrfile else None}
     d = c["dir"]
+    c["logic_map"] = logic_map_of(os.path.join(d, "logic-map.md"), "%s/%s" % (repo_, slug_))
     if c["mr"] and c["mr"].get("error"):
         errors.append({"source": "glab" if "glab" in c["mr"]["error"] else "gh", "message": "%s/%s：%s" % (repo_, slug_, c["mr"]["error"])})
     inbox = read(os.path.join(d, "inbox.md"))
@@ -449,7 +450,7 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "dedup_checked": frontmatter(inbox, "dedup_checked"),
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(c["slug"], os.path.join(d, "inbox.md")),
-        "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
+        "logic_map": c["logic_map"],
         "stopped": stopped,
     })
 

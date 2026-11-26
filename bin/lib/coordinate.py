@@ -218,17 +218,17 @@ class Round:
 
     def nobody_archiving(self, c):
         """已合併但 agent 還在：歸檔、標 workplan、叫 chain 都是它自己 /opsx-workflow:archive 的事，這裡不搶。
-        過了寬限 agent 還 idle，代表沒人會送 /opsx-workflow:archive（例如人在網頁上合併、drive 早就結束），回傳 True 由這裡收尾。"""
+        過了寬限 agent 還 idle 或 done（done 是跑完一輪、pane 還沒人看過），代表沒人會送 /opsx-workflow:archive（例如人在網頁上合併、drive 早就結束），回傳 True 由這裡收尾。"""
         key = card_key(c)
         ago = self.now - datetime.datetime.fromisoformat(c["mr"]["merged_at"])
         minutes = ago.total_seconds() // 60
         if ago <= datetime.timedelta(minutes=ARCHIVE_GRACE_MINUTES):
             self.log("⏳ %s 已合併，等它自己 /opsx-workflow:archive" % key)
             return False
-        # idle 也可能是在等人回 gate，或互動模式的人暫時離開：那兩種不收，收了等於替人答 gate、關掉人的 session
+        # idle、done 也可能是在等人回 gate，或互動模式的人暫時離開：那兩種不收，收了等於替人答 gate、關掉人的 session
         waiting_human = c["open_gates"] or self.dispatch_file[key].get("mode") == "interactive"
-        if c["agent_status"] == "idle" and not waiting_human:
-            self.log("-- %s 合併 %d 分鐘了 agent 還 idle，沒人會 /opsx-workflow:archive，這裡收尾" % (key, minutes))
+        if c["agent_status"] in ("idle", "done") and not waiting_human:
+            self.log("-- %s 合併 %d 分鐘了 agent 還 %s，沒人會 /opsx-workflow:archive，這裡收尾" % (key, minutes, c["agent_status"]))
             return True
         self.log("?? %s 合併 %d 分鐘了還沒歸檔，agent 是 %s，要人看它卡在哪" % (key, minutes, c["agent_status"]))
         return False
@@ -1882,7 +1882,7 @@ def one_round(state, dry):
             r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：%s · 邏輯表：[logic-map.md](file://%s) · %s"
                      % (c["mr"]["url"], os.path.join(card_dir, "logic-map.md"), proxy_line(card_dir)))
         if w and w["type"] == "report 待你決定":
-            r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", "看 report.md 的待修與 Consider：" + c["mr"]["url"])
+            r.notify(c, "report", c["mr"]["head_sha"] + "/" + w["question"], "report 待你決定", w["question"] + "：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
         if c["mr"] and "stuck" in c["mr"] and not c["mr"]["error"]:
             reason = c["mr"]["stuck"]

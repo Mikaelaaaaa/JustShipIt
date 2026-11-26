@@ -7,6 +7,8 @@ assert_file "$F"
 # babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
 grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
 grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+grep -qF '停住：babysit 做完，邏輯表有沒經過決定的項目沒處理' "$F" || fail "skill 缺新推送：邏輯表有沒經過決定的項目沒處理"
+grep -qF 'whichever `停住：babysit 做完，…` line the hook sent for that card' "$F" || fail "skill 要把 report 待你決定跟 hook 任一條 babysit 停住行算同一項"
 ! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
 
 # 五塊依序出現
@@ -84,6 +86,20 @@ for s in 'force' '`+` refspec' "another card's branch" 'delete' 'merge'; do
   case "$RUN" in *"never run"*"$s"*) ;; *) fail "代跑段不跑的清單缺：$s — $RUN" ;; esac
 done
 case "$RUN" in *'"協調者代跑：<指令> → exit 0'*) ;; *) fail "回結果開頭要寫「協調者代跑：」：$RUN" ;; esac
+# 合併類唯一例外：同時帶 merge_when_pipeline_succeeds=true 與 sha= 的 auto-merge 重設照跑，少一個就當合併（specs/opsx-lead「代跑帶 sha 的 auto-merge 重設」）
+case "$RUN" in *'auto-merge reset'*'carrying both `merge_when_pipeline_succeeds=true` and `sha=<full head sha>`'*) ;; *) fail "代跑段要放行帶兩參數的 auto-merge 重設：$RUN" ;; esac
+case "$RUN" in *"\`<iid>\` is the MR in that card's report.md \`## MR\` URL"*) ;; *) fail "iid 要是這張卡的 MR：$RUN" ;; esac
+case "$RUN" in *'either parameter is missing, the sha is not a full 40-character sha, or the iid is another MR, it counts as a merge'*) ;; *) fail "少參數、sha 不完整、別張 MR 都當合併類：$RUN" ;; esac
+# 跑之前讀一次 pipeline，只有還在跑才跑（放行清單）；null、已綠、失敗都不跑、刪 by、列進 ①（D12、R3.1）
+case "$RUN" in *'Before running it, read `glab mr view <iid> -F json` once'*'Run it only when `head_pipeline` is not null, its sha equals the `sha=` of the 建議, and its status is `created`, `pending`, `running`, `waiting_for_resource`, `preparing` or `scheduled`'*) ;; *) fail "重設前要讀 pipeline、只在還在跑時跑：$RUN" ;; esac
+case "$RUN" in *'In every other case the PUT would merge at once'*"delete its \`by: coordinator\` line and list it in block ①"*) ;; *) fail "其餘狀態不跑、刪 by、列進 ①：$RUN" ;; esac
+case "$RUN" in *'when `head_pipeline.status` is `success`, the PUT would merge at once, so do not run it'*) fail "防線不能只擋 success：$RUN" ;; esac
+# 讀取到 PUT 之間變綠的窗口寫明接受（D18）
+case "$RUN" in *'The window between that read and the PUT is accepted'*'merges at once'*) ;; *) fail "要寫明讀取到 PUT 之間的窗口：$RUN" ;; esac
+# 轉給使用者時提醒已綠會直接合併（D26）
+case "$RUN" in *'When you list a reset gate in block ①, add that the PUT merges at once if the pipeline has turned `success`'*) ;; *) fail "轉給使用者時要提醒已綠會直接合併：$RUN" ;; esac
+MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
+case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
 case "$FG" in *'`by: coordinator`'*) ;; *) fail "duty 2 開頭要寫明代跑結果是例外：$FG" ;; esac
 # 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
