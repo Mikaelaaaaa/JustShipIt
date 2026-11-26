@@ -103,19 +103,37 @@ section "Test agent" > "$TA"
 # Scenario：Test agent 段落寫明靜態守門算相關測試
 has 'a static guard whose scan covers a file you changed' "$TA"
 has 'needs no database, network or other service' "$TA"
+# R1.1：brief 要帶被改檔案，Test agent 才能判斷守門是否蓋到
+has 'the files this change touches' "$TA"
 # Scenario：不跑全套的原句保留
 has 'Do not run the whole suite; CI does that.' "$TA"
-! grep -qiF 'exception to' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
+! grep -qiE 'exception|except for' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
 # Scenario：Test agent 段落寫明找守門的兩種方法
+has 'pnpm test:ring0' "$TA"
+has 'run that target and skip the search below' "$TA"
+has 'check whether the repo'"'"'s CLAUDE.md lists a document to read' "$TA"
 has 'read the guard index it points to in full, never through `grep | head`' "$TA"
+has 'run every guard the index lists whose scan covers a file you changed, whether or not the grep below finds it' "$TA"
 has 'the helpers they import' "$TA"
 has '`readdirSync`, `glob`, `os.walk`' "$TA"
+has '`git ls-files`' "$TA"
 # Scenario：只 grep 被改路徑不夠
 has 'A grep for the changed path alone misses a guard that builds its root from segments' "$TA"
+! grep -qF 'grep the test files for the changed path' "$TA" || fail "不能叫 agent 只 grep 被改路徑（D3）"
 # Scenario：守門在 base 也紅時不擋卡（Examples 三列）
 has 'run the same guard on the base commit' "$TA"
-has 'Red on the base too: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and record `--tests green`' "$TA"
-has 'Green on the base: it is this change'"'"'s failure, and the two fix cycles below apply' "$TA"
-has 'still red after two cycles is recorded `--tests red` like any other test' "$TA"
+has 'git merge-base HEAD <primary remote>/main' "$TA"
+has 'when the fetch fails, the red is this change'"'"'s failure' "$TA"
+has 'git stash push -u -m <unique tag>' "$TA"
+has 'git stash apply <sha>' "$TA"
 has 'never a bare `git stash`' "$TA"
+has 'When any of that cannot be done, do not run the base' "$TA"
+has 'Compare failure by failure (file and message), not red against green.' "$TA"
+has 'Every failure on this change also on the base: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and count that guard as green' "$TA"
+has 'the run'"'"'s other tests keep their own result' "$TA"
+has 'Any failure the base does not have: it is this change'"'"'s failure, and the two fix cycles below apply' "$TA"
+has 'still red after two cycles is recorded `--tests red` like any other test' "$TA"
+# R1.2：ratchet 守門的基線檔算範圍內，帶前綴的更新指令開 needs: run gate
+has 'the baseline file the guard names is in scope' "$TA"
+has 'write a `needs: run` gate for that command instead of aborting the change' "$TA"
 echo ok
