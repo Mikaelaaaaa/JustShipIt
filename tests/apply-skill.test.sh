@@ -62,6 +62,8 @@ has '/opsx-workflow:apply <slug>' "$OPSX_ROOT/skills/pr/SKILL.md"
 grep -F "A problem outside this card's scope" "$SK" > "$FX/row6"
 [ "$(wc -l < "$FX/row6" | tr -d ' ')" = 1 ] || fail "skeleton 第 6 列要剛好一行"
 for k in 'opsx new' '--kind-of-work' '--type' 'path:line' 'existing card' 'never dispatch'; do has "$k" "$FX/row6"; done
+# 沒帶 --name 的 opsx new 會被拒絕：教的指令要帶卡名（board-actions「卡名由 --name 指定」）
+has 'opsx new --name <描述性卡名>' "$FX/row6"
 for k in 'openspec new change' '--area' 'areas.txt'; do ! grep -qF -- "$k" "$FX/row6" || fail "第 6 列不能再提 $k"; done
 # 開卡前不知道會不會被併：完整證據事前就寫進 --evidence；放不下時 split-out 再寫；priority 只對沒被併的新卡跑
 has '併進' "$FX/row6"

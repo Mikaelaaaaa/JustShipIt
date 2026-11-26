@@ -85,34 +85,47 @@ branch_user() { # <top>
   printf '%s\n' "$u"
 }
 
-# 在 <top> 用 openspec 建殼，inbox.md 寫成 <內容檔>；slug 已存在就依序加 -2、-3。印實際的 slug。
-# 任何日期的 archive/<YYYY-MM-DD>-<slug> 也算已存在：openspec archive 撞到同名目錄會拒絕，舊名重用也會讓紀錄指到兩張卡。
-# 建好就掛進 workplan（workplanwrite.py attach），<父卡> 沒給時從卡的 source: agent:<卡> 取。
-# 掛不進去只警告、照樣印 slug：卡已經建好，退出非零會讓呼叫端或 agent 再建一張。
+# <slug> 的第 <n> 個候選：n=1 是 slug 本身，之後加 -<n>。
 # 總長超過 32 時截中段、保留最後一段（issue 編號）：gh-<repo>-1 撞名要變 gh-<re>-1-2，不能變成 issue #2 的 gh-<repo>-2。
 # 沒有 - 或最後一段太長（留不下開頭至少一個字）時，改成截尾再加 -N。
+slug_candidate() { # <slug> <n>
+  local s="$1" sfx="" head tail keep
+  [ "$2" -eq 1 ] || sfx="-$2"
+  if [ $(( ${#s} + ${#sfx} )) -le 32 ]; then printf '%s\n' "$s$sfx"; return; fi
+  head="${s%-*}"; tail="${s##*-}"; keep=$((32 - ${#tail} - ${#sfx} - 1))
+  if [ "$head" != "$s" ] && [ "$keep" -ge 1 ]; then
+    head="${head:0:$keep}"; printf '%s\n' "${head%-}-$tail$sfx"
+  else
+    s="${s:0:$((32 - ${#sfx}))}"; printf '%s\n' "${s%-}$sfx"
+  fi
+}
+
+# 在 <top> 用 openspec 建殼，inbox.md 寫成 <內容檔>；slug 已被占用就依序加 -2、-3，總長照 slug_candidate 截到 32 字以內。印實際的 slug。
+# 占用：殼已在、歸檔過（archive/<日期>-<slug>）、workplan 有同名 feature、PR 或 change、或有 */<slug>/* 或 */<slug> 分支。
+# 後三者會讓新卡的 PR 名、branch 名跟舊的撞在一起，卡名就不再等於 PR 名和 branch 名（有 feat/<slug> 時 git 建不出 feat/<slug>/<user>）。
+# 歸檔過也算：openspec archive 撞到同名目錄會拒絕，舊名重用也會讓紀錄指到兩張卡。
+# workplan 讀不了時 names 只警告、不印名字：照樣建殼，只少了 workplan 名字的撞名檢查。
+# 建好就掛進 workplan（workplanwrite.py attach），<父卡> 沒給時從卡的 source: agent:<卡> 取。
+# 掛不進去只警告、照樣印 slug：卡已經建好，退出非零會讓呼叫端或 agent 再建一張。
 # 並行呼叫挑同一個 slug：先 mkdir <top>/openspec/.reserve-<slug>（原子）拿到保留，才建殼；建完或失敗都放掉。
 # 不能預先 mkdir changes/<slug>：openspec new change 看到已存在會拒絕。
 new_shell() { # <top> <slug> <inbox 內容檔> [<父卡>]
-  local top="$1" slug="$2" n=1 head tail keep res err
+  local top="$1" slug n=1 res err wp refs heads='refs/heads/*'
+  wp="$("$OPSX_PY" -I "$(dirname "${BASH_SOURCE[0]}")/workplanwrite.py" names "$top")" || die "讀不到 ${top} 的 workplan（上面是原因）"
+  slug="$(slug_candidate "$2" 1)"
   while :; do
     res="$top/openspec/.reserve-$slug"
     if err="$(mkdir "$res" 2>&1)"; then
-      [ -e "$top/openspec/changes/$slug" ] || compgen -G "$top/openspec/changes/archive/????-??-??-$slug" >/dev/null || break
+      refs="$(git -C "$top" for-each-ref --format='%(refname)' "$heads/$slug/*" "$heads/$slug")" || { rmdir "$res"; die "讀不到 ${top} 的分支（上面是原因）"; }
+      [ -e "$top/openspec/changes/$slug" ] || [ -n "$refs" ] || [[ $'\n'"$wp"$'\n' == *$'\n'"$slug"$'\n'* ]] \
+        || compgen -G "$top/openspec/changes/archive/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-$slug" > /dev/null || break
       rmdir "$res"
     elif [ ! -w "$top/openspec" ]; then
       die "建不了保留目錄 ${res}（${top}/openspec 不可寫）"
     fi
     n=$((n+1))
     [ "$n" -le 1000 ] || die "試了 1000 個 slug 都拿不到保留（最後一個 ${res}）：${err}"
-    slug="$2-$n"
-    [ ${#slug} -gt 32 ] || continue
-    head="${2%-*}"; tail="${2##*-}"; keep=$((32 - ${#tail} - ${#n} - 2))
-    if [ "$head" != "$2" ] && [ "$keep" -ge 1 ]; then
-      head="${head:0:$keep}"; slug="${head%-}-$tail-$n"
-    else
-      slug="${2:0:$((32 - ${#n} - 1))}"; slug="${slug%-}-$n"
-    fi
+    slug="$(slug_candidate "$2" "$n")"
   done
   ( cd "$top" && openspec new change "$slug" --schema opsx >/dev/null ) || { rmdir "$res"; die "openspec new change $slug 失敗（${top}）"; }
   cp "$3" "$top/openspec/changes/$slug/inbox.md" || { rmdir "$res"; die "寫不進 $top/openspec/changes/$slug/inbox.md"; }

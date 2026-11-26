@@ -12,7 +12,7 @@ mkdir -p "$E/bin" "$E/.claude/worktrees"; printf 'x\n' > "$E/bin/x.sh"
 git -C "$E" worktree add -q -b fix/foo/mikaela "$E/.claude/worktrees/foo" || fail "worktree foo 建不起來"
 W="$(cd "$E/.claude/worktrees/foo" && pwd -P)"
 OUT="$FX/out"; ERR="$FX/err"
-ID=agent-20261111-1040
+ID=a-sh-quote
 
 reset() { chmod -R u+w "$C" 2>/dev/null; rm -rf "$C"/*; }
 card() { # card <slug> [frontmatter 行…]：只有 inbox.md、證據提到 bin/x.sh 的卡（stage explore）
@@ -21,11 +21,11 @@ card() { # card <slug> [frontmatter 行…]：只有 inbox.md、證據提到 bin
   { printf -- '---\ntype: 功能\nsource: me\nfound: 2026-11-10\nrelated:\nkind_of_work: planned\n'; [ $# -eq 0 ] || printf '%s\n' "$@"; printf -- '---\n\n## 一句話\n\n%s\n\n## 證據\n\n- 原本的證據 bin/x.sh\n' "$s"; } > "$C/$s/inbox.md"
 }
 # 併入靠共同檔案：預設帶 --evidence bin/x.sh，呼叫端再帶一次 --evidence 會蓋掉它
-merge() { (cd "$W" && opsx new --repo "$E" --evidence bin/x.sh "$@") > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"; }
+merge() { (cd "$W" && opsx new --name "$ID" --repo "$E" --evidence bin/x.sh "$@") > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"; }
 split() { opsx split-out --repo "$E" "$@" > "$OUT" 2> "$ERR"; }
 dirs() { find "$C" -mindepth 1 -maxdepth 1 -type d | sed 's#.*/##' | LC_ALL=C sort | tr '\n' ' '; }
 
-# --- 拆回獨立的卡 ---
+# --- 拆回獨立的卡：併入 id 是 opsx new 的 --name，拆出來的卡就叫這個名字（board-actions「併入 id 是卡名」）---
 # 併入時在段前補的空行不屬於那一段，拆完留著：x 是併入前的內容加一個空行
 reset; card x; cp "$C/x/inbox.md" "$FX/orig.md"; printf '\n' >> "$FX/orig.md"
 merge --kind-of-work planned --evidence "bin/x.sh 紅" -- 鉤子漏擋
@@ -43,13 +43,23 @@ assert_eq "$(find "$E/openspec" -maxdepth 1 -name '.reserve-*' | wc -l | tr -d '
 
 # planned、沒有 impact/evidence 的段：新殼也不寫這兩行；段內 type 寫回去
 reset; card x
-(cd "$W" && opsx new --type 技術債 --kind-of-work planned --repo "$E" -- "bin/x.sh 沒有事實") > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
+(cd "$W" && opsx new --name "$ID" --type 技術債 --kind-of-work planned --repo "$E" -- "bin/x.sh 沒有事實") > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
 assert_grep "^- id: $ID\$" "$C/x/inbox.md"
 split x "$ID"; assert_eq "$?" 0 "$(cat "$ERR")"
 assert_grep '^source: agent:foo$' "$C/$ID/inbox.md"; assert_grep '^type: 技術債$' "$C/$ID/inbox.md"
 assert_grep '^kind_of_work: planned$' "$C/$ID/inbox.md"; assert_grep '^bin/x.sh 沒有事實$' "$C/$ID/inbox.md"
 assert_not_grep '^impact:' "$C/$ID/inbox.md"; assert_not_grep '^evidence:' "$C/$ID/inbox.md"; assert_not_grep '^area:' "$C/$ID/inbox.md"
 assert_grep '^## 證據$' "$C/$ID/inbox.md"
+
+# --- 32 字的卡名併入兩次：第二段 id 是 <名>-2（34 字），拆出來的殼要截回 32 字以內 ---
+reset; card x
+L32=keyboard-covers-chat-input-box-1
+(cd "$W" && opsx new --name "$L32" --kind-of-work planned --repo "$E" --evidence bin/x.sh -- 第一段) > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
+(cd "$W" && opsx new --name "$L32" --kind-of-work planned --repo "$E" --evidence bin/x.sh -- 第二段) > /dev/null 2> "$ERR" || fail "併入失敗：$(cat "$ERR")"
+assert_grep "^- id: $L32-2\$" "$C/x/inbox.md"
+split x "$L32-2"; assert_eq "$?" 0 "$(cat "$ERR")"
+assert_eq "$(cat "$OUT")" keyboard-covers-chat-input-box-2 "截中段、保留最後一段"
+assert_grep '^第二段$' "$C/keyboard-covers-chat-input-box-2/inbox.md"
 
 # --- 拆出舊格式的段（只有 - area:）：type 寫待定，不寫 area ---
 reset; card x
