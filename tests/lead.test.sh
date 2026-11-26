@@ -27,6 +27,14 @@ out="$(opsx lead 2>&1)"; [ $? -ne 0 ] || fail "沒有設定檔要非 0：$out"
 case "$out" in *"opsx init --global"*) ;; *) fail "要叫人跑 opsx init --global：$out" ;; esac
 assert_not_grep '^tab create' "$OPSX_FAKE_LOG"
 
+# Codex uses the same coordinator name and reads the lead playbook directly.
+: > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(opsx lead --agent codex 2>&1)"; assert_eq "$?" 0 "Codex lead rc：$out"
+assert_grep '^agent start opsx-coordinator --kind codex --pane ' "$OPSX_FAKE_LOG"
+assert_grep '^agent prompt opsx-coordinator .*skills/lead/SKILL.md' "$OPSX_FAKE_LOG"
+assert_not_grep 'autocompact' "$OPSX_FAKE_LOG"
+assert_rc 2 opsx lead --agent other
+
 printf '{"sandbox":{}}\n' > "$S"
 
 # --- 在 fake herdr 下開協調者 ---
