@@ -88,9 +88,53 @@ stage "$N"; h="$(head_of "$N")"
 agent "$N" 'git commit -q -m x'
 [ "$(head_of "$N")" != "$h" ] || fail "沒有 workplan 的 repo 要放行: $(cat "$FX/err")"
 
-# --- 主殼有勾就放行，量一次耗時 ---
+# --- 主殼全未勾：agent 的 merge、rebase 不判斷（D11） ---
 git -C "$R" checkout -q feat/card/mikaela
+git -C "$R" checkout -q -b side2; echo s2 > "$R/s2.txt"; git -C "$R" add s2.txt; human "$R" 'git commit -q -m side2'
+git -C "$R" checkout -q feat/card/mikaela; echo m2 > "$R/g.txt"; git -C "$R" add g.txt; human "$R" 'git commit -q -m m2'
+h="$(head_of "$R")"
+agent "$R" 'git merge -q --no-edit side2'
+assert_eq "$(git -C "$R" rev-list --count --merges "$h"..HEAD)" 1 "agent 的 merge 要放行: $(cat "$FX/err")"
+git -C "$R" branch up
+git -C "$R" checkout -q up; echo u > "$R/u.txt"; git -C "$R" add u.txt; human "$R" 'git commit -q -m up'
+git -C "$R" checkout -q feat/card/mikaela; echo r > "$R/r.txt"; git -C "$R" add r.txt; human "$R" 'git commit -q -m r'
+agent "$R" 'git rebase -q up'
+if [ -d "$R/.git/rebase-merge" ] || [ -d "$R/.git/rebase-apply" ]; then
+  git -C "$R" rebase --abort; fail "agent 的 rebase 不能停在一半: $(cat "$FX/err")"
+fi
+git -C "$R" merge-base --is-ancestor up HEAD || fail "agent 的 rebase 要放行: $(cat "$FX/err")"
+assert_eq "$(git -C "$R" branch --show-current)" feat/card/mikaela "rebase 完要回到卡的分支"
+
+# --- [no-change] 只算這個 commit 自己的訊息（D12） ---
+printf 'x\n# [no-change]\n' > "$FX/msg-comment"
+blocked "$R" "git commit --cleanup=strip -F $FX/msg-comment"
+stage "$R"; agent "$R" "git commit -q -m 'wip [no-change]'"
+blocked "$R" 'git commit --amend --no-edit'
+stage "$R"; h="$(head_of "$R")"
+agent "$R" "git commit -q --amend -m 'y [no-change]'"
+[ "$(head_of "$R")" != "$h" ] || fail "amend 時自己寫的 [no-change] 要放行: $(cat "$FX/err")"
+
+# --- 沒有 python 時 [no-change] 用閘門訊息擋（D13） ---
+mkdir -p "$FX/nopy"; printf '/nonexistent/python3\n' > "$FX/nopy/python"
+stage "$R"; h="$(head_of "$R")"
+( cd "$R" && env -u OPSX_CARD CLAUDECODE=1 OPSX_STATE_DIR="$FX/nopy" git commit -q -m 'wip [no-change]' ) 2>"$FX/err"
+assert_eq "$(head_of "$R")" "$h" "沒有 python 要擋下: $(cat "$FX/err")"
+grep -q 'opsx commit 閘門' "$FX/err" || fail "沒有 python 時 stderr 要含閘門訊息: $(cat "$FX/err")"
+git -C "$R" reset -q --hard
+
+# --- linked worktree（dispatch 真正 commit 的地方，沒有 openspec/）照主 checkout 的卡判斷 ---
+W="$R/.claude/worktrees/card"
+git -C "$R" worktree add -q -b feat/card/wt "$W"
+[ ! -d "$W/openspec" ] || fail "fixture：linked worktree 不該有 openspec/"
+n=$((n + 1)); echo "$n" > "$W/f.txt"; git -C "$W" add f.txt; h="$(head_of "$W")"
+agent "$W" 'git commit -q -m x'
+assert_eq "$(head_of "$W")" "$h" "linked worktree 主殼未勾要擋下: $(cat "$FX/err")"
+grep -q 'opsx commit 閘門' "$FX/err" || fail "linked worktree 擋下要印閘門訊息: $(cat "$FX/err")"
+
+# --- 主殼有勾就放行，量一次耗時 ---
 printf '## 1. x\n\n- [x] 1.1 a\n' > "$C/tasks.md"
+agent "$W" 'git commit -q -m x'
+[ "$(head_of "$W")" != "$h" ] || fail "linked worktree 主殼有勾要放行: $(cat "$FX/err")"
 stage "$R"; h="$(head_of "$R")"
 t0="$EPOCHREALTIME"; agent "$R" 'git commit -q -m x'; t1="$EPOCHREALTIME"
 [ "$(head_of "$R")" != "$h" ] || fail "主殼有勾要放行: $(cat "$FX/err")"

@@ -26,16 +26,16 @@ opsx_stack() {
   [ -z "$(git status --porcelain)" ] || die "stack: $branch 有未 commit 的改動，先收乾淨再疊"
 
   # 先勾再 cherry-pick：git 端 commit 閘門在 cherry-pick 的 commit 當下要看到主殼已勾
-  local orig ticked
-  orig="$(cat "$d/tasks.md")" || die "stack: 讀不了 $d/tasks.md"
-  ticked="$(awk -v s="\`$sub\`" '!done && match($0, /^[[:space:]]*- \[ \] [0-9.]+ /) && substr($0, RSTART + RLENGTH, length(s)) == s { sub(/- \[ \] /, "- [x] "); done = 1 } { print }' "$d/tasks.md")" || die "stack: 勾 $d/tasks.md 失敗，檔案沒動"
-  printf '%s\n' "$ticked" | opsx_replace "$d/tasks.md" || die "stack: 寫不了 $d/tasks.md（上面有原因）"
+  flip_task "$d/tasks.md" "$sub" ' ' x || die "stack: 勾 $d/tasks.md 失敗（上面有原因）"
 
-  if ! git cherry-pick "$sha" >/dev/null 2>&1; then
+  local out
+  if ! out="$(git cherry-pick "$sha" 2>&1)"; then
     local conflicts; conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
     git cherry-pick --abort >/dev/null 2>&1 || true
-    printf '%s\n' "$orig" | opsx_replace "$d/tasks.md" || die "stack: cherry-pick $sha 失敗，tasks.md 寫不回原樣（上面有原因）：$d/tasks.md"
-    [ -n "$conflicts" ] || die "stack: cherry-pick $sha 失敗，不是衝突（空 commit 或 git 錯誤）；歷史沒動"
+    # 只改回剛勾的那一行：同時間別的 stack 勾的項目不能被蓋掉
+    flip_task "$d/tasks.md" "$sub" x ' ' || die "stack: cherry-pick $sha 失敗，tasks.md 改不回未勾（上面有原因）：$d/tasks.md"
+    [ -n "$conflicts" ] || die "stack: cherry-pick $sha 失敗，不是衝突（空 commit 或 git 錯誤）；歷史沒動。git 的輸出：
+$out"
     log_row "$d" session 已決定 "$sub 疊回衝突，改由 session 在 PR 分支重做" "衝突檔：${conflicts% }；$sha"
     say "stack: ${sub} 疊回衝突（${conflicts% }），已 abort；在 ${branch} 上自己重做 ${sub}"
     exit 3
@@ -46,4 +46,8 @@ opsx_stack() {
 
 task_line() { # <tasks.md> <子> <勾的樣子，regex>：項目本身是這個子 change（編號後第一個反引號名），而且是這個勾法
   grep -qE "^[[:space:]]*- $3 [0-9.]+ \`$2\`" "$1"
+}
+
+flip_task() { # <tasks.md> <子> <原本的勾字元> <新的勾字元>：只改這個子 change 的第一項，其餘位元組照原樣（perl -p 不補檔尾換行）
+  perl -pe 'BEGIN { ($s, $from, $to) = splice(@ARGV, 0, 3) } if (!$done && /^\s*- \[\Q$from\E\] [0-9.]+ \Q$s\E/) { s/- \[\Q$from\E\] /- [$to] /; $done = 1 }' "\`$2\`" "$3" "$4" "$1" | opsx_replace "$1"
 }

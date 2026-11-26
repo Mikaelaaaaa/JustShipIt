@@ -86,6 +86,8 @@ grep -q '^- \[ \] 1.3 `s3`' "$M/tasks.md" || fail "s3 不該勾"
 
 # --- Scenario：兩個子 change 改同一行 ---
 head="$(git rev-parse HEAD)"
+# 檔尾不帶換行：寫回也要逐字相同
+printf '%s' "$(cat "$M/tasks.md")" > "$FX/t"; mv "$FX/t" "$M/tasks.md"
 cp "$M/tasks.md" "$FX/tasks-before.md"
 out="$(opsx stack m s2 "$S2" 2>&1)"; rc=$?
 assert_eq "$rc" 3 "衝突退出 3: $out"
@@ -96,6 +98,7 @@ assert_eq "$(git rev-parse HEAD)" "$head" "衝突後 HEAD 不變"
 assert_grep 's2' "$M/decisions.tsv"
 assert_grep '疊回衝突' "$M/decisions.tsv"
 grep -q '^- \[ \] 1.2 `s2`' "$M/tasks.md" || fail "衝突的 s2 不勾"
+echo >> "$M/tasks.md"
 
 # 衝突之後沒依賴的子 change 照疊
 out="$(opsx stack m s3 "$S3" 2>&1)"; assert_eq "$?" 0 "s3 疊回: $out"
@@ -133,6 +136,25 @@ out="$(opsx stack m s5 "$S5" 2>&1)"; rc=$?
 echo "$out" | grep -q '不是衝突' || fail "訊息要含「不是衝突」: $out"
 cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "非衝突失敗後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
 assert_eq "$(git rev-parse HEAD)" "$head" "非衝突失敗不動歷史"
+
+# --- cherry-pick 被 commit hook 擋時，印出 hook 的原因 ---
+cat >> "$R/openspec/workplan.yaml" <<'EOF'
+          - name: s6
+            status: pending
+            depends-on: []
+EOF
+printf -- '- [ ] 1.6 `s6`：加 d.txt\n  - 驗收：x\n  - 測試：x\n' >> "$M/tasks.md"
+git checkout -q -b feat/m--s6/u "$base"; printf 'd\n' > d.txt; git add d.txt; git commit -q -m "feat: s6"; S6="$(git rev-parse HEAD)"
+git checkout -q feat/m/u
+printf '#!/bin/sh\necho HOOK-SAYS-NO >&2\nexit 1\n' > .git/hooks/prepare-commit-msg; chmod +x .git/hooks/prepare-commit-msg
+head="$(git rev-parse HEAD)"
+cp "$M/tasks.md" "$FX/tasks-before.md"
+out="$(opsx stack m s6 "$S6" 2>&1)"; rc=$?
+rm .git/hooks/prepare-commit-msg
+[ $rc -ne 0 ] || fail "hook 擋下要失敗: $out"
+echo "$out" | grep -q 'HOOK-SAYS-NO' || fail "要印出 hook 的原因: $out"
+cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "hook 擋下後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
+assert_eq "$(git rev-parse HEAD)" "$head" "hook 擋下不動歷史"
 
 # --- Scenario：文件寫出反引號格式 ---
 for f in skills/propose/SKILL.md references/work-split.md; do
