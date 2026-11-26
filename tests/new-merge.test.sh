@@ -26,8 +26,8 @@ to_propose() { # to_propose <slug>：有 explore.md（待決空）、grill.md、
   printf '## 已知\n\n- a\n\n## 待決\n\n## 不做\n\n- c\n' > "$C/$1/explore.md"
   printf 'D1 a\n' > "$C/$1/grill.md"; printf '## Why\n\na\n' > "$C/$1/proposal.md"
 }
-agent_new() { (cd "$W" && opsx new "$@") > "$OUT" 2> "$ERR"; }
-user_new() { (cd "$E" && opsx new "$@") > "$OUT" 2> "$ERR"; }
+agent_new() { (cd "$W" && opsx new --name agent-card "$@") > "$OUT" 2> "$ERR"; }
+user_new() { (cd "$E" && opsx new --name user-card "$@") > "$OUT" 2> "$ERR"; }
 dirs() { find "$C" -mindepth 1 -maxdepth 1 -type d | sed 's#.*/##' | LC_ALL=C sort | tr '\n' ' '; }
 stage() { (source "$OPSX_ROOT/bin/lib/common.sh"; source "$OPSX_ROOT/bin/lib/stage.sh"; stage_name "$E" "$1"); }
 merged_into() { # merged_into <目標>：stdout 是目標、沒有新殼
@@ -39,15 +39,22 @@ merged_into() { # merged_into <目標>：stdout 是目標、沒有新殼
 reset; card x '`bin/x.sh` 的檢查'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh:12 漏擋"; assert_eq "$?" 0 "併入要退出 0：$(cat "$ERR")"
 merged_into x 1
-assert_grep '併進 x（id agent-20261111-1040）' "$ERR"
+assert_grep '併進 x（id agent-card）' "$ERR"
 assert_eq "$(find "$E/openspec" -maxdepth 1 -name '.reserve-*' | wc -l | tr -d ' ')" 0 "不留保留目錄"
 assert_grep '^## 併入：2026-11-11T10:40:[0-9][0-9]+08:00 agent:foo$' "$C/x/inbox.md"
-assert_grep '^- id: agent-20261111-1040$' "$C/x/inbox.md"
+assert_grep '^- id: agent-card$' "$C/x/inbox.md"
 assert_grep '^- kind_of_work: planned$' "$C/x/inbox.md"
 assert_grep '^- type: bug$' "$C/x/inbox.md"
 assert_not_grep '^- area:' "$C/x/inbox.md"; assert_not_grep '^- impact:' "$C/x/inbox.md"; assert_not_grep '^- evidence:' "$C/x/inbox.md"
 assert_eq "$(tail -1 "$C/x/inbox.md")" "bin/x.sh:12 漏擋" "一句話是併入段最後一行"
 assert_eq "$(grep -c '^## 一句話$' "$C/x/inbox.md")" 1 "原本的內容不動"
+
+# --- 併入 id 是卡名，split-out 拆回同名的卡（board-actions「併入 id 是卡名」）---
+reset; card x 'bin/x.sh'
+(cd "$W" && opsx new --name a-sh-quote --type bug --kind-of-work planned --evidence bin/x.sh --repo "$E" -- a.sh 少引號) > "$OUT" 2> "$ERR"; merged_into x 1
+assert_grep '^- id: a-sh-quote$' "$C/x/inbox.md"
+assert_eq "$(opsx split-out --repo "$E" x a-sh-quote 2> "$ERR")" a-sh-quote "split-out 拆回同名的卡：$(cat "$ERR")"
+assert_file "$C/a-sh-quote/inbox.md"
 
 # --- 技術債也併 ---
 reset; card x 'bin/x.sh'
@@ -58,7 +65,7 @@ assert_grep '^- type: 技術債$' "$C/x/inbox.md"
 reset; card x 'bin/x.sh'
 user_new --type bug --repo "$E" -- "bin/x.sh 漏擋"; merged_into x 1
 assert_grep '^## 併入：2026-11-11T10:40:[0-9][0-9]+08:00 me$' "$C/x/inbox.md"
-assert_grep '^- id: me-20261111-1040$' "$C/x/inbox.md"
+assert_grep '^- id: user-card$' "$C/x/inbox.md"
 
 # --- 只差行號算同檔案 ---
 reset; card x 'bin/x.sh:3'
@@ -75,7 +82,7 @@ agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 錯"; merged_into x 1
 # --- 併入段的檔案也算 ---
 reset; card x '沒有路徑'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 錯"; new_out="$(cat "$OUT")"
-case "$new_out" in agent-*) ;; *) fail "x 沒提到 bin/x.sh，要建新殼：$new_out" ;; esac
+case "$new_out" in agent-card) ;; *) fail "x 沒提到 bin/x.sh，要建新殼：$new_out" ;; esac
 rm -rf "$C/$new_out"
 printf '\n## 併入：2026-11-10T09:00:00+08:00 agent:bar\n\n- id: agent-20261110-0900\n- kind_of_work: planned\n- evidence: 見 bin/x.sh\n- type: bug\n\nbin/y.sh 錯\n' >> "$C/x/inbox.md"
 agent_new --kind-of-work planned --repo "$E" -- "bin/y.sh 又錯"; merged_into x 1
@@ -84,7 +91,7 @@ agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 再錯"; merged_into x
 # --- 目標卡的路徑只在 frontmatter evidence（opsx new --evidence 寫的位置）也算 ---
 reset
 agent_new --kind-of-work planned --evidence "bin/x.sh:7 紅" --repo "$E" -- 第一張沒寫路徑; first="$(cat "$OUT")"
-case "$first" in agent-*) ;; *) fail "第一張要建殼：$first $(cat "$ERR")" ;; esac
+case "$first" in agent-card) ;; *) fail "第一張要建殼：$first $(cat "$ERR")" ;; esac
 assert_grep '^evidence: bin/x.sh:7 紅$' "$C/$first/inbox.md"
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh:9 又紅"; merged_into "$first" 1
 
@@ -103,12 +110,12 @@ reset; card x 'bin/x.sh'; to_propose x
 assert_eq "$(stage x)" propose "fixture 要是 propose"
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 併進 propose"; merged_into x 1
 
-# --- 同一分鐘兩次併入 ---
+# --- 同名兩次併入 ---
 reset; card x 'bin/x.sh'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 第一次"
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 第二次"
-assert_grep '併進 x（id agent-20261111-1040-2）' "$ERR"
-assert_eq "$(grep '^- id:' "$C/x/inbox.md" | tr '\n' ' ')" "- id: agent-20261111-1040 - id: agent-20261111-1040-2 "
+assert_grep '併進 x（id agent-card-2）' "$ERR"
+assert_eq "$(grep '^- id:' "$C/x/inbox.md" | tr '\n' ' ')" "- id: agent-card - id: agent-card-2 "
 assert_eq "$(dirs)" "x "
 
 # --- evidence 帶進去 ---
@@ -121,84 +128,84 @@ assert_not_grep '^- impact:' "$C/x/inbox.md"
 # --- 不併的情況：照樣建殼，別的卡不動 ---
 keep() { cp "$C/$1/inbox.md" "$FX/keep.md"; }
 kept() { cmp -s "$C/$1/inbox.md" "$FX/keep.md" || fail "$1/inbox.md 不該變：$(cat "$C/$1/inbox.md")"; }
-new_shell_out() { # 建了新殼：stdout 以 <前綴> 開頭、殼存在、stderr 沒有「併進」
-  case "$(cat "$OUT")" in "$1"-*) ;; *) fail "要建新殼（$1-），stdout：$(cat "$OUT") stderr：$(cat "$ERR")" ;; esac
+new_shell_out() { # 建了新殼：stdout 是 <卡名> 或撞名加號的 <卡名>-N、殼存在、stderr 沒有「併進」
+  case "$(cat "$OUT")" in "$1"|"$1"-[0-9]*) ;; *) fail "要建新殼（$1），stdout：$(cat "$OUT") stderr：$(cat "$ERR")" ;; esac
   assert_file "$C/$(cat "$OUT")/inbox.md"; assert_not_grep '併進' "$ERR"
 }
 # 功能不併
 reset; card x 'bin/x.sh'; keep x
-agent_new --type 功能 --kind-of-work planned --repo "$E" -- "bin/x.sh 新功能"; new_shell_out agent; kept x
+agent_new --type 功能 --kind-of-work planned --repo "$E" -- "bin/x.sh 新功能"; new_shell_out agent-card; kept x
 assert_grep '^type: 功能$' "$C/$(cat "$OUT")/inbox.md"
 # 想法不併
 reset; card x 'bin/x.sh'; keep x
-agent_new --type 想法 --kind-of-work planned --repo "$E" -- "bin/x.sh 想法"; new_shell_out agent; kept x
+agent_new --type 想法 --kind-of-work planned --repo "$E" -- "bin/x.sh 想法"; new_shell_out agent-card; kept x
 # 使用者卡預設待定不併
 reset; card x 'bin/x.sh'; keep x
-user_new --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out me; kept x
+user_new --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out user-card; kept x
 assert_grep '^type: 待定$' "$C/$(cat "$OUT")/inbox.md"
 # incident 一律不併
 reset; card x 'bin/x.sh'; keep x
-agent_new --kind-of-work incident --impact workaround_exists --evidence "bin/x.sh" --repo "$E" -- 有繞法; new_shell_out agent; kept x
+agent_new --kind-of-work incident --impact workaround_exists --evidence "bin/x.sh" --repo "$E" -- 有繞法; new_shell_out agent-card; kept x
 reset; card x 'bin/x.sh'; keep x
-agent_new --kind-of-work incident --impact security --evidence "bin/x.sh" --repo "$E" -- P0; new_shell_out agent; kept x
+agent_new --kind-of-work incident --impact security --evidence "bin/x.sh" --repo "$E" -- P0; new_shell_out agent-card; kept x
 # 目標 P0 不併
 reset; card x 'bin/x.sh' 'kind_of_work: incident' 'impact: security' 'evidence: e'; keep x
 sed -i '' '/^kind_of_work: planned$/d' "$C/x/inbox.md"; keep x
 assert_eq "$(opsx priority x --repo "$E" | cut -f1)" P0 "fixture 要是 P0"
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out agent-card; kept x
 # 目標 P0 跳過，下一張有共同檔案的照併
 rm -rf "$C/$(cat "$OUT")"; card y 'bin/x.sh'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 再漏"; assert_eq "$(cat "$OUT")" y "$(cat "$ERR")"; kept x
 # 目標等級算不出來不併
 reset; card x 'bin/x.sh' 'impact: slow'; keep x
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 漏擋"; new_shell_out agent-card; kept x
 assert_grep 'x' "$ERR"; assert_grep '等級' "$ERR"
 # 沒有路徑不併
 reset; card x 'bin/x.sh 鉤子'; keep x
-agent_new --kind-of-work planned --repo "$E" -- 鉤子漏擋; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- 鉤子漏擋; new_shell_out agent-card; kept x
 # 路徑不存在不併（目錄也不算檔案）
 reset; card x 'bin/nope.sh bin'; keep x
-agent_new --kind-of-work planned --repo "$E" -- "bin/nope.sh 錯"; new_shell_out agent; kept x
-agent_new --kind-of-work planned --repo "$E" -- "bin/ 錯"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/nope.sh 錯"; new_shell_out agent-card; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/ 錯"; new_shell_out agent-card; kept x
 # repo 外的絕對路徑不算
 reset; card x 'bin/x.sh'; keep x; mkdir -p "$FX/bin"; printf 'o\n' > "$FX/bin/x.sh"
-agent_new --kind-of-work planned --repo "$E" -- "$FX/bin/x.sh 錯"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "$FX/bin/x.sh 錯"; new_shell_out agent-card; kept x
 # 沒有共同檔案不併
 reset; card y 'bin/y.sh'; keep y
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 錯"; new_shell_out agent; kept y
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 錯"; new_shell_out agent-card; kept y
 # 目標已有 tasks.md
 reset; card x 'bin/x.sh'; to_propose x; printf -- '- [ ] 1.1 a\n' > "$C/x/tasks.md"; keep x
 assert_eq "$(stage x)" apply "fixture 要是 apply"
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 已有 tasks"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 已有 tasks"; new_shell_out agent-card; kept x
 # 目標已拆
 reset; card x 'bin/x.sh' "split_into: [x-a, x-b]"; keep x
 assert_eq "$(stage x)" split "fixture 要是 split"
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 已拆"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 已拆"; new_shell_out agent-card; kept x
 # 不併進自己的卡（worktree foo 對到卡 foo）
 reset; card foo 'bin/x.sh'; to_propose foo; keep foo
-agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 自己的範圍外"; new_shell_out agent; kept foo
+agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 自己的範圍外"; new_shell_out agent-card; kept foo
 # 子殼 subagent（branch foo--s）也不併進主殼 foo
 reset; card foo 'bin/x.sh'; mkdir -p "$C/foo/subs/s"; keep foo
 git -C "$E" worktree add -q -b feat/foo--s/mikaela "$E/.claude/worktrees/agent-a1" || fail "子殼 worktree 建不起來"
-(cd "$E/.claude/worktrees/agent-a1" && opsx new --kind-of-work planned --repo "$E" -- "bin/x.sh 子殼的範圍外") > "$OUT" 2> "$ERR"
-new_shell_out agent; kept foo; assert_grep '^source: agent:foo--s$' "$C/$(cat "$OUT")/inbox.md"
+(cd "$E/.claude/worktrees/agent-a1" && opsx new --name agent-card --kind-of-work planned --repo "$E" -- "bin/x.sh 子殼的範圍外") > "$OUT" 2> "$ERR"
+new_shell_out agent-card; kept foo; assert_grep '^source: agent:foo--s$' "$C/$(cat "$OUT")/inbox.md"
 # 帶附件不併
 reset; card x 'bin/x.sh'; keep x; printf 'png' > "$FX/a.png"
-agent_new --kind-of-work planned --repo "$E" --attach "$FX/a.png" -- "bin/x.sh 有附件"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" --attach "$FX/a.png" -- "bin/x.sh 有附件"; new_shell_out agent-card; kept x
 assert_eq "$(cat "$C/$(cat "$OUT")/attachments/a.png")" png
 # 一句話像段落結構不併
 reset; card x 'bin/x.sh'; keep x
-agent_new --kind-of-work planned --repo "$E" -- "## bin/x.sh"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "## bin/x.sh"; new_shell_out agent-card; kept x
 assert_grep '^## bin/x.sh$' "$C/$(cat "$OUT")/inbox.md"
-agent_new --kind-of-work planned --repo "$E" -- "- id: x-1 bin/x.sh"; new_shell_out agent; kept x
-agent_new --kind-of-work planned --repo "$E" -- "- type: bug bin/x.sh"; new_shell_out agent; kept x
-agent_new --kind-of-work planned --repo "$E" -- "- area: board bin/x.sh"; new_shell_out agent; kept x
+agent_new --kind-of-work planned --repo "$E" -- "- id: x-1 bin/x.sh"; new_shell_out agent-card; kept x
+agent_new --kind-of-work planned --repo "$E" -- "- type: bug bin/x.sh"; new_shell_out agent-card; kept x
+agent_new --kind-of-work planned --repo "$E" -- "- area: board bin/x.sh"; new_shell_out agent-card; kept x
 
 # --- 讀不了的候選卡不能讓新項目遺失（review R1.2）---
 # 一張 inbox.md 不是 UTF-8：照常建殼，stderr 有警告，x 不動
 reset; card x 'bin/x.sh'; card bad 'bin/x.sh'; printf '\xff\xfe\n' >> "$C/bad/inbox.md"; keep x
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 有壞卡"; assert_eq "$?" 0 "壞卡不能讓 opsx new 失敗：$(cat "$ERR")"
-new_shell_out agent; kept x; assert_grep 'opsx: new:' "$ERR"
+new_shell_out agent-card; kept x; assert_grep 'opsx: new:' "$ERR"
 # 候選 slug 對不到檔案（列出候選後卡被 drop／archive）：跳過那張並警告，其他照比
 reset; card x 'bin/x.sh'
 got="$(python3 -I "$OPSX_ROOT/bin/lib/mergematch.py" pick "$E" "bin/x.sh 錯" "" gone x 2> "$ERR")"; assert_eq "$?" 0 "$(cat "$ERR")"
@@ -234,7 +241,7 @@ late_new() { # late_new <在鎖內對 x 做的事>：opsx new 等鎖時做那件
   sleep 1
   eval "$1"; keep x
   : > "$FX/go"; wait "$HOLDER"; wait "$NEW"; assert_eq "$?" 0 "目標開工後 opsx new 要照常建殼：$(cat "$ERR")"
-  new_shell_out agent; kept x; assert_grep 'inboxmerge' "$ERR"
+  new_shell_out agent-card; kept x; assert_grep 'inboxmerge' "$ERR"
 }
 reset; card x 'bin/x.sh'
 late_new "printf -- '- [ ] 1.1 a\n' > '$C/x/tasks.md'"
@@ -245,8 +252,8 @@ assert_grep '^split_into: \[x-a\]$' "$C/x/inbox.md"
 # --- 兩邊都有紀錄 ---
 reset; card x 'bin/x.sh'; card foo '沒路徑'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 記兩邊"; assert_eq "$(cat "$OUT")" x
-case "$(tail -1 "$C/x/decisions.tsv")" in *"併入 agent-20261111-1040：bin/x.sh 記兩邊"*) ;; *) fail "x/decisions.tsv 最後一列要含併入：$(cat "$C/x/decisions.tsv")" ;; esac
-case "$(tail -1 "$C/foo/decisions.tsv")" in *"併進 x（id agent-20261111-1040）"*) ;; *) fail "foo/decisions.tsv 最後一列要含併進 x：$(cat "$C/foo/decisions.tsv" 2>&1)" ;; esac
+case "$(tail -1 "$C/x/decisions.tsv")" in *"併入 agent-card：bin/x.sh 記兩邊"*) ;; *) fail "x/decisions.tsv 最後一列要含併入：$(cat "$C/x/decisions.tsv")" ;; esac
+case "$(tail -1 "$C/foo/decisions.tsv")" in *"併進 x（id agent-card）"*) ;; *) fail "foo/decisions.tsv 最後一列要含併進 x：$(cat "$C/foo/decisions.tsv" 2>&1)" ;; esac
 # 自己的卡不存在時只記目標那邊、不報錯
 reset; card x 'bin/x.sh'
 agent_new --kind-of-work planned --repo "$E" -- "bin/x.sh 沒有自己的卡"; assert_eq "$?" 0 "$(cat "$ERR")"
@@ -254,7 +261,7 @@ assert_file "$C/x/decisions.tsv"; assert_no_file "$C/foo"
 
 # --- 在 herdr 裡發通知 ---
 reset; card x 'bin/x.sh'
-(export HERDR_ENV=w1; cd "$W" && opsx new --kind-of-work planned --repo "$E" -- "bin/x.sh 要通知") > "$OUT" 2> "$ERR"
+(export HERDR_ENV=w1; cd "$W" && opsx new --name agent-card --kind-of-work planned --repo "$E" -- "bin/x.sh 要通知") > "$OUT" 2> "$ERR"
 assert_eq "$(cat "$OUT")" x "$(cat "$ERR")"
 assert_grep '^notification show \[e/x\] 併入 --body bin/x.sh 要通知 併進 x$' "$OPSX_FAKE_LOG"
 
@@ -265,14 +272,14 @@ assert_no_file "$OPSX_FAKE_LOG"; assert_grep '^bin/x.sh 不通知$' "$C/x/inbox.
 
 # --- 通知失敗不影響併入 ---
 reset; card x 'bin/x.sh'; printf 'boom\n' > "$FX/notify-err"
-(export HERDR_ENV=w1 OPSX_TEST_NOTIFY_ERR="$FX/notify-err"; cd "$W" && opsx new --kind-of-work planned --repo "$E" -- "bin/x.sh 通知會失敗") > "$OUT" 2> "$ERR"
+(export HERDR_ENV=w1 OPSX_TEST_NOTIFY_ERR="$FX/notify-err"; cd "$W" && opsx new --name agent-card --kind-of-work planned --repo "$E" -- "bin/x.sh 通知會失敗") > "$OUT" 2> "$ERR"
 assert_eq "$?" 0 "通知失敗仍退出 0：$(cat "$ERR")"
 assert_eq "$(cat "$OUT")" x; assert_grep '通知' "$ERR"; assert_grep 'boom' "$ERR"
 
 # --- 同時兩個併入不掉段 ---
 reset; card x 'bin/x.sh'
-(cd "$W" && opsx new --kind-of-work planned --repo "$E" -- "bin/x.sh 並行甲" > "$FX/p1.out" 2> "$FX/p1.err") &
-(cd "$W" && opsx new --kind-of-work planned --repo "$E" -- "bin/x.sh 並行乙" > "$FX/p2.out" 2> "$FX/p2.err") &
+(cd "$W" && opsx new --name agent-card --kind-of-work planned --repo "$E" -- "bin/x.sh 並行甲" > "$FX/p1.out" 2> "$FX/p1.err") &
+(cd "$W" && opsx new --name agent-card --kind-of-work planned --repo "$E" -- "bin/x.sh 並行乙" > "$FX/p2.out" 2> "$FX/p2.err") &
 wait
 assert_eq "$(cat "$FX/p1.out" "$FX/p2.out" | tr '\n' ' ')" "x x " "兩個都併進 x：$(cat "$FX/p1.err" "$FX/p2.err")"
 assert_eq "$(grep -c '^## 併入：' "$C/x/inbox.md")" 2 "兩段都在"

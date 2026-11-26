@@ -19,7 +19,7 @@
 
 標準設定加了 `pnpm docs:api` 與 `pnpm docs:api *` 的沙盒排除之後，之前裝過的機器要再跑一次 `opsx init --global`；沒跑的話 `opsx init --check` 會報缺 `sandbox.excludedCommands: pnpm docs:api`，agent 跑 `pnpm docs:api` 仍在沙盒裡、tsx 回 `listen EPERM`。
 
-herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx`，第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。主控 session 的設定另外讓 `opsx dispatch *` 在沙盒外跑（建 worktree 要寫 `.git/worktrees`，沙盒內唯讀），使用者層不放；升級後要在沙盒外重跑 `opsx init --global` 才拿得到，已在跑的協調者要關掉、用 `opsx lead` 重開才會讀到新設定，重寫會蓋掉手加的 `enabledPlugins`；裝好後在協調者裡手動驗下面三件事。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
+herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 `herdr pane run` 在沒有沙盒的 pane 裡跑指令。一般 agent 的 herdr 動作照原設計走 `hooks/opsx-herdr-queue.sh`；只有主控 session（opsx coordinator）要開 socket，`opsx init --global` 會把設定寫到 `~/.local/state/opsx/coordinator-settings.json`，主控 session 在 herdr pane 裡跑 `opsx lead [<repo 路徑>]` 啟動：它在目前 workspace 開一個新 tab，用 herdr 名 `opsx-coordinator` 起 `claude --settings ~/.local/state/opsx/coordinator-settings.json --add-dir ~/.local/state/opsx --autocompact 400k`（協調者在 400K 就自動壓縮 context；卡的 pane 不帶），第一句載入 `/opsx-workflow:lead`（協調者的職責與回報格式）；已經在跑就只告訴你它在哪個 pane。主控 session 的設定另外讓 `opsx dispatch *` 在沙盒外跑（建 worktree 要寫 `.git/worktrees`，沙盒內唯讀），使用者層不放；升級後要在沙盒外重跑 `opsx init --global` 才拿得到，已在跑的協調者要關掉、用 `opsx lead` 重開才會讀到新設定，重寫會蓋掉手加的 `enabledPlugins`；裝好後在協調者裡手動驗下面三件事。**opsx 只追加、不刪除**：如果你以前手動在使用者層 settings 的 `sandbox.network.allowUnixSockets` 加過 herdr socket，要自己刪掉，否則每個 session 都還能連 herdr，上面的隔離不成立。
 
 - `gh pr view <任一 PR>` 能跑：`--settings` 沒蓋掉使用者層的排除清單。
 - `opsx dispatch <測試卡> …` 真的建出 `.claude/worktrees/<測試卡>`：主控 session 自己的排除規則有生效。
@@ -56,7 +56,7 @@ herdr socket 不在使用者層標準設定裡：能連它的 session 可以用 
   ```
 - 對原型看畫面：`python3 herdr-board/server.py --collect herdr-board/tests/fixtures/collect-sample.json`，開 `http://127.0.0.1:8791/#token=$(cat ~/.local/state/opsx/board-token)`。
 - 收件匣欄：沒派出、還沒 explore 的卡（explore 過才到待指派欄），依 inbox.md 的 `source` 分組，加上沒有 repo 的「待分類」。每個按鈕都有對應的子命令，終端機做得到同一件事：
-  - `opsx new [--repo <path>] -- <一句話>`：＋新增。範圍選到單一 repo 時建在那裡（slug `me-<YYYYMMDD-HHMM>`），否則寫進 `~/.local/state/opsx/unfiled/` 待分類。
+  - `opsx new --name <卡名> [--repo <path>] -- <一句話>`：＋新增，卡名必填，就是 slug（也是 PR 名和 branch 名）。範圍選到單一 repo 時建在那裡，否則寫進 `~/.local/state/opsx/unfiled/` 待分類。
   - `opsx file <slug> --repo <path>`：待分類選 repo 建卡。
   - `opsx drop <slug> [--repo <path>] -- <理由>`：捨棄，理由必填；收件卡歸檔並標 `outcome: declined`，待分類移到 `unfiled/dropped/`。
   - `opsx sync [--source gitlab|github|debt|obsidian]`：撈 `sources.toml` 登記的 repo 裡指派給你的 issue，和 code 裡的 `shortcut:` 註解，以 inbox.md 的 `source` 去重（含 archive），建殼或更新。`[obsidian]` 收件夾（`vault` / `folder`，含子資料夾）的每篇筆記進待分類，建好之後不再依筆記內容更新。上游關閉、註解刪掉只標記（列灰色），卡由你捨棄。每次跑完經 `opsx log --sync` 在 `~/.local/state/opsx/sync.log` 記一列 source `sync`（文字是新建、更新、沒變、錯誤數與第一個錯誤），紀錄 tab 讀得到；同一時間只跑一支，另一支退出碼 3。

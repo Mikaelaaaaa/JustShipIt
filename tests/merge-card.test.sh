@@ -15,7 +15,7 @@ archived() { local a=("$CH"/archive/*-"$1"); [ "${#a[@]}" -eq 1 ] && [ -d "${a[0
 
 # ========== 1.1 成功路徑 ==========
 # --- 併進既有的卡：來源有 upstream_url；目標證據段後面還有別的段 ---
-X="$(opsx new --repo "$A" -- 同步進來的)"; export OPSX_TEST_NOW="2026-11-10 09:01"; Y="$(opsx new --repo "$A" -- 自己記的)"
+X="$(opsx new --name sync-in --repo "$A" -- 同步進來的)"; export OPSX_TEST_NOW="2026-11-10 09:01"; Y="$(opsx new --name own-note --repo "$A" -- 自己記的)"
 printf -- '---\ntype: 功能\nsource: github:o/r#12\nupstream_url: https://github.com/o/r/issues/12\nfound: 2026-11-10\n---\n\n## 一句話\n\n同步進來的\n\n## 證據\n\n- 上游 issue\n' > "$CH/$X/inbox.md"
 printf '\n- 既有的證據\n\n## 派工指示\n\n- 先做 A\n' >> "$CH/$Y/inbox.md"
 yaml_before="$(shasum "$CH/$Y/.openspec.yaml")"
@@ -33,20 +33,20 @@ assert_eq "$(shasum "$CH/$Y/.openspec.yaml")" "$yaml_before" "目標 .openspec.y
 assert_dir "$CH/$Y"
 
 # --- 來源沒有上游連結：opsx new 建的（source: me）---
-export OPSX_TEST_NOW="2026-11-10 09:02"; M="$(opsx new --repo "$A" -- 重複的)"
+export OPSX_TEST_NOW="2026-11-10 09:02"; M="$(opsx new --name dup --repo "$A" -- 重複的)"
 assert_rc 0 opsx merge-card "$M" --into "$Y" --repo "$A"
 assert_eq "$(last_evidence "$CH/$Y/inbox.md")" "- 併進：a/$M · source: me"
 archived "$M" >/dev/null
 
 # --- 目標證據段是空的（opsx new 剛建）：證據行接在標題後的空行之後 ---
-export OPSX_TEST_NOW="2026-11-10 09:05"; E="$(opsx new --repo "$A" -- 空證據的目標)"
-export OPSX_TEST_NOW="2026-11-10 09:06"; F="$(opsx new --repo "$A" -- 併進空證據)"
+export OPSX_TEST_NOW="2026-11-10 09:05"; E="$(opsx new --name empty-target --repo "$A" -- 空證據的目標)"
+export OPSX_TEST_NOW="2026-11-10 09:06"; F="$(opsx new --name into-empty --repo "$A" -- 併進空證據)"
 assert_rc 0 opsx merge-card "$F" --into "$E" --repo "$A"
 assert_eq "$(awk '/^## 證據$/{f=1} /^## 併入：/{f=0} f' "$CH/$E/inbox.md")" "$(printf '## 證據\n\n- 併進：a/%s · source: me' "$F")"
 rm -rf "$CH/$E"
 
 # --- 來源卡全文進併入段（board-actions「merge-card 帶來源卡全文進併入段」）---
-export OPSX_TEST_NOW="2026-11-10 09:07"; G="$(opsx new --repo "$A" -- 目標卡)"; export OPSX_TEST_NOW="2026-11-10 09:08"; H="$(opsx new --repo "$A" -- 來源要帶全文)"
+export OPSX_TEST_NOW="2026-11-10 09:07"; G="$(opsx new --name target --repo "$A" -- 目標卡)"; export OPSX_TEST_NOW="2026-11-10 09:08"; H="$(opsx new --name full-text --repo "$A" -- 來源要帶全文)"
 printf -- '---\ntype: bug\nsource: me\nkind_of_work: planned\n---\n\n## 一句話\n\nX 壞了\n\n## 證據\n\n- foo.py:3\n- id: 假 id\n' > "$CH/$H/inbox.md"
 assert_rc 0 opsx merge-card "$H" --into "$G" --repo "$A"
 assert_grep '^## 併入：[^ ]* me$' "$CH/$G/inbox.md"
@@ -63,14 +63,14 @@ out="$(cd "$A" && opsx check "$G" 2>&1)"; case "$out" in *"沒有去處"*) ;; *)
 rm -rf "$CH/$G"
 
 # --- 目標已有 tasks.md 或已拆：捨棄來源之前就拒絕，兩張卡都不動 ---
-export OPSX_TEST_NOW="2026-11-10 09:09"; T="$(opsx new --repo "$A" -- 已開工的目標)"; export OPSX_TEST_NOW="2026-11-10 09:10"; U="$(opsx new --repo "$A" -- 要併的來源)"
+export OPSX_TEST_NOW="2026-11-10 09:09"; T="$(opsx new --name started-target --repo "$A" -- 已開工的目標)"; export OPSX_TEST_NOW="2026-11-10 09:10"; U="$(opsx new --name merge-src --repo "$A" -- 要併的來源)"
 printf '## 1. x\n' > "$CH/$T/tasks.md"
 before="$(snap)"
 err="$(opsx merge-card "$U" --into "$T" --repo "$A" 2>&1)" && fail "目標已有 tasks.md 要退出非零"
 case "$err" in *tasks.md*) ;; *) fail "訊息要含 tasks.md：$err" ;; esac
 assert_eq "$(snap)" "$before" "目標已有 tasks.md：兩張卡都不動"
 rm -rf "$CH/$T"
-export OPSX_TEST_NOW="2026-11-10 09:11"; T="$(opsx new --repo "$A" -- 已拆的目標)"
+export OPSX_TEST_NOW="2026-11-10 09:11"; T="$(opsx new --name split-target --repo "$A" -- 已拆的目標)"
 printf -- '---\nsource: me\nsplit_into: p1, p2\n---\n\n## 一句話\n\nx\n\n## 證據\n\n' > "$CH/$T/inbox.md"
 before="$(snap)"
 err="$(opsx merge-card "$U" --into "$T" --repo "$A" 2>&1)" && fail "目標已拆要退出非零"
@@ -82,7 +82,7 @@ rm -rf "$CH/$T" "$CH/$U"
 opsx --help | grep -q '^  merge-card ' || fail "opsx --help 要列 merge-card"
 
 # ========== 1.2 失敗路徑：退出非零，兩張卡都不改 ==========
-export OPSX_TEST_NOW="2026-11-10 09:03"; S="$(opsx new --repo "$A" -- 來源)"
+export OPSX_TEST_NOW="2026-11-10 09:03"; S="$(opsx new --name source --repo "$A" -- 來源)"
 before="$(snap)"
 err="$(opsx merge-card "$S" --into nope --repo "$A" 2>&1)" && fail "目標不存在要退出非零"
 case "$err" in *nope*) ;; *) fail "stderr 要含目標名：$err" ;; esac
@@ -95,7 +95,7 @@ assert_rc 2 opsx merge-card nope --into "$Y" --repo "$A"
 assert_eq "$(snap)" "$before"
 
 # --- 目標沒有證據段 ---
-export OPSX_TEST_NOW="2026-11-10 09:04"; N="$(opsx new --repo "$A" -- 手寫的卡)"
+export OPSX_TEST_NOW="2026-11-10 09:04"; N="$(opsx new --name hand-written --repo "$A" -- 手寫的卡)"
 printf -- '---\ntype: 功能\nsource: me\n---\n\n## 一句話\n\n手寫的卡\n' > "$CH/$N/inbox.md"
 before="$(snap)"
 err="$(opsx merge-card "$S" --into "$N" --repo "$A" 2>&1)" && fail "目標沒有證據段要退出非零"
@@ -135,7 +135,7 @@ assert_eq "$(find "$CH" -mindepth 1 -maxdepth 1 -type d ! -name archive | sort)"
 # ========== merge-card-card-lock：證據行在目標卡鎖內插入 ==========
 PYBIN="$(cat "$OPSX_STATE_DIR/python")"; LIBDIR="$OPSX_ROOT/bin/lib"
 # --- 慢的寫入者：鎖內先讀 inbox.md，等 $FX/go 才寫回（多一段併入）。merge-card 不等鎖就會被它蓋掉 ---
-export OPSX_TEST_NOW="2026-11-10 09:10"; P="$(opsx new --repo "$A" -- 並行的來源)"
+export OPSX_TEST_NOW="2026-11-10 09:10"; P="$(opsx new --name par-src --repo "$A" -- 並行的來源)"
 "$PYBIN" -I -c '
 import os, sys, time
 sys.path.insert(0, sys.argv[1]); import safefile, inboxmerge
