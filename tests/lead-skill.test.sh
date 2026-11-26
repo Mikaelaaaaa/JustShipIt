@@ -84,6 +84,11 @@ for s in 'force' '`+` refspec' "another card's branch" 'delete' 'merge'; do
   case "$RUN" in *"never run"*"$s"*) ;; *) fail "代跑段不跑的清單缺：$s — $RUN" ;; esac
 done
 case "$RUN" in *'"協調者代跑：<指令> → exit 0'*) ;; *) fail "回結果開頭要寫「協調者代跑：」：$RUN" ;; esac
+# 合併類唯一例外：同時帶 merge_when_pipeline_succeeds=true 與 sha= 的 auto-merge 重設照跑，少一個就當合併（specs/opsx-lead「代跑帶 sha 的 auto-merge 重設」）
+case "$RUN" in *'auto-merge reset'*'merge_when_pipeline_succeeds=true'*'sha='*) ;; *) fail "代跑段要放行帶兩參數的 auto-merge 重設：$RUN" ;; esac
+case "$RUN" in *'either parameter is missing, it counts as a merge'*) ;; *) fail "少一個參數要當合併類：$RUN" ;; esac
+MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
+case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
 case "$FG" in *'`by: coordinator`'*) ;; *) fail "duty 2 開頭要寫明代跑結果是例外：$FG" ;; esac
 # 跳卡回來後重讀 open gate：只問能進跳卡的（不是 needs: run、不是 waits-on），子 change 的 gate 也讀、用 --sub 回
