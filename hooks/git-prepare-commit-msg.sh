@@ -14,11 +14,16 @@ top="$(repo_top)"
 [ -f "$top/openspec/workplan.yaml" ] || exit 0
 
 # merge 與 rebase 不判斷：PreToolUse 閘門也只管 git commit；rebase 中 HEAD detached，對不到卡
-[ "${2:-}" = merge ] && exit 0
+# 看 MERGE_HEAD 不看 $2：git 只要有 MERGE_MSG 就傳 merge，cherry-pick -n、revert -n 之後的普通 commit 也會是
+git rev-parse -q --verify MERGE_HEAD >/dev/null && exit 0
 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then exit 0; fi
 
-# [no-change] 只算這個 commit 自己的訊息：# 行是 git 加的註解；amend、-c、-C 帶過來的是舊 commit 的標記
-if [ "${2:-}" != commit ] && grep -qE '^[^#].*\[no-change\]|^\[no-change\]' "$1"; then
+# [no-change] 只算這個 commit 自己寫的：# 行是 git 的註解，剪刀線以下是 -v 的 diff；
+# amend／-c／-C（$2=commit）、merge --squash、fixup!／squash!／amend! 帶的是舊 commit 的標記
+own_marker() {
+  awk 'NR == 1 && /^(fixup|squash|amend)! / { exit } /^# -+ >8 -+$/ { exit } !/^#/ && /\[no-change\]/ { found = 1; exit } END { exit !found }' "$1"
+}
+if [ "${2:-}" != commit ] && [ "${2:-}" != squash ] && own_marker "$1"; then
   [ -n "${OPSX_PY:-}" ] || block "opsx commit 閘門：找不到 python，寫不了 bypass.log（${OPSX_PY_ERR:-}）。"
   mkdir -p "$OPSX_STATE_DIR"
   printf '%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$(repo_name)" "$(branch)" "$(head -n 1 "$1" | cut -c1-200)" | opsx_append "$OPSX_STATE_DIR/bypass.log"

@@ -26,14 +26,15 @@ opsx_stack() {
   [ -z "$(git status --porcelain)" ] || die "stack: $branch 有未 commit 的改動，先收乾淨再疊"
 
   # 先勾再 cherry-pick：git 端 commit 閘門在 cherry-pick 的 commit 當下要看到主殼已勾
-  flip_task "$d/tasks.md" "$sub" ' ' x || die "stack: 勾 $d/tasks.md 失敗（上面有原因）"
+  local ln; ln="$(grep -nE "^[[:space:]]*- \[ \] [0-9.]+ \`$sub\`" "$d/tasks.md" | head -n 1 | cut -d: -f1)"
+  flip_task "$d/tasks.md" "$ln" ' ' x || die "stack: 勾 $d/tasks.md 失敗，檔案沒動（上面有原因）"
 
   local out
   if ! out="$(git cherry-pick "$sha" 2>&1)"; then
     local conflicts; conflicts="$(git diff --name-only --diff-filter=U | tr '\n' ' ')"
     git cherry-pick --abort >/dev/null 2>&1 || true
     # 只改回剛勾的那一行：同時間別的 stack 勾的項目不能被蓋掉
-    flip_task "$d/tasks.md" "$sub" x ' ' || die "stack: cherry-pick $sha 失敗，tasks.md 改不回未勾（上面有原因）：$d/tasks.md"
+    flip_task "$d/tasks.md" "$ln" x ' ' || die "stack: cherry-pick $sha 失敗，tasks.md 改不回未勾（上面有原因）：$d/tasks.md"
     [ -n "$conflicts" ] || die "stack: cherry-pick $sha 失敗，不是衝突（空 commit 或 git 錯誤）；歷史沒動。git 的輸出：
 $out"
     log_row "$d" session 已決定 "$sub 疊回衝突，改由 session 在 PR 分支重做" "衝突檔：${conflicts% }；$sha"
@@ -48,6 +49,8 @@ task_line() { # <tasks.md> <子> <勾的樣子，regex>：項目本身是這個�
   grep -qE "^[[:space:]]*- $3 [0-9.]+ \`$2\`" "$1"
 }
 
-flip_task() { # <tasks.md> <子> <原本的勾字元> <新的勾字元>：只改這個子 change 的第一項，其餘位元組照原樣（perl -p 不補檔尾換行）
-  perl -pe 'BEGIN { ($s, $from, $to) = splice(@ARGV, 0, 3) } if (!$done && /^\s*- \[\Q$from\E\] [0-9.]+ \Q$s\E/) { s/- \[\Q$from\E\] /- [$to] /; $done = 1 }' "\`$2\`" "$3" "$4" "$1" | opsx_replace "$1"
+flip_task() { # <tasks.md> <行號> <原本的勾字元> <新的勾字元>：只改那一行，其餘位元組照原樣（perl -p 不補檔尾換行）
+  # perl 成功才寫檔：openspec/ 不在 git，寫成空檔救不回來。結尾的 . 保住檔尾換行
+  local out; out="$(perl -pe 'BEGIN { ($n, $from, $to) = splice(@ARGV, 0, 3) } s/- \[\Q$from\E\] /- [$to] / if $. == $n' "$2" "$3" "$4" "$1" && printf .)" || return 1
+  printf '%s' "${out%.}" | opsx_replace "$1"
 }

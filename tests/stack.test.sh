@@ -156,6 +156,29 @@ echo "$out" | grep -q 'HOOK-SAYS-NO' || fail "要印出 hook 的原因: $out"
 cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "hook 擋下後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
 assert_eq "$(git rev-parse HEAD)" "$head" "hook 擋下不動歷史"
 
+# --- perl 失敗時不寫 tasks.md（不能變空檔） ---
+mkdir -p "$FX/badperl"; printf '#!/bin/sh\nexit 1\n' > "$FX/badperl/perl"; chmod +x "$FX/badperl/perl"
+out="$(PATH="$FX/badperl:$PATH" opsx stack m s6 "$S6" 2>&1)"; rc=$?
+[ $rc -ne 0 ] || fail "perl 失敗要失敗: $out"
+cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "perl 失敗後 tasks.md 要跟跑之前逐字相同: $(cat "$M/tasks.md")"
+assert_eq "$(git rev-parse HEAD)" "$head" "perl 失敗不動歷史"
+
+# --- 同名項前面已勾：失敗時改回的是剛勾的那一行 ---
+cat >> "$R/openspec/workplan.yaml" <<'EOF'
+          - name: s7
+            status: pending
+            depends-on: []
+EOF
+printf -- '- [x] 1.7 `s7`：先前已疊\n  - 驗收：x\n  - 測試：x\n- [ ] 1.8 `s7`：再疊一次\n  - 驗收：x\n  - 測試：x\n' >> "$M/tasks.md"
+git checkout -q -b feat/m--s7/u "$base"; printf 'e\n' > e.txt; git add e.txt; git commit -q -m "feat: s7"; S7="$(git rev-parse HEAD)"
+git checkout -q feat/m/u
+printf '#!/bin/sh\nexit 1\n' > .git/hooks/prepare-commit-msg; chmod +x .git/hooks/prepare-commit-msg
+cp "$M/tasks.md" "$FX/tasks-before.md"
+out="$(opsx stack m s7 "$S7" 2>&1)"; rc=$?
+rm .git/hooks/prepare-commit-msg
+[ $rc -ne 0 ] || fail "hook 擋下要失敗: $out"
+cmp -s "$M/tasks.md" "$FX/tasks-before.md" || fail "同名項時要改回剛勾的那一行: $(cat "$M/tasks.md")"
+
 # --- Scenario：文件寫出反引號格式 ---
 for f in skills/propose/SKILL.md references/work-split.md; do
   grep -q '反引號' "$OPSX_ROOT/$f" || fail "$f 要寫反引號"

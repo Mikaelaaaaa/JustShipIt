@@ -113,6 +113,18 @@ blocked "$R" 'git commit --amend --no-edit'
 stage "$R"; h="$(head_of "$R")"
 agent "$R" "git commit -q --amend -m 'y [no-change]'"
 [ "$(head_of "$R")" != "$h" ] || fail "amend 時自己寫的 [no-change] 要放行: $(cat "$FX/err")"
+printf 'x\n# ------------------------ >8 ------------------------\n+ [no-change]\n' > "$FX/msg-scissors"
+blocked "$R" "git commit --cleanup=scissors -F $FX/msg-scissors"
+git -C "$R" checkout -q -b side3; echo s3 > "$R/s3.txt"; git -C "$R" add s3.txt; human "$R" "git commit -q -m 'wip [no-change]'"
+git -C "$R" checkout -q feat/card/mikaela; h="$(head_of "$R")"
+agent "$R" 'git merge -q --squash side3; git commit -q --no-edit'
+assert_eq "$(head_of "$R")" "$h" "squash merge 帶來的舊 [no-change] 不算: $(cat "$FX/err")"
+git -C "$R" reset -q --hard
+blocked "$R" 'git commit --fixup=side3'
+
+# --- 只有真的在 merge 才放行：MERGE_MSG 在、MERGE_HEAD 不在的普通 commit 照擋（D11） ---
+blocked "$R" 'echo x > .git/MERGE_MSG; git commit --no-edit'
+rm -f "$R/.git/MERGE_MSG"
 
 # --- 沒有 python 時 [no-change] 用閘門訊息擋（D13） ---
 mkdir -p "$FX/nopy"; printf '/nonexistent/python3\n' > "$FX/nopy/python"
