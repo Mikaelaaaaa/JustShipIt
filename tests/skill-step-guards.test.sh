@@ -37,6 +37,8 @@ assert_fixed 'A test file here is one that holds test cases; helpers and fixture
 assert_fixed 'git diff --name-status -M <base>' "$STEP10"
 assert_fixed '`<base>` is `git merge-base HEAD <remote>/main`' "$STEP10"
 assert_fixed 'committed, staged and unstaged deletions and renames included' "$STEP10"
+assert_fixed '`<remote>` is the primary remote `/opsx-workflow:pr` step 1 picks' "$STEP10"
+assert_fixed 'run `git fetch <remote> main` first' "$STEP10"
 assert_fixed 'a `D` or `R` line for a test file' "$STEP10"
 assert_fixed 'under the task that deleted, renamed or replaced it' "$STEP10"
 if grep -qF 'git diff --name-status -M HEAD' "$STEP10"; then fail "第 10 步還在跟 HEAD 比，已 commit 的刪除看不到"; fi
