@@ -124,9 +124,15 @@ awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
 assert_not_fixed 'regenerate the logic map' "$STEP5"
 
 # --- agent-20261126-1119 D1：merge 後引用 apply Test agent 的型別檢查與守門測試規則，不另列觸發條件 ---
-assert_fixed '../apply/SKILL.md' "$STEP5"
-assert_fixed 'Test agent' "$STEP5"
-assert_fixed 'typecheck' "$STEP5"
-assert_fixed 'guard test' "$STEP5"
+assert_fixed 'run the full suite next, together with the typecheck and guard tests that the "Test agent" section of `../apply/SKILL.md` calls for' "$STEP5"
+# R1.1：型別檢查紅或被拒的 gate 開著時不推；D12：型別錯照 apply 的規則逐個錯跟 main 比對
+assert_fixed 'push only when the full suite is green, the typecheck is green and no typecheck gate is open' "$STEP5"
+assert_fixed 'compare each type error with `<remote>/main` by the same Test agent rules' "$STEP5"
+python3 -I - "$STEP5" <<'PY' || fail "型別檢查要在推送條件之前"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+if not text.index("together with the typecheck") < text.index("push only when"):
+    sys.exit("together with the typecheck 在 push only when 之後")
+PY
 assert_not_fixed 'HEAD^1' "$STEP5"
 assert_not_fixed 'exported symbol' "$STEP5"

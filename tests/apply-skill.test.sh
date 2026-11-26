@@ -100,19 +100,21 @@ grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註�
 TA="$FX/test-agent"
 section "Test agent" > "$TA"
 [ -s "$TA" ] || fail "section missing: Test agent"
-# 觸發條件與指令找法（D2、D3、D5）
-for k in 'typecheck' 'exported symbol' 'imported by a file outside the diff' '`git diff --name-only HEAD^1 HEAD`' '`.tsx`' '`.py`' 'mypy' 'no typecheck command' 'say so in the reply'; do
+# 觸發條件與指令找法（D3、D5、D8）
+for k in 'exported symbol' 'imported by a file outside the diff' '`.tsx`' '`.py`' 'mypy' 'Otherwise run no typecheck' 'no typecheck command' 'say so in the reply'; do
   has "$k" "$TA"
 done
-# 被拒開 gate，不交 CI（D5）
-for k in 'dontAsk' '`type: decision`' '`needs: run`' '`by: coordinator`' 'does not continue to review' 'never hand it to CI'; do
+has 'right after the merge, `git diff --name-only ORIG_HEAD HEAD`' "$TA"
+! grep -qF 'HEAD^1' "$TA" || fail "Test agent 不該再用 HEAD^1 判斷 merge 帶進的檔（D8）"
+# 被拒開 gate，不交 CI（D5）；回報帶型別檢查結果，由 session 開 gate（R1.2）
+for k in 'When a hook or dontAsk denies the typecheck, never hand it to CI' '`type: decision`' '`needs: run`' '`by: coordinator`' 'does not continue to review' '`TYPECHECK: PASS|FAIL|DENIED <command and deny message>|SKIPPED <reason>|NOT-TRIGGERED`' 'the apply session writes the gate, not the Test agent'; do
   has "$k" "$TA"
 done
 # 紅時先在 main 跑（D6）
-has '`<remote>/main`' "$TA"
-has 'not fixed here' "$TA"
-# 守門測試三個來源（D4）
-for k in 'guard tests' '`git grep -l -F' 'directory above it' 'do not guess'; do
+has 'An error that main also has is listed in the reply and not fixed here' "$TA"
+has 'only the errors this change or this merge brought are fixed' "$TA"
+# 守門測試三個來源，逐檔判斷（D4、D10、D11）
+for k in "the guard tests the repo's CLAUDE.md names" '`git grep -l -F' "the changed file's directory and the directory above it" 'do not guess' '`.yml`' 'whether or not the change also touches source'; do
   has "$k" "$TA"
 done
 echo ok
