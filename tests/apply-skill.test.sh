@@ -95,4 +95,30 @@ grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註�
 ! grep -qF 'In the opsx-workflow repo the coordinator answers' "$FX/apply5" || fail "apply 第 5 步不該再把代答限定在 opsx-workflow"
 ! grep -qF '協調者判定' "$FX/apply5" || fail "apply 第 5 步不該再有範圍判斷的答案文字（D5）"
 ! grep -qF 'The coordinator never answers any gate' "$SK" || fail "apply SKILL.md 不該再寫協調者不答任何 gate"
+
+# agent-20261126-1119-2：第 4 步不手改產生檔（specs/apply-generated-files）
+grep -E '^\| 4 \|' "$SK" > "$FX/apply4"
+# 每句連條件一起比：刪掉條件、對調分支或把 or 改成 and 都要紅
+# 改檔之前就找守門測試，找法只指到 Test agent 段落
+has 'Before you edit a file, decide whether a generator owns it, and look for its guard test as the Test agent section says before the edit, not after it.' "$FX/apply4"
+! grep -qF 'git grep -l -F' "$FX/apply4" || fail "第 4 步不該自己列守門測試的找法"
+# 認定產生檔的訊號（Examples 每一列）
+has 'A generator owns the file when the repo CLAUDE.md says so, when a guard test asserts it equals the generator output, or when its header says generated or do not edit.' "$FX/apply4"
+has 'A file with none of these signals is edited directly.' "$FX/apply4"
+has 'A file the repo CLAUDE.md tells you to hand-edit after generating follows CLAUDE.md, for example drizzle migration SQL.' "$FX/apply4"
+# 兩類產生器；從其他輸入產生的檔只在產生器跑不了時才改
+has 'When the generator builds the file from another input, edit that input and run the generator again, and do not edit the generated file unless the generator cannot run, as below.' "$FX/apply4"
+! grep -qF 'never edit the generated file' "$FX/apply4" || fail "第 4 步不能同時寫 never edit 與被擋時照格式改"
+has 'When the generator reads the file back and rewrites it in canonical form, such as `pnpm i18n:split` or a formatter, edit the file directly and run the generator, its `--check` mode or the guard test before the commit.' "$FX/apply4"
+# 產生器跑不了，有守門測試：輸入與產生檔都改
+has 'When a hook, dontAsk or the sandbox stops the generator from running, and a guard test asserts the file equals the generator output, edit the input if there is one, edit the generated file in the exact generator output format, run that test before the commit and commit only when it is green.' "$FX/apply4"
+# 產生器、--check 或守門測試紅，兩類都一樣處理
+has 'When the generator, its `--check` mode or the guard test stays red, do not commit, and after two failed rounds of fixes follow the Test agent On FAIL rule.' "$FX/apply4"
+# 產生器跑不了，沒有守門測試：兩類各自怎麼改
+has 'When the generator cannot run and no such guard test exists, write the step 5 gate with `type: decision`, `needs: run` and `by: coordinator` and the full generator command as its recommendation.' "$FX/apply4"
+has 'A file built from another input stays unedited until that run, and you edit only the input.' "$FX/apply4"
+has 'A file the generator reads back you edit directly, and you commit only after the run leaves it unchanged or you have taken in its rewrite.' "$FX/apply4"
+# 怎麼認出沙盒擋下；其他非 0 結束是產生器自己的錯
+has 'The sandbox stopped the generator when its output shows EPERM, `Operation not permitted` or a sandbox violations block.' "$FX/apply4"
+has 'Any other non-zero exit is the generator reporting its own error, which is a failure to fix, not a generator that cannot run.' "$FX/apply4"
 echo ok
