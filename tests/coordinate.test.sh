@@ -1956,6 +1956,15 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 0 "送過的不再通知"
 rm -f "$MEMO"
 
+# --- 協調者不在時退回桌面的排隊事件也去重（正例） ---
+cards '[]'
+printf '[r/a] MR 卡在衝突：url\n[r/a] MR 卡在衝突：url\n' > "$CQ"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(notes)" 1 "排隊事件退回一則桌面通知：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(grep '^notification show' "$OPSX_FAKE_LOG")" "notification show [opsx] 排隊的 1 則事件 · 協調者 opsx-coordinator 對不到活著的 pane（在它的 pane 重開 session，或跑 opsx lead） --body [r/a] MR 卡在衝突：url --sound request" "標題的則數是去重後的"
+assert_no_file "$CQ"
+rm -f "$MEMO"
+
 # --- 終端機等待輸入：綁 pane 通知一次，內文指到 pane ---
 cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"blocked","waiting":{"type":"終端機等待輸入","gate_id":null,"question":"agent 在終端機等輸入","recommended":"開啟 pane","options":["開啟 pane"]}}]'
 round || fail "rc: $(cat "$FX/out")"

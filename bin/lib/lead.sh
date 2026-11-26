@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # opsx lead：在目前的 herdr workspace 開協調者 session（herdr 名 opsx-coordinator），第一句載入 /opsx-workflow:lead。
 # specs/opsx-lead/spec.md。權限模式不帶，用使用者平常的模式：這個 session 能連 herdr socket，不再放寬。
+# --autocompact 400k 只給協調者：它長時間跑，提早壓縮省用量；卡的 pane 不帶。
 
 opsx_lead() {
   [ "$#" -le 1 ] || die "lead 只接受一個 repo 路徑，收到：$*"
@@ -20,7 +21,7 @@ opsx_lead() {
   fi
 
   if ! runtime_open --agent "$COORDINATOR_AGENT" --kind claude --workspace-id "$HERDR_WORKSPACE_ID" --cwd "$top" --label "$COORDINATOR_AGENT" \
-    -- --settings "$settings" --add-dir "$OPSX_STATE_DIR"; then
+    -- --settings "$settings" --add-dir "$OPSX_STATE_DIR" --autocompact 400k; then
     say "lead: 協調者已在跑（${HERDR_TAKEN_AT}），剛開的 tab 已收掉，不開第二個。herdr agent focus $COORDINATOR_AGENT 切過去"
     return 0
   fi
