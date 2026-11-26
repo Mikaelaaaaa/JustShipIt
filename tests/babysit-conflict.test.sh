@@ -48,10 +48,28 @@ assert_grep "only when the two sides contradict each other" "$FX/step5"
 # 合併後轉紅：只補合併本身弄紅的；main 上也紅、相依套件或環境的錯、補不綠都寫 gate
 assert_grep "first run the failing test on \`<remote>/main\` alone" "$FX/step5"
 assert_grep "only a failure the merge itself caused gets aligning commits on the branch, each with red-first evidence" "$FX/step5"
-assert_grep "When the test also fails on \`<remote>/main\`, when the failure comes from a dependency or the environment, or when the suite is still red after aligning, write a gate" "$FX/step5"
+assert_grep "When the test also fails on \`<remote>/main\`, when the failure comes from a dependency or the environment, or when the checks are still red after aligning, write a gate" "$FX/step5"
 assert_grep "the merge commit stays local and unpushed" "$FX/step5"
-# 有衝突跟沒衝突兩條路都要全套綠才推
-assert_grep "Whether or not git reported a conflict, push only when the full suite is green" "$FX/step5"
+# 有衝突跟沒衝突兩條路都要推送前檢查綠才推
+assert_grep "Whether or not git reported a conflict, push only when the pre-push checks are green" "$FX/step5"
+assert_not_grep "push only when the full suite is green" "$FX/step5"
+
+# 推送前檢查看有沒有 CI：有 CI 相關測試加 typecheck／build、全套交 CI；沒 CI 跑全套
+assert_grep "the way \`../review/SKILL.md\` decides it" "$FX/step5"
+assert_grep "with CI, run the related tests" "$FX/step5"
+assert_grep "plus the repo's typecheck or build" "$FX/step5"
+assert_grep "skipped when the repo has none" "$FX/step5"
+assert_grep "leave the full suite to CI" "$FX/step5"
+assert_grep "without CI, run the full suite" "$FX/step5"
+# 跑不了就開 gate、不推
+assert_grep "When a pre-push check cannot run here (dontAsk denies it, the sandbox blocks it), do not push: write a gate" "$FX/step5"
+assert_grep "\`needs: run\` and \`by: coordinator\`" "$FX/step5"
+assert_grep "the worktree's absolute path" "$FX/step5"
+
+# 修 review 的推送指回 step 5 的檢查，不另訂
+grep '^8\. ' "$SKILL" > "$FX/step8"
+assert_grep "after step 5's pre-push checks are green" "$FX/step8"
+assert_not_grep "full suite" "$FX/step8"
 
 # stale base 合 main
 assert_grep "git merge-base --is-ancestor" "$FX/step7"
@@ -66,3 +84,4 @@ assert_grep "press merge again" "$FX/step10"
 # 上游紀錄：UPSTREAM.md 的 babysit 那一列記下合 main
 grep '^| `skills/babysit/SKILL.md`' "$OPSX_ROOT/UPSTREAM.md" > "$FX/upstream_row"
 assert_grep "合 main" "$FX/upstream_row"
+assert_grep "推送前檢查" "$FX/upstream_row"
