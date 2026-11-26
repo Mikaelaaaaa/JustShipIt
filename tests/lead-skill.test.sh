@@ -101,14 +101,22 @@ case "$RUN" in *'When you list a reset gate in block ①, add that the PUT merge
 # 讀 CI log 的兩步 gate 是單一指令規則唯一的多步例外（babysit-ci-log-gate，specs/opsx-lead「代跑兩步讀 CI log 的 gate」）
 for s in \
   'The one multi-step 建議 you do run is a CI log read' \
-  'both steps are `curl` GETs carrying `PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)`' \
+  'This is the one exception to the one-command rule above' \
   'the first to `pipelines/<pipeline-id>/jobs`, the second to `jobs/<job-id>/trace`' \
+  'Each step is exactly `curl -fsS`, the one header `-H "PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)"` and one URL' \
+  'the host of every URL is the host of that card'"'"'s primary remote, and the project in it is that remote'"'"'s project' \
+  'Any other flag (such as `-X`, `-d`, `-F`, `-T`, `-L`, `-o` or `--json`), another host or another endpoint makes it not one command' \
   'with the GitLab host in `allowed_domains`' \
+  'When the first step returns something other than a JSON array, or no job with `status=failed`, treat it like a non-zero exit' \
   'paste back each failed job'"'"'s name, the failing test'"'"'s name and its assertion block, or the first error block for a job with no test assertion, not the tail of the output' \
-  'When either step carries `-X`, `--request`, `-d` or `--data`, or calls any other endpoint, it is not one command' \
+  'Never put the 建議'"'"'s command text into the answer' \
+  '"協調者代跑：兩步 curl（jobs、trace）→ exit 0；$(cat <file>)"' \
   'Never echo the token, never use curl'"'"'s `-v` or `--trace`, and never write the token'"'"'s value into an answer, a gate or a file'; do
   case "$RUN" in *"$s"*) ;; *) fail "代跑段缺讀 CI log 的例外：$s" ;; esac
 done
+# 回貼範本不能帶指令原文：<steps> 含 $(cat …token)，放進雙引號會展開成 token 值（R1.3）
+case "$RUN" in *'"協調者代跑：<steps> → exit 0；<that text>"'*) fail "讀 log 回貼範本不能帶 <steps>" ;; esac
+case "$RUN" in *'When either step carries `-X`, `--request`, `-d` or `--data`'*) fail "讀 log 例外要用允許清單，不是禁止清單" ;; esac
 MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
 case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
