@@ -71,6 +71,13 @@ button.coord{border-color:transparent;background:transparent;padding:0 6px}
 button.coord:hover{border-color:var(--line)}
 .coord.on{color:var(--teal)}.coord.stuck{color:var(--warn)}
 main{min-width:0;padding:var(--sp-4) max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px))}
+.board-layout{display:flex;align-items:flex-start;gap:var(--sp-4)}
+#view{min-width:0;flex:1}
+.agent-sidebar{flex:none;max-width:100%}
+.agent-sidebar summary{cursor:pointer;padding:8px 4px}
+.agent-sidebar nav{display:grid;gap:4px;margin-top:4px}
+.agent-sidebar button{text-align:left}
+@media (max-width:900px){.board-layout{display:block}.agent-sidebar{margin-bottom:var(--sp-4)}.agent-sidebar nav{display:flex;flex-wrap:wrap}}
 .errors{margin-bottom:12px;font-family:var(--mono);font-size:11px;color:var(--danger);display:flex;flex-direction:column;gap:2px}
 .newbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin-bottom:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
 .newbar.drag{outline:2px dashed var(--teal);outline-offset:4px}
@@ -383,7 +390,19 @@ main{min-width:0;padding:var(--sp-4) max(16px,env(safe-area-inset-right,0px)) 48
 <main>
   <div id="errors" class="errors" hidden></div>
   <div id="newbar" class="newbar" hidden><input id="new-name" class="new-name" aria-label="卡名" placeholder="卡名（必填，例 chat-keyboard）"><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
-  <div id="view"><div class="empty">載入中…</div></div>
+  <div class="board-layout">
+    <aside id="agent-sidebar" class="agent-sidebar" aria-label="Agent 視圖" hidden>
+      <details open>
+        <summary>Agent</summary>
+        <nav aria-label="依 Agent 篩選">
+          <button type="button" data-agent-view="" aria-pressed="true">全部</button>
+          <button type="button" data-agent-view="claude" aria-pressed="false">Claude</button>
+          <button type="button" data-agent-view="codex" aria-pressed="false">Codex</button>
+        </nav>
+      </details>
+    </aside>
+    <div id="view"><div class="empty">載入中…</div></div>
+  </div>
 </main>
 <div id="scrim" class="scrim" hidden></div>
 <div id="dialog" class="dialog" hidden role="dialog" aria-modal="true"></div>
@@ -1431,12 +1450,21 @@ function renderFbar(page){
   $('#fslot').innerHTML=h;lastFbar=h;
   if(q!=null){const i=$('#fq');if(i){i.focus();i.setSelectionRange(q,q);}}
 }
+function renderAgentSidebar(page){
+  const sidebar=$('#agent-sidebar');
+  sidebar.hidden=page!=='board';
+  for(const button of sidebar.querySelectorAll('[data-agent-view]')){
+    const value=button.dataset.agentView;
+    const active=value?F.agent.length===1&&F.agent[0]===value:F.agent.length===0;
+    button.setAttribute('aria-pressed',String(active));
+  }
+}
 function render(){
   const {path,query}=splitHash(location.hash);const r=route(path);
   F=parseF(query,known());syncLogLimit(query);
   if(r.page!=='board')ui.drawer=null;
   ui.open=r.page==='card'?r.repo+'/'+r.slug:r.page==='board'?ui.drawer:null;
-  renderTop(r);renderFbar(r.page);
+  renderTop(r);renderFbar(r.page);renderAgentSidebar(r.page);
   const y=window.scrollY;const typing=typingClass(document.activeElement);const kept=keepTyped();
   const lmPos=logicMapScroll($('#view'));
   setView($('#view'),pageHtml(r),r.page==='log');
@@ -1642,6 +1670,13 @@ function filterClick(e){
   return false;
 }
 document.addEventListener('click',e=>{
+  const agentView=e.target.closest('[data-agent-view]');
+  if(agentView){
+    const value=agentView.dataset.agentView;
+    F.agent=value?[value]:[];
+    applyF(true);
+    return;
+  }
   if(filterClick(e))return;
   const btn=e.target.closest('[data-act]');
   const rowEl=e.target.closest('.card[data-key]');
