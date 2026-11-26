@@ -609,7 +609,18 @@ gcard t-plain   '## g1\ntype: decision\nstatus: open\n問題: 選\n選項: A | B
 gcard t-badneed '## g1\ntype: decision\nneeds: ssh\nstatus: open\n問題: 選\n'
 gcard t-waits   '## g1\ntype: decision\nwaits-on:  grant-gate-levels \nstatus: open\n問題: 等別張卡\n建議: 合併後再開\n'
 gcard t-waitsempty '## g1\ntype: decision\nwaits-on:\nstatus: open\n問題: 空值\n建議: 合併後再開\n'
+# split gate：拆法有兩行 main change 時，explore 忘了刪的 (Recommended) 與建議都不算建議；只有一行照舊
+SPLIT_HEAD='## split\ntype: decision\nstatus: open\n問題: 照這個拆法建殼、寫 workplan？\n拆法:\n  - session s1 (milestone: none, depends-on: [])\n    - main change pa · feat/pa/x (depends-on: [])\n      - sub-change sa (depends-on: [])\n'
+gcard t-split2 "$SPLIT_HEAD"'    - main change pb · feat/pb/x (depends-on: [pa])（不當子 change：要單獨上線）\n選項: 照這個拆法 (Recommended) | 改拆法 | 不拆\n建議: 照這個拆法\n'
+gcard t-split1 "$SPLIT_HEAD"'選項: 照這個拆法 (Recommended) | 改拆法 | 不拆\n'
+# 邏輯表 ⚠ gate：`選項:` 底下以題號開頭的逐項選項行進 waiting.items，讓 gaterule 比對被選那一項
+gcard t-lmap '## logic-map-undecided-r1\ntype: decision\nstatus: open\n問題: 各選一個\n選項: 1A 2A (Recommended) | 逐項另選\n1 D3 欄位：A 直接 DROP COLUMN legacy (Recommended) | B 保留\n2 D5 文案：A 照舊 (Recommended) | B 改短\n建議: 1A 2A\n'
 J="$(opsx collect --root "$R7")"; assert_eq "$?" 0 "gate-type collect rc"
+assert_eq "$(q "$(card "$J" r6 t-lmap)" waiting.items)" '["1 D3 欄位：A 直接 DROP COLUMN legacy (Recommended) | B 保留", "2 D5 文案：A 照舊 (Recommended) | B 改短"]' "邏輯表 gate 的逐項選項進 waiting.items"
+assert_eq "$(q "$(card "$J" r6 t-plain)" waiting.items)" '[]' "一般 gate 沒有逐項選項"
+assert_eq "$(q "$(card "$J" r6 t-split2)" waiting.recommended)" null "兩張主 change 的 split gate 沒有建議"
+assert_eq "$(q "$(card "$J" r6 t-split2)" waiting.options)" '["照這個拆法", "改拆法", "不拆"]' "兩張主 change 的 split gate 選項照列"
+assert_eq "$(q "$(card "$J" r6 t-split1)" waiting.recommended)" 照這個拆法 "一張主 change 的 split gate 照 (Recommended) 取建議"
 w() { q "$(card "$J" r6 "$1")" "waiting.$2"; }
 assert_eq "$(w t-auth type)" 等待授權 "authorization 是授權"
 assert_eq "$(w t-auth options)" '["這次", "這張卡", "這個 repo 永遠", "拒絕"]'

@@ -204,16 +204,28 @@ if os.path.exists(agents_path) and not os.environ["OPSX_C_HERDR_ERR"]:
 
 FIELD = re.compile(r"^(type|needs|by|waits-on|blocks-from|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
 
+# explore 的 split gate 在 `拆法:` 底下每個 PR 寫一行 `- main change`；兩行以上要人看拆的理由
+SPLIT_MAIN = re.compile(r"^\s*- main change ")
+# 邏輯表 ⚠ gate 在 `選項:` 底下逐項寫「<題號> … A … | B …」
+OPTION_ITEM = re.compile(r"^\s*[0-9]+\s")
+
 def parse_gates(text):
-    gates, cur, key = [], None, None
+    gates, cur, key, in_split = [], None, None, False
     for line in text.split("\n"):
         if line.startswith("## "):
-            cur = {"id": line[3:].strip()}; gates.append(cur); key = None; continue
+            cur = {"id": line[3:].strip(), "main_changes": 0, "items": []}; gates.append(cur); key = None; in_split = False; continue
         if cur is None: continue
         m = FIELD.match(line)
         if m:
-            key = m.group(1); cur[key] = m.group(2).strip()
-        elif key in ("已確認", "證據", "問題") and line.strip():
+            key = m.group(1); cur[key] = m.group(2).strip(); in_split = False
+            continue
+        if line.startswith("拆法:"):
+            in_split = True
+        elif in_split and SPLIT_MAIN.match(line):
+            cur["main_changes"] += 1
+        elif key == "選項" and OPTION_ITEM.match(line):
+            cur["items"].append(line.strip())
+        if key in ("已確認", "證據", "問題") and line.strip():
             cur[key] = (cur[key] + "\n" + line.strip()).strip()
     return gates
 
@@ -321,7 +333,7 @@ def gates_in_force(gates, d):
 def waiting_of(card, gates, agent_status):
     for g in gates:
         if g.get("status", "").strip() != "open": continue
-        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "evidence": g.get("證據"),
+        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "items": g["items"], "evidence": g.get("證據"),
                 "risk": g.get("風險"), "default_if_unanswered": g.get("預設"), "confirmed": g.get("已確認"),
                 "needs": "run" if g.get("needs") == "run" else None,
                 "by": "coordinator" if g.get("by") == "coordinator" else None,
@@ -334,11 +346,14 @@ def waiting_of(card, gates, agent_status):
             opts = ["這次", "這張卡", "這個 repo 永遠", "拒絕"] if g.get("action") in grantactions.ACTIONS else ["拒絕"]
             return {"type": "等待授權", "action": g.get("action"), "options": opts, **base}
         opts = [o.strip() for o in (g.get("選項") or "").split("|") if o.strip()]
-        rec = base["recommended"]
+        # 兩張以上主 change 的拆法要人看理由：explore 忘了刪的 (Recommended) 或建議都不算建議
+        many_mains = g["id"] == gaterule.SPLIT_GATE and g["main_changes"] >= 2
+        rec = None if many_mains else base["recommended"]
         cleaned = []
         for o in opts:
             if "(Recommended)" in o:
-                o = o.replace("(Recommended)", "").strip(); rec = rec or o
+                o = o.replace("(Recommended)", "").strip()
+                if not many_mains: rec = rec or o
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
     blockers = merge_blockers(card, agent_status) if card["mr"] else None
@@ -364,7 +379,7 @@ def needs_human(card, gates, agent_status, top, prs, dispatched):
     open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
     if not open_gates: return True
     for g in open_gates:
-        verdict = gaterule.decide(waiting_of(card, [g], agent_status), card["repo"])
+        verdict = gaterule.decide(waiting_of(card, [g], agent_status))
         if verdict[0] == "coordinator":
             if dispatched: continue
             return True
