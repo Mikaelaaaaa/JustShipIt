@@ -95,4 +95,27 @@ grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註�
 ! grep -qF 'In the opsx-workflow repo the coordinator answers' "$FX/apply5" || fail "apply 第 5 步不該再把代答限定在 opsx-workflow"
 ! grep -qF '協調者判定' "$FX/apply5" || fail "apply 第 5 步不該再有範圍判斷的答案文字（D5）"
 ! grep -qF 'The coordinator never answers any gate' "$SK" || fail "apply SKILL.md 不該再寫協調者不答任何 gate"
+
+# 驗收：openspec/changes/apply-static-guards/specs/apply-static-guards/spec.md
+TA="$FX/test-agent"
+section "Test agent" > "$TA"
+[ -s "$TA" ] || fail "section missing: Test agent"
+# Scenario：Test agent 段落寫明靜態守門算相關測試
+has 'a static guard whose scan covers a file you changed' "$TA"
+has 'needs no database, network or other service' "$TA"
+# Scenario：不跑全套的原句保留
+has 'Do not run the whole suite; CI does that.' "$TA"
+! grep -qiF 'exception to' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
+# Scenario：Test agent 段落寫明找守門的兩種方法
+has 'read the guard index it points to in full, never through `grep | head`' "$TA"
+has 'the helpers they import' "$TA"
+has '`readdirSync`, `glob`, `os.walk`' "$TA"
+# Scenario：只 grep 被改路徑不夠
+has 'A grep for the changed path alone misses a guard that builds its root from segments' "$TA"
+# Scenario：守門在 base 也紅時不擋卡（Examples 三列）
+has 'run the same guard on the base commit' "$TA"
+has 'Red on the base too: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and record `--tests green`' "$TA"
+has 'Green on the base: it is this change'"'"'s failure, and the two fix cycles below apply' "$TA"
+has 'still red after two cycles is recorded `--tests red` like any other test' "$TA"
+has 'never a bare `git stash`' "$TA"
 echo ok
