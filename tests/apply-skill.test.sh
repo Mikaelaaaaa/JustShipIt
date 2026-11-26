@@ -111,7 +111,7 @@ has 'Do not run the whole suite; CI does that.' "$TA"
 # Scenario：Test agent 段落寫明找守門的兩種方法（D12、D20：宣告的目標只用來列守門檔）
 has 'pnpm test:ring0' "$TA"
 has 'use it only to list the guard files, and run only the ones whose scan covers a file you changed' "$TA"
-has 'skip the search below. Otherwise, first check' "$TA"
+has 'skip the search below; a script name alone (`test:unit`) does not count. Otherwise, first check' "$TA"
 # D13：不管改了哪類檔都讀索引
 has 'check whether the repo'"'"'s CLAUDE.md lists a document to read before changing files, whatever kind of file you changed' "$TA"
 has 'read the guard index it points to in full, never through `grep | head`' "$TA"
@@ -128,8 +128,8 @@ has 'compare it with the base before fixing anything' "$TA"
 has 'run the same guard on the base commit' "$TA"
 has 'git merge-base HEAD <primary remote>/main' "$TA"
 has 'when the fetch fails, the red is this change'"'"'s failure' "$TA"
-# D19：只在這張卡自己的 worktree 比 base
-has 'Run the base only in a worktree that belongs to this card alone' "$TA"
+# D19、D25：只在這張卡自己的 worktree 比 base
+has 'anywhere else other sessions'"'"' edits may share the tree, so the base is not run' "$TA"
 # D16、R3.1：stash 安全步驟，順序一整串
 has 'git branch --show-current' "$TA"
 has 'set the work aside with `git stash push -u -m <unique tag>` and note the entry'"'"'s SHA by matching that tag in `git stash list --format='"'"'%H %gs'"'"'`, never from the top of the list' "$TA"
@@ -157,4 +157,12 @@ has 'A ratchet guard red because this change lowered a count or removed a file i
 has 'A count that went up is this change'"'"'s failure; never raise a baseline number.' "$TA"
 # D18：needs: run gate 之後記紅、往下做
 has 'write a `needs: run` gate for that command instead of aborting the change, record that guard `--tests red`, and go on to the next change' "$TA"
+# D24：宣告的目標要 CLAUDE.md 寫明只跑不需服務的測試，script 名字不算
+has 'When the repo'"'"'s CLAUDE.md says a command runs only tests that need no service (such as `pnpm test:ring0`)' "$TA"
+has 'a script name alone (`test:unit`) does not count' "$TA"
+# D25：只在目錄名等於卡名的 worktree 跑 base
+has 'Run the base only in the worktree whose directory name is this card'"'"'s name' "$TA"
+! grep -qF 'one under `.claude/worktrees/` that no other session uses' "$TA"
+# D26：改到守門檔本身不做 base 比對
+has 'When this change edits the guard file itself, do not run the base: the red is this change'"'"'s failure.' "$TA"
 echo ok
