@@ -8,13 +8,14 @@ export OPSX_USER=mikaela OPSX_DISPATCH_RETRY_SLEEP=0
 mkdir -p "$OPSX_STATE_DIR"
 
 # 假 pnpm 跟假 herdr 寫同一個 log，才比得出誰先誰後；結束碼讀 $FX/pnpm-rc，輸出讀 $FX/pnpm-msg（printf %b，可放 \r）。
-# 跑的當下 git-dir 有沒有標記檔記成 pnpm-marker 一行
+# 跑的當下 git-dir 有沒有標記檔記成 pnpm-marker 一行；工作目錄記成 pnpm-cwd 一行（corepack 依工作目錄選 pnpm 版本）
 echo 0 > "$FX/pnpm-rc"
 echo 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' > "$FX/pnpm-msg"
 cat > "$FX/fakebin/pnpm" <<EOF
 #!/usr/bin/env bash
 printf 'pnpm %s\n' "\$*" >> "$OPSX_FAKE_LOG"
-if [ -f "\$(git -C "\$2" rev-parse --absolute-git-dir)/opsx-deps-pending" ]; then echo 'pnpm-marker yes' >> "$OPSX_FAKE_LOG"; fi
+printf 'pnpm-cwd %s\n' "\$(pwd -P)" >> "$OPSX_FAKE_LOG"
+if [ -f "\$(git rev-parse --absolute-git-dir)/opsx-deps-pending" ]; then echo 'pnpm-marker yes' >> "$OPSX_FAKE_LOG"; fi
 printf '%b\n' "\$(cat "$FX/pnpm-msg")"
 exit "\$(cat "$FX/pnpm-rc")"
 EOF
@@ -39,7 +40,9 @@ R="$(new_repo Inst-A ok-card pnpm-lock.yaml)"
 out="$(cd "$R" && opsx dispatch ok-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
 assert_eq "$rc" 0 "dispatch rc: $out"
 assert_eq "$(grep -c '^pnpm ' "$OPSX_FAKE_LOG")" 1 "pnpm 要剛好叫一次：$(cat "$OPSX_FAKE_LOG")"
-assert_grep "^pnpm --dir $R/.claude/worktrees/ok-card install --frozen-lockfile\$" "$OPSX_FAKE_LOG"
+assert_grep '^pnpm install --frozen-lockfile$' "$OPSX_FAKE_LOG"
+# dispatch 從主 repo 跑，pnpm 的工作目錄仍要是新 worktree
+assert_eq "$(grep '^pnpm-cwd ' "$OPSX_FAKE_LOG")" "pnpm-cwd $(cd "$R/.claude/worktrees/ok-card" && pwd -P)" "pnpm 要在新 worktree 裡跑：$(cat "$OPSX_FAKE_LOG")"
 p="$(line_of '^pnpm ')"; a="$(line_of '^agent start ok-card')"
 [ -n "$a" ] && [ "$p" -lt "$a" ] || fail "pnpm 要在 agent start 之前：$(cat "$OPSX_FAKE_LOG")"
 assert_no_file "$R/openspec/changes/ok-card/gates.md"
