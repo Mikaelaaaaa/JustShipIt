@@ -28,11 +28,13 @@ opsx_lead() {
     pane="${where##* pane }"
     if [ ! -f "$fp" ]; then
       say "lead: 沒有這個協調者的啟動記錄，不知道它用哪組參數和設定起的；關掉 pane ${pane} 再跑 opsx lead 才會用現在的參數和設定"
-    elif now="$(lead_fingerprint "$settings" "${args[@]}")"; then
+    elif now="$(lead_fingerprint "$settings" "${args[@]}" 2>/dev/null)"; then
       changed=""
       grep -qxF "${now%%$'\n'*}" "$fp" || changed="啟動參數"
       grep -qxF "${now#*$'\n'}" "$fp" || changed="${changed:+$changed 和 }coordinator-settings.json"
       [ -z "$changed" ] || say "lead: 協調者可能是舊的：它起來之後${changed}改過；關掉 pane ${pane} 再跑 opsx lead 才會套用"
+    else
+      say "lead: 讀不出 coordinator-settings.json，看不出協調者是不是舊的（${settings}）"
     fi
     return 0
   fi

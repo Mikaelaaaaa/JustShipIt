@@ -124,6 +124,14 @@ out="$(opsx lead 2>&1)"; assert_eq "$?" 0 "算不出指紋仍要 0：$out"
 chmod 644 "$S"
 case "$out" in *指紋*) ;; *) fail "算不出指紋要警告：$out" ;; esac
 assert_no_file "$F"
+# 已在跑、設定檔讀不出來：說看不出是不是舊的，不當成一致
+cp "$FX/launch.orig" "$F"; chmod 000 "$S"
+: > "$OPSX_FAKE_LOG"
+out="$(OPSX_TEST_COORDINATOR_UP=1 opsx lead 2>&1)"; rc=$?
+chmod 644 "$S"
+assert_eq "$rc" 0 "已在跑、讀不出設定仍要 0：$out"
+case "$out" in *"讀不出 coordinator-settings.json"*) ;; *) fail "讀不出設定要說看不出是不是舊的：$out" ;; esac
+assert_not_grep '^agent start' "$OPSX_FAKE_LOG"
 
 # --- start 回 agent_name_taken（兩個 lead 同時跑；或 get 查不到但其實在跑）：已在跑不是錯誤 ---
 # 關掉剛開的 tab、印出另一個在哪、退出 0；不能叫人關掉那個 pane（那就是正在跑的協調者）
