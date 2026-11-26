@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# skills/babysit/SKILL.md：threads-only 的 push wave 之後、回覆之前照 review 的產表步重產邏輯表檔案（不發留言）；
+# skills/babysit/SKILL.md：每次 push 之前照 review 的產表步讓邏輯表檔案對上要推的 head（不發留言）；
 # 每一輪最後照 `## 邏輯表` 的 sha 比對 MR head，不同就重產一次；merge 模式不重產。skill 是文字，只能檢查 skill 寫了什麼。對應 openspec/changes/pr-logic-map/specs/pr-logic-map。
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 SK="$OPSX_ROOT/skills/babysit/SKILL.md"
@@ -20,16 +20,18 @@ assert_fixed '## 邏輯表' "$STEP"
 assert_fixed 'openspec/changes/<slug>/logic-map.md' "$STEP"
 ! grep -qF 'gh pr comment' "$STEP" || fail "babysit 複製了 5c 的指令"
 
-# --- 順序：push wave 之後、回覆之前 ---
-python3 -I - "$STEP" <<'PY' || fail "重產不在 push wave 與回覆之間"
+# --- 順序：push wave 之前重產，push 之後才回覆（specs/pr-logic-map「babysit push 之前重產」）---
+python3 -I - "$STEP" <<'PY' || fail "重產不在 push wave 之前"
 import sys
 text = open(sys.argv[1], encoding="utf-8").read()
-push = text.index("Push that wave")
 regen = text.index("regenerate the logic map")
+push = text.index("Push that wave")
 reply = text.index("On GitLab, reply")
-if not push < regen < reply:
-    sys.exit("順序：push=%d regen=%d reply=%d" % (push, regen, reply))
+if not regen < push < reply:
+    sys.exit("順序：regen=%d push=%d reply=%d" % (regen, push, reply))
 PY
+assert_not_fixed 'After the push and before any reply, regenerate' "$STEP"
+assert_fixed 'Before pushing that wave, regenerate the logic map' "$STEP"
 
 # --- R1.4 只跑產表步的子步，出口回 babysit 回覆，不走 pr 步 6（它會再叫 babysit）；remote 照 pr 步 1 的規則 ---
 assert_fixed 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' "$STEP"
@@ -47,9 +49,9 @@ assert_fixed 'overwrite' "$STEP"
 assert_not_fixed 'the `check` mode, the `merge <sha>` mode' "$STEP"
 assert_not_fixed 'never regenerate it' "$STEP"
 
-# --- 步 8 重產停在 gate 時不回 thread（「push 之後重產失敗不回 thread」）---
+# --- 步 8 重產停在 gate 時不 push、不回 thread（「push 之前重產失敗不 push 也不回 thread」）---
 assert_not_fixed 'Wherever step 1b ends' "$STEP"
-assert_fixed 'When step 1b stops at a gate, stop there and reply to no thread' "$STEP"
+assert_fixed 'When step 1b stops at a gate, stop there: push nothing and reply to no thread' "$STEP"
 
 # --- 一進來比對 HEAD（specs/pr-logic-map「babysit 一進來比對 HEAD」）---
 ENTRY="$FX/step1"
@@ -122,3 +124,18 @@ STEP5="$FX/step5"
 awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
 [ -s "$STEP5" ] || fail "skills/babysit/SKILL.md 沒有步 5"
 assert_not_fixed 'regenerate the logic map' "$STEP5"
+
+# --- 步 5 push 之前表對上要推的 head（specs/pr-logic-map「push 之前表要對上要推的 head」）---
+python3 -I - "$STEP5" <<'PY' || fail "步 5 的比對不在 push 之前"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+check = text.index("Before that push")
+push = text.index("Push with `git push`")
+if not check < push:
+    sys.exit("順序：check=%d push=%d" % (check, push))
+PY
+assert_fixed 'compare the line under `## 邏輯表` with `git rev-parse HEAD` the way step 1 does' "$STEP5"
+assert_fixed 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' "$STEP5"
+assert_fixed 'whether or not the MR has auto-merge' "$STEP5"
+assert_fixed 'before any request that turns auto-merge back on' "$STEP5"
+assert_fixed 'When step 1b stops at a gate, the merge commit stays local and unpushed' "$STEP5"
