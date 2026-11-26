@@ -94,6 +94,8 @@ case "$RUN" in *'either parameter is missing, the sha is not a full 40-character
 case "$RUN" in *'Before running it, read `glab mr view <iid> -F json` once'*'Run it only when `head_pipeline` is not null, its sha equals the `sha=` of the 建議, and its status is `created`, `pending`, `running`, `waiting_for_resource`, `preparing` or `scheduled`'*) ;; *) fail "重設前要讀 pipeline、只在還在跑時跑：$RUN" ;; esac
 case "$RUN" in *'In every other case the PUT would merge at once'*"delete its \`by: coordinator\` line and list it in block ①"*) ;; *) fail "其餘狀態不跑、刪 by、列進 ①：$RUN" ;; esac
 case "$RUN" in *'when `head_pipeline.status` is `success`, the PUT would merge at once, so do not run it'*) fail "防線不能只擋 success：$RUN" ;; esac
+# 讀取到 PUT 之間變綠的窗口寫明接受（D18）
+case "$RUN" in *'The window between that read and the PUT is accepted'*'merges at once'*) ;; *) fail "要寫明讀取到 PUT 之間的窗口：$RUN" ;; esac
 MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
 case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"

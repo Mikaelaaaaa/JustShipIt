@@ -35,6 +35,10 @@ has "When the answer comes back, run step 5's read-back." "$UPD"
 has 'for the first time, write the same gate again' "$UPD"
 has 'the second time, write it without the `by: coordinator` line' "$UPD"
 has 'Never try another way' "$UPD"
+# GitHub 讀回失敗：第一次重跑、第二次交使用者；交使用者後仍缺表就停（D14、D15）
+has 'run the same `gh pr edit` once more' "$UPD"
+has 'the second time, write a `needs: run` gate with that command for the user' "$UPD"
+has 'after the user ran it, write no more gates and put `描述更新失敗` on the `## MR` line' "$UPD"
 # 開了更新 gate 也不停
 has 'carry on without waiting for it' "$UPD"
 hasnt 'and stop.' "$UPD"
@@ -85,14 +89,20 @@ case "$(line_of '- When the line under `## 邏輯表`')" in *'neither names the 
 # null：沒有 pipeline，PUT 會直接合併，不開 gate（沒有 CI 的 repo）
 case "$(line_of '- When `head_pipeline` is null')" in *'write no gate'*'auto-merge: no（沒有 pipeline）'*) ;; *) fail "null 那行要不開 gate、寫沒有 pipeline" ;; esac
 grep -F -- '- When `head_pipeline` is null' "$AM" | grep -qF 'write a `needs: run`' && fail "null 那行不能開 gate"
-# 還沒跑完（舊 sha、created／pending／running／waiting_for_resource 等）：開重設 gate
-GATE="$(line_of '- When `head_pipeline.sha` is not `git rev-parse HEAD`')"
-case "$GATE" in *'or its status is not `success`, `failed`, `canceled` or `skipped`'*'write a `needs: run` gate with a `by: coordinator` line'*) ;; *) fail "沒跑完的狀態要開協調者 gate：$GATE" ;; esac
+# 舊 sha：不開 gate、等新 pipeline（D20）
+case "$(line_of '- When `head_pipeline.sha` is not `git rev-parse HEAD`')" in *'write no gate'*'auto-merge: no（等新 pipeline）'*) ;; *) fail "舊 sha 那行要不開 gate、寫等新 pipeline" ;; esac
+grep -F -- '- When `head_pipeline.sha` is not' "$AM" | grep -qF 'write a `needs: run`' && fail "舊 sha 那行不能開 gate"
+# 放行清單內的狀態：開重設 gate，清單跟協調者同一份（D21）
+GATE="$(line_of '- When the status is `created`, `pending`, `running`, `waiting_for_resource`, `preparing` or `scheduled`')"
+case "$GATE" in *'the same list the coordinator runs the reset for'*'write a `needs: run` gate with a `by: coordinator` line'*) ;; *) fail "放行清單內的狀態要開協調者 gate：$GATE" ;; esac
+# 其他狀態（manual 等）：不開、寫 pipeline <status>（D21）
+case "$(line_of '- Any other status')" in *'write no gate'*'auto-merge: no（pipeline <status>）'*) ;; *) fail "其他狀態那行要不開 gate、寫 pipeline <status>" ;; esac
 case "$GATE" in *'glab api -X PUT projects/:fullpath/merge_requests/<iid>/merge -F merge_when_pipeline_succeeds=true -F sha=<full 40-character output of git rev-parse HEAD>'*) ;; *) fail "重設指令要帶兩個參數、sha 完整 40 碼：$GATE" ;; esac
 # success：不開、寫已綠（false + success）
 case "$(line_of '- When the pipeline is `success`')" in *'write no gate'*'auto-merge: no（pipeline 已綠，等合併）'*) ;; *) fail "success 那行要不開 gate、寫已綠" ;; esac
-# failed／canceled／skipped：不開、寫被取消（false + failed）
-case "$(line_of '- When the pipeline is `failed`, `canceled` or `skipped`')" in *'write no gate'*'auto-merge: no（被取消）'*) ;; *) fail "failed 那行要不開 gate、寫被取消" ;; esac
+# failed：不開、寫 pipeline 失敗；canceled／skipped：不開、寫被取消（D17）
+case "$(line_of '- When the pipeline is `failed`,')" in *'write no gate'*'auto-merge: no（pipeline 失敗）'*) ;; *) fail "failed 那行要不開 gate、寫 pipeline 失敗" ;; esac
+case "$(line_of '- When it is `canceled` or `skipped`')" in *'write no gate'*'auto-merge: no（被取消）'*) ;; *) fail "canceled／skipped 那行要不開 gate、寫被取消" ;; esac
 # 反例：success 與 failed 那兩行不得出現開 gate 的寫法
 grep -F -- '- When the pipeline is `success`' "$AM" | grep -qF 'write a `needs: run`' && fail "success 那行不能開 gate"
 grep -F -- '- When the pipeline is `failed`' "$AM" | grep -qF 'write a `needs: run`' && fail "failed 那行不能開 gate"
