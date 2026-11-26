@@ -126,7 +126,7 @@ assert_not_fixed 'regenerate the logic map' "$STEP5"
 # --- agent-20261126-1119 D1：merge 後引用 apply Test agent 的型別檢查與守門測試規則，不另列觸發條件 ---
 assert_fixed 'run the full suite next, together with the typecheck and guard tests that the "Test agent" section of `../apply/SKILL.md` calls for' "$STEP5"
 # R1.1：型別檢查紅或被拒的 gate 開著時不推；D12：型別錯照 apply 的規則逐個錯跟 main 比對
-assert_fixed 'push only when the full suite is green, the typecheck is PASS, SKIPPED or NOT-TRIGGERED and no typecheck gate is open' "$STEP5"
+assert_fixed 'push only when the full suite is green, the typecheck is PASS, SKIPPED or NOT-TRIGGERED (or FAIL with only errors main also has) and no typecheck gate is open' "$STEP5"
 assert_not_fixed 'the typecheck is green and' "$STEP5"
 # D19：babysit 自己讀 merge 前的 sha
 assert_fixed 'read `ORIG_HEAD` right after the merge as the pre-merge sha' "$STEP5"
