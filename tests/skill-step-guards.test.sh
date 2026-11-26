@@ -33,8 +33,12 @@ assert_fixed 'every case of that file has a 去處 line' "$STEP10"
 assert_fixed 'every case it moved is in the new file' "$STEP10"
 assert_fixed 'when either fails, do not check the task off' "$STEP10"
 assert_fixed 'deletes, renames or replaces a test file' "$STEP1"
-assert_fixed 'git diff --name-status -M HEAD' "$STEP10"
+assert_fixed 'git diff --name-status -M <base>' "$STEP10"
+assert_fixed '`<base>` is `git merge-base HEAD <remote>/main`' "$STEP10"
+assert_fixed 'committed, staged and unstaged deletions and renames included' "$STEP10"
 assert_fixed 'a `D` or `R` line for a test file' "$STEP10"
+assert_fixed 'under the task that deleted, renamed or replaced it' "$STEP10"
+if grep -qF 'git diff --name-status -M HEAD' "$STEP10"; then fail "第 10 步還在跟 HEAD 比，已 commit 的刪除看不到"; fi
 
 # --- review：合併 base 分支後的確認 pass，寫 確認: <sha>、不算一輪 ---
 RV="$OPSX_ROOT/skills/review/SKILL.md"
