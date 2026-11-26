@@ -141,7 +141,7 @@ has 'when the apply fails, keep the entry, leave the tree as it is, and write a 
 has 'never a bare `git stash`' "$TA"
 has 'When any of that cannot be done, do not run the base' "$TA"
 # D11、R3.3：逐筆比，去掉行號欄號
-has 'Compare failure by failure (file and message, with line and column numbers removed), not red against green, and count them' "$TA"
+has 'Compare failure by failure (file and message, with line and column numbers and any other numbers in the message removed), not red against green, and count them' "$TA"
 # D22：比筆數
 has 'count them: more failures with the same file and message on this change than on the base is this change'"'"'s failure' "$TA"
 # D23：base 跑完切不回或 apply 失敗
@@ -165,4 +165,11 @@ has 'Run the base only in the worktree whose directory name is this card'"'"'s n
 ! grep -qF 'one under `.claude/worktrees/` that no other session uses' "$TA"
 # D26：改到守門檔本身不做 base 比對
 has 'When this change edits the guard file itself, do not run the base: the red is this change'"'"'s failure.' "$TA"
+# D27：免服務指令那條路也讀組掃描根的那幾行
+has 'read the lines in each guard that build the root it scans, as for the grep below, to decide whether it covers a file you changed' "$TA"
+# D28：必讀表多份文件時都讀
+has 'When it lists several documents, read every one that has a table of test files or guards; each counts as an index.' "$TA"
+# D29：數字也去掉，數字比 base 大才算紅
+has 'with line and column numbers and any other numbers in the message removed' "$TA"
+has 'a matched failure whose number is higher on this change than on the base is this change'"'"'s failure' "$TA"
 echo ok
