@@ -118,7 +118,11 @@ has 'read the guard index it points to in full, never through `grep | head`' "$T
 has 'run every guard the index lists whose scan covers a file you changed, whether or not the grep below finds it' "$TA"
 has 'the helpers they import' "$TA"
 # D14：清單不含 find
-has '(`readdirSync`, `glob`, `os.walk`, `git ls-files`)' "$TA"
+has '(`readdirSync`, `readdir`, `glob`, `os.walk`, `os.listdir`, `os.scandir`, `git ls-files`)' "$TA"
+# D39：宣告的指令帶環境變數時用它本身跑
+has 'when that command sets environment variables in front, run the guards through the command itself with the guard paths appended, `pnpm test:ring0 <guard paths>`, not through vitest directly' "$TA"
+# D41：「失敗」只指 git 步驟
+has 'A failure here means a git step (checkout, apply); the guard exiting non-zero on the base is what you compare, not a failure.' "$TA"
 ! grep -qF '`find`' "$TA" || fail "grep 清單不能有 find（D14）"
 # Scenario：只 grep 被改路徑不夠
 has 'A grep for the changed path alone misses a guard that builds its root from segments' "$TA"
