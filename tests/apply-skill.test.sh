@@ -118,7 +118,7 @@ has 'read the guard index it points to in full, never through `grep | head`' "$T
 has 'run every guard the index lists whose scan covers a file you changed, whether or not the grep below finds it' "$TA"
 has 'the helpers they import' "$TA"
 # D14：清單不含 find
-has '(`readdirSync`, `readdir`, `glob`, `os.walk`, `os.listdir`, `os.scandir`, `git ls-files`)' "$TA"
+has '(`readdirSync`, `readdir`, `glob`, `os.walk`, `os.listdir`, `os.scandir`, `iterdir`, `WalkDir`, `ReadDir`, `git ls-files`)' "$TA"
 # D39：宣告的指令帶環境變數時用它本身跑
 has 'when that command sets environment variables in front, run the guards through the command itself with the guard paths appended, `pnpm test:ring0 <guard paths>`, not through vitest directly' "$TA"
 # D41：「失敗」只指 git 步驟
@@ -153,7 +153,7 @@ has 'When the guard on the base times out, or is red but lists no failure, do no
 # D22：比筆數
 has 'count them: more failures with the same file and message on this change than on the base is this change'"'"'s failure' "$TA"
 # D23：base 跑完切不回或 apply 失敗
-has 'When the branch cannot be checked out again or the apply fails after the base ran, do not use the base result: the red is this change'"'"'s failure; stop and write a gate that names the commit you are on and the stash SHA' "$TA"
+has 'When the branch cannot be checked out again, or the apply fails or does not bring the changes back after the base ran, do not use the base result: the red is this change'"'"'s failure; stop and write a gate that names the commit you are on and the stash SHA' "$TA"
 # D21：被改檔案含 untracked
 has 'plus the uncommitted ones, untracked new files included' "$TA"
 has 'Every failure on this change also on the base: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and count that guard as green' "$TA"
