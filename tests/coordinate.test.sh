@@ -314,6 +314,7 @@ round || fail "rc: $(cat "$FX/out")"
 got="$(grep -E '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")"
 assert_eq "$got" "opsx stop g --repo $R
 openspec archive g -y" "idle 超過 30 分鐘要 stop 再收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'demo/g' && fail "idle 收尾不該記 ??：$(cat "$LOG")"
 cp "$WP0" "$R/openspec/workplan.yaml"
 
 # --- 收尾：idle 超過 30 分鐘，但卡上有 open gate（在等人回）或是互動模式（人暫時離開），不收尾、記 ?? ---
@@ -325,6 +326,25 @@ printf '{"demo/g":{"mode":"interactive","agent":"claude","pane":"w1:p2","drive_p
 cards "[$(merged g "$(ago 40)" "$D" '"idle"')]"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(grep -cE '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")" 0 "互動模式不收尾：$(cat "$OPSX_FAKE_LOG")"
+cp "$WP0" "$R/openspec/workplan.yaml"
+
+# --- 收尾：done 是跑完一輪、pane 沒人看過，超過 30 分鐘和 idle 一樣收；blocked 在等人回權限提示，不收 ---
+printf '{"demo/g":{"mode":"autopilot","agent":"claude","pane":"w1:p2","drive_pid":null,"branch":"feat/g/m"}}' > "$DISP"
+cards "[$(merged g "$(ago 40)" "$D" '"done"')]"
+round || fail "rc: $(cat "$FX/out")"
+got="$(grep -E '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")"
+assert_eq "$got" "opsx stop g --repo $R
+openspec archive g -y" "done 超過 30 分鐘要 stop 再收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'demo/g' && fail "done 收尾不該記 ??：$(cat "$LOG")"
+cp "$WP0" "$R/openspec/workplan.yaml"
+cards "[$(merged g "$(ago 40)" "$D" '"blocked"')]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(grep -cE '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")" 0 "blocked 不收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'agent 是 blocked' || fail "blocked 要記 ??：$(cat "$LOG")"
+cards "[$(merged g "$(ago 40)" "$D" '"done"' | sed 's/^{/{"open_gates":[{"id":"g9","opened_at":null}],/')]"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(grep -cE '^(opsx stop|openspec archive)' "$OPSX_FAKE_LOG")" 0 "done 但有 open gate 不收尾：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep -q 'agent 是 done' || fail "done 有 open gate 要記 ??：$(cat "$LOG")"
 cp "$WP0" "$R/openspec/workplan.yaml"
 
 # --- 收尾：沒派過的卡（dispatch.json 沒有）不收尾，留給人 ---
