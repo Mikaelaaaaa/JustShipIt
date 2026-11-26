@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# opsx new [--repo <path>] [--source <me|agent:<slug>>] [--type <bug|功能|想法|技術債|待定>] [--kind-of-work <incident|planned>] [--impact <值,…>] [--evidence <一行>] [--attach <file>]… -- <一句話>：＋新增一張收件卡，印出 slug。
+# opsx new --name <卡名> [--repo <path>] [--source <me|agent:<slug>>] [--type <bug|功能|想法|技術債|待定>] [--kind-of-work <incident|planned>] [--impact <值,…>] [--evidence <一行>] [--attach <file>]… -- <一句話>：＋新增一張收件卡，印出 slug。
 # 給了 repo 就在那裡建殼；沒給就寫 <state>/unfiled/<slug>.md，等 opsx file 選 repo（board-inbox D6）。
-# slug 是 me-<YYYYMMDD-HHMM>，同名依序加 -2（D2）。specs/board-actions「新增到收件匣」「新增時附檔」「agent 開的卡標明來源」。
+# slug 就是 --name，誰開的都不加前綴，同名依序加 -2。specs/board-actions「新增到收件匣」「新增時附檔」「agent 開的卡標明來源」「卡名由 --name 指定」。
 # --attach 的檔複製進卡的 attachments/（待分類是 unfiled/<slug>/attachments/），有附件時 source: paste。
-# 環境變數 OPSX_CARD 有值（dispatch 啟動的 claude agent 都帶），或在 dispatch 的 worktree（<top>/.claude/worktrees/<slug>）裡呼叫，是 agent 開的：source: agent:<slug>、slug 前綴 agent-；這時帶 --source me 報錯，--source agent:<slug> 照收。
+# 環境變數 OPSX_CARD 有值（dispatch 啟動的 claude agent 都帶），或在 dispatch 的 worktree（<top>/.claude/worktrees/<slug>）裡呼叫，是 agent 開的：source: agent:<slug>；這時帶 --source me 報錯，--source agent:<slug> 照收。
 # agent 開的卡必帶 --kind-of-work；incident 還要 --impact 與 --evidence（references/priority.md 的事實欄位）。使用者開的卡不強制，沒帶是 planned。
 # type 沒帶時 agent 開的卡是 bug、其他是待定。
 # P2 的 bug／技術債提到的 repo 檔案跟一張還沒開工的卡有交集，就併進那張的 inbox.md，不建殼，印的是那張的 slug（specs/card-auto-merge「同檔案併入」）。
@@ -67,10 +67,11 @@ merge_into() { # <top> <目標> <基本 id> <source> <kind> <evidence> <type> <�
 }
 
 opsx_new() {
-  local top="" text="" source="" type="" type_set="" kind="" impact="" evidence="" prefix=me files=() names=() f b stem ext cand n taken=$'\n' i wt mt
+  local top="" text="" name="" name_set="" source="" type="" type_set="" kind="" impact="" evidence="" prefix=me files=() names=() f b stem ext cand n taken=$'\n' i wt mt
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) top="$2"; shift 2 ;;
+      --name) [ $# -ge 2 ] || die "new: --name 後面要給卡名"; name="$2"; name_set=1; shift 2 ;;
       --source) [ $# -ge 2 ] || die "new: --source 後面要給 me 或 agent:<slug>"; source="$2"; shift 2 ;;
       --kind-of-work) [ $# -ge 2 ] || die "new: --kind-of-work 後面要給 incident 或 planned"; kind="$2"; shift 2 ;;
       --impact) [ $# -ge 2 ] || die "new: --impact 後面要給值"; impact="$2"; shift 2 ;;
@@ -78,9 +79,13 @@ opsx_new() {
       --attach) [ $# -ge 2 ] || die "new: --attach 後面要給檔案"; files+=("$2"); shift 2 ;;
       --type) [ $# -ge 2 ] || die "new: --type 後面要給 bug、功能、想法、技術債、待定 之一"; type="$2"; type_set=1; shift 2 ;;
       --) shift; text="$*"; break ;;
-      *) die "new: 用法 opsx new [--repo <path>] [--source <me|agent:<slug>>] [--type <bug|功能|想法|技術債|待定>] [--kind-of-work <incident|planned>] [--impact <值,…>] [--evidence <一行>] [--attach <file>]… -- <一句話>" ;;
+      *) die "new: 用法 opsx new --name <卡名> [--repo <path>] [--source <me|agent:<slug>>] [--type <bug|功能|想法|技術債|待定>] [--kind-of-work <incident|planned>] [--impact <值,…>] [--evidence <一行>] [--attach <file>]… -- <一句話>" ;;
     esac
   done
+  [ -n "$name_set" ] || die "new: 要補 --name <卡名>（kebab-case：小寫英文開頭，小寫英數以單一 - 連接，最多 32 字）"
+  # 跟 openspec new change 收的名字同一套；單一 - 也擋掉子殼分隔 --
+  local name_re='^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+  [[ "$name" =~ $name_re ]] && [ ${#name} -le 32 ] || die "new: --name 要是 kebab-case（小寫英文開頭，小寫英數以單一 - 連接，最多 32 字），拿到：${name}"
   if [ -n "$type_set" ]; then
     case "$type" in bug|功能|想法|技術債|待定) ;; *) die "new: --type 要是 bug、功能、想法、技術債、待定 之一，拿到：${type}" ;; esac
   fi
@@ -128,7 +133,7 @@ opsx_new() {
     *) source=me; [ ${#names[@]} -eq 0 ] || source=paste ;;
   esac
   [ -n "$type_set" ] || { [ "$prefix" = agent ] && type=bug || type=待定; }
-  local slug body lv tgt own="" merged=""; slug="$prefix-$(date '+%Y%m%d-%H%M')"
+  local slug body lv tgt own="" merged=""; slug="$name"
   # 只併小事：type 是 bug 或技術債、有 repo、沒附件、一句話不像段落結構、等級是 P2 才找目標；等級由 priority.py 算。
   # 只併 P2：目標的等級事後可能因 milestone、覆寫或依賴繼承掉回 P2，併進去的 P0／P1 會跟著掉。
   local small=""
@@ -175,7 +180,7 @@ opsx_new() {
       elif [ ! -e "$dir/$s.md" ]; then
         die "new: 建不了 $dir/$s.md"
       fi
-      n=$((n+1)); s="$slug-$n"
+      n=$((n+1)); s="$(slug_candidate "$slug" "$n")"
     done
     cat "$body" > "$dir/$s.md" || { rm -f "$dir/$s.md"; die "new: 寫不進 $dir/$s.md"; }
     dest="$dir/$s/attachments"
