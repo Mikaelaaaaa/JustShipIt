@@ -9,18 +9,11 @@
 
 <p align="center"><a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a></p>
 
-跟一般 agent workflow 不一樣的地方：
-
-- **合併永遠是人按的。** agent 把 PR 推到可合併就停，合併核准只有你寫得進去。
-- **先 spec、再測試、再 review，才開 PR。** 每個改動都有 spec 與先寫的測試，review 過了才送出，一般的卡由三位 reviewer 平行審。
-- **多個 agent 共用一個看板，只在需要你時才問。** 要授權或要你選的事寫成 gate，其餘時間不打擾你。
-- **每支 PR 附一張邏輯表。** 從 diff 畫出功能清單、流程與條件，讓你判斷 AI 寫的邏輯，而不是只看它說了什麼。
-
 <a href="docs/assets/board-demo.mp4"><img src="docs/assets/board-demo.gif" alt="JustShipIt 看板操作錄影：開看板，點一張卡從右側滑出抽屜，按允許回 gate，再切到變更、已歸檔、紀錄三頁。點圖看高畫質 mp4" width="100%" /></a>
 
 ## <a id="why"></a>解決什麼問題
 
-同時讓好幾個 Claude Code agent 做事，難的是記得每件事做到哪、哪個 agent 在等你。JustShipIt 把「先想清楚、先寫測試、不碰 main」寫進固定流程，所有卡放在同一個看板，需要你時才找你，合併永遠由你決定。
+同時讓好幾個 Claude Code agent 做事，難的是記得每件事做到哪、哪個 agent 在等你。JustShipIt 讓每個改動先有 spec 和先寫的測試，review 過了才開 PR，所有卡放在同一個看板，只有要授權或要你選的事才寫成 gate 找你。合併永遠由你按，每支 PR 附一張只從 diff 畫出的邏輯表，讓你照 code 實際的條件判斷 AI 寫的邏輯。
 
 ## <a id="how"></a>怎麼運作
 
@@ -105,7 +98,7 @@ bash <plugin root>/bin/opsx init --global
 opsx init
 ```
 
-之後用 `opsx new -- "一句話說你要做什麼"` 開一張收件卡，在看板按派工，或在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
+之後用 `opsx new --name <卡名> -- "一句話說你要做什麼"` 開一張收件卡（卡名也會是 PR 名和 branch 名），在看板按派工，或在 Claude Code 裡跑 `/opsx-workflow:explore <卡>`。
 
 | 平台 | 支援程度 |
 |------|---------|
@@ -121,7 +114,7 @@ opsx init
 |------|--------|
 | `opsx init --global` | 裝一次：CLI、狀態目錄、看板 plugin、全域設定 |
 | `opsx init` | 在目前 repo 裝 openspec 與 opsx schema |
-| `opsx new -- <一句話>` | 開一張收件卡 |
+| `opsx new --name <卡名> -- <一句話>` | 開一張收件卡 |
 | `opsx dispatch <卡>` | 派給 agent：開 worktree、pane，送出第一句 |
 | `opsx answer <卡> --gate <id> <文字>` | 回 agent 留下的 gate |
 | `opsx merge <卡>` | 一次性核准合併，在沙盒外執行 |

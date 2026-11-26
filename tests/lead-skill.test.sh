@@ -122,13 +122,35 @@ for s in 'no pane is working and ① has no open gate' 'priority level, then wor
   'While any pane is working, dispatch nothing extra' 'Keep the number of working panes below max-working'; do
   case "$D9" in *"$s"*) ;; *) fail "職責 9 缺：$s — $D9" ;; esac
 done
+# 放掉且 pane 已收的補卡可以派（inbox-autofill D14）：新句子整句在，原本只派沒有條目的那句也整句還在
+for s in 'Also take a card whose entry has `released_at` and whose pane is closed (`pane_closed_at` or `reaped_at`): coordinate filled it from the inbox, released its pane after propose, and dispatches it again only at P0/P1, so a filled card that came out of propose at P2 waits for you.' \
+  'Take only a card that has no dispatch.json entry, or whose entry is `mode: stopped` and which the user has since asked to restart; any other entry means the card is already dispatched (待指派 also lists cards still in explore, grill or propose whose pane is alive), and `opsx dispatch` refuses it.' \
+  'A card with unmerged dependencies, or one the user stopped, waits, and coordinate holds them back for the same reason.'; do
+  case "$D9" in *"$s"*) ;; *) fail "職責 9 缺整句：$s — $D9" ;; esac
+done
 # 名額只算工作中的 pane（specs/dispatch-concurrency）：idle、blocked、done 不佔名額，留著 live pane 的說法會跟協調者數得不一樣
 case "$D9" in *'live pane count'*) fail "職責 9 要說工作中的 pane 數，不是 live pane count — $D9" ;; esac
-for s in 'duty 6 first' 'P0/P1 收件匣' 'explore' 'slots left after 待指派' 'a P0 card ignores max-working' \
-  'Leave P2 收件匣 cards undispatched' 'do not dispatch that main change yourself'; do
+# 收件匣交給 coordinate 補卡，協調者只判重複、蓋記號（specs/opsx-lead「收件匣那條職責寫明交給 coordinate、只判重複」
+# 「協調者不自己派收件匣卡」「P2 收件匣卡不派」）
+D6="$(duty 6)"
+for s in 'Every round, start from `opsx dedup --candidates --repo <top>`' \
+  'fold the cards you judge 同一件事 with `opsx merge-card` as above' \
+  'stamp every remaining P0/P1 card you inspected with `opsx dedup <slug>… --repo <top>`' \
+  '`opsx coordinate` fills only stamped cards' \
+  'Leave P2 cards unstamped'; do
+  case "$D6" in *"$s"*) ;; *) fail "職責 6 缺：$s — $D6" ;; esac
+done
+for s in 'Inbox cards are filled by `opsx coordinate`' \
+  'Do not dispatch inbox cards with `opsx dispatch` yourself' \
+  'your part is duty 6: judge duplicates and stamp the rest with `opsx dedup`' \
+  'Leave P2 收件匣 cards undispatched and list them in block ③' \
+  'A `dispatch-<main>` gate left by a split stays the user'"'"'s' \
+  'do not dispatch that main change yourself'; do
   case "$D10" in *"$s"*) ;; *) fail "職責 10 缺：$s — $D10" ;; esac
 done
-case "$D10" in *'P2 included'*) fail "職責 10 不能派 P2 收件匣卡：$D10" ;; esac
+for s in 'dispatch each remaining P0/P1 收件匣 card' 'slots left after 待指派' 'a P0 card ignores max-working' 'P2 included'; do
+  case "$D10" in *"$s"*) fail "職責 10 不能有：$s — $D10" ;; esac
+done
 for s in 'skill-creator' '--note' '依 skill-creator 撰寫' 'design.md' 'decisions.tsv' 'agents/*.md' \
   'evaluation loop' 'only changes code gets no such note'; do
   case "$D11" in *"$s"*) ;; *) fail "職責 11 缺：$s — $D11" ;; esac
@@ -168,16 +190,34 @@ done
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
-# 職責 2：opsx-workflow 的 decision 由 opsx coordinate 照建議答並列在 ④，其餘 gate 轉給使用者（specs/opsx-lead「opsx repo 的決定題由 coordinate 照建議答」「其他 gate 仍不代答」）
+# 職責 2：每個 repo 有建議的 decision 由 opsx coordinate 照建議答、註「協調者代決」並列在 ④，其餘 gate 轉給使用者
+# （specs/opsx-lead「職責 2 寫明所有 repo 照建議答」「職責 2 不再限定 repo、不再有範圍判斷例外」）
 D2="$(grep -E '^2\. ' "$F")"; [ -n "$D2" ] || fail "缺職責 2"
-for k in 'opsx-workflow' 'decision' '照建議' 'ponytail' '④' 'Every other gate is the user'"'"'s' \
-  'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' '①'; do
+for k in 'every repo' '協調者代決' 'decision' '照建議' 'ponytail' '④' 'approval' 'Every other gate is the user'"'"'s' \
+  'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' '①' \
+  'deploys, changes CI, touches secrets, spends money or speaks outside the team'; do
   case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
 done
 case "$D2" in *"Every gate is the user's"*) fail "職責 2 不該再寫每個 gate 都是使用者的" ;; esac
-# ④ 的資料來源是 decisions.tsv（D14）；另開卡題的範圍判斷只在其他 repo（D13）
-for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event' 'In other repos, a gate that asks whether to open another card'; do
+for k in 'In other repos, a gate that asks whether to open another card' 'every gate in other repos' '協調者判定：範圍內' 'In the opsx-workflow repo'; do
+  case "$D2" in *"$k"*) fail "職責 2 不該再有 [$k]" ;; esac
+done
+# ④ 的資料來源是 decisions.tsv
+for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event'; do
   case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
 done
 case "$D2" in *"lists what it answered in block ④"*) fail "職責 2 不能寫成 opsx coordinate 自己列 ④" ;; esac
+
+# 職責 17 與報告 ②：每支可合併 MR 附邏輯表連結與代決清單，不分 repo；其他 repo 照舊貼邏輯圖
+# （specs/opsx-lead「報告 ② 有連結與代決清單」「opsx-workflow 的 MR 不再只有一行」）
+D17="$(duty 17)"; [ -n "$D17" ] || fail "缺職責 17"
+R2="$(awk '/^### ② /{f=1;next} f&&/^### /{exit} f' "$F")"; [ -n "$R2" ] || fail "找不到報告 ②"
+for k in 'file:///' '代決' 'opsx-workflow'; do
+  case "$D17" in *"$k"*) ;; *) fail "職責 17 缺 [$k]" ;; esac
+done
+case "$D17" in *'logic graph pasted inline'*) ;; *) fail "職責 17 要保留 logic graph pasted inline" ;; esac
+case "$D17" in *'one line saying it is ready is enough'*) fail "職責 17 不該再說 opsx-workflow 一行即可" ;; esac
+for k in 'file:///' '代決：' '代決：無'; do
+  case "$R2" in *"$k"*) ;; *) fail "報告 ② 缺 [$k]" ;; esac
+done
 echo ok

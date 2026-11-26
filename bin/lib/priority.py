@@ -139,10 +139,20 @@ def load_plan(top: str) -> dict:
         wp = chain.load_workplan(path) if os.path.exists(path) else {}
     except UnicodeDecodeError as e:
         raise WorkplanUnreadable("workplan 不是 UTF-8：%s（%s）" % (path, e)) from e
+    except OSError as e:
+        raise WorkplanUnreadable("workplan 讀不了：%s（%s）" % (path, e)) from e
+    if not isinstance(wp, dict):
+        raise PriorityError("workplan 頂層要是 mapping（features: …），收到「%s」" % type(wp).__name__)
     features = mapping_list(wp.get("features"), "features")
+    items = list(features)
     for f in features:
-        for pr in mapping_list(f.get("prs"), "feature %s 的 prs" % f.get("name")):
-            mapping_list(pr.get("changes"), "PR %s 的 changes" % pr.get("name"))
+        prs = mapping_list(f.get("prs"), "feature %s 的 prs" % f.get("name"))
+        items += prs
+        for pr in prs:
+            items += mapping_list(pr.get("changes"), "PR %s 的 changes" % pr.get("name"))
+    for it in items:
+        if "name" in it and not isinstance(it["name"], str):
+            raise PriorityError("workplan 的 name 要是字串，收到「%s」" % (it["name"],))
     for m in wp.get("milestones") or []:
         if not isinstance(m, dict) or not isinstance(m.get("name"), str) or not isinstance(m.get("goal"), str):
             raise PriorityError("workplan 的 milestones 每項要有字串 name 與 goal，收到「%s」" % (m,))

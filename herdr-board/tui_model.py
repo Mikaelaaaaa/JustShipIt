@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import curses
 import pathlib
+import re
 import sys
 import unicodedata
 from datetime import datetime
@@ -205,22 +206,31 @@ def open_argv(root: str, row: dict | None) -> list[str] | None:
     return ["bash", "%s/herdr-board/scripts/open-board.sh" % root, key]
 
 
-def new_argv(root: str, data: dict, scope: str | None, text: str) -> list[str]:
-    """`+` 送出：範圍內只有一個 repo 就建在那裡，否則不帶 --repo，卡進待分類。"""
+CARD_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(-[a-z0-9]+)*\Z")   # 同 bin/lib/new.sh 的 name_re
+CARD_NAME_RULE = "卡名要是 kebab-case（小寫英文開頭，小寫英數以單一 - 連接），最多 32 字"
+
+
+def card_name_ok(name: str) -> bool:
+    return len(name) <= 32 and CARD_NAME_RE.match(name) is not None
+
+
+def new_argv(root: str, data: dict, scope: str | None, name: str, text: str) -> list[str]:
+    """`+` 送出：name 是卡名（opsx new --name）；範圍內只有一個 repo 就建在那裡，否則不帶 --repo，卡進待分類。"""
     repos = scope_repos(data, scope)
     where = ["--repo", data["repo_paths"][repos[0]]] if repos is not None and len(repos) == 1 else []
-    return ["bash", "%s/bin/opsx" % root, "new", *where, "--", text]
+    return ["bash", "%s/bin/opsx" % root, "new", "--name", name, *where, "--", text]
 
 
 class LineInput:
-    """底列單行輸入。feed 吃 get_wch() 的回傳：字串字元或整數鍵碼。
+    """底列單行輸入，prompt 畫在文字前面。feed 吃 get_wch() 的回傳：字串字元或整數鍵碼。
     回 ('submit', 去頭尾空白的文字)、('cancel',)（Esc，或空白時按 Enter），其他回 None。"""
 
     ENTER = ("\n", "\r", curses.KEY_ENTER)
     BACKSPACE = ("\x7f", "\x08", curses.KEY_BACKSPACE)
     ESC = "\x1b"
 
-    def __init__(self):
+    def __init__(self, prompt: str):
+        self.prompt = prompt
         self.text = ""
 
     def feed(self, key: str | int) -> tuple | None:

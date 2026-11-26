@@ -58,5 +58,22 @@ assert.ok(/const lmPos=logicMapScroll\(\$\('#view'\)\);[\s\S]*setView\(\$\('#vie
 // 位置：細節頁的合併請求段之後、紀錄段之前
 const pc = html.slice(html.indexOf('function pageCard('), html.indexOf('\n}', html.indexOf('function pageCard(')));
 assert.ok(pc.includes('${mr}${logicMapSection(c)}${logSec}'), 'pageCard 要把邏輯表段放在 mr 與 logSec 之間');
+
+// 合併請求段的合併鈕跟等待你段一樣看 waiting.type：MR 五條件全綠但邏輯表沒對到、pane 還在跑時沒有合併鈕（board-mergeable-needs-map）
+const ms = html.indexOf('  const mr=c.mr&&c.mr.url?'), me = html.indexOf('\n', ms);
+if (ms < 0) throw new Error('index.html 找不到細節頁的 const mr=');
+const mrSection = c => new Function('c', html.slice(es, ee) + html.slice(ms, me) + ';return mr;')(c);
+const MR = {url: 'https://x/-/merge_requests/1', state: 'ready'};
+assert.ok(mrSection({mr: MR, waiting: {type: '可以合併'}}).includes('data-act="merge"'), '可以合併：有合併鈕');
+const off = mrSection({mr: MR, waiting: null});
+assert.ok(!off.includes('data-act="merge"') && off.includes('卡在 ready'), 'MR ready 但不是可以合併：沒有合併鈕，顯示卡在 …：' + off);
+const gate = mrSection({mr: MR, waiting: {type: '等待決定'}});
+assert.ok(!gate.includes('data-act="merge"'), 'MR ready 但等的是別的 gate：沒有合併鈕：' + gate);
+
+// 看板原型的樣本快照：等待類型是可以合併的卡，合併請求段也有合併鈕
+const sample = JSON.parse(fs.readFileSync(require('node:path').join(process.argv[2], '..', '..', 'tests', 'fixtures', 'collect-sample.json'), 'utf8'));
+const ready = sample.cards.filter(c => c.waiting && c.waiting.type === '可以合併');
+assert.ok(ready.length > 0, '樣本要有可以合併的卡');
+for (const c of ready) assert.ok(mrSection(c).includes('data-act="merge"'), `樣本 ${c.slug} 的合併請求段要有合併鈕`);
 JS
 echo ok

@@ -182,7 +182,9 @@ for k in '`type: decision`' '`needs: run`' 'git -C <absolute path of this checko
   grep -qF -- "$k" "$FX/gate-fetch" || fail "fetch gate 缺 $k"
 done
 grep -F -- '- `產表失敗：無 Agent 工具`:' "$MAP" > "$FX/gate-noagent"
-for k in '`type: decision`' '派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行'; do
+# 選項要寫成要人動手的字，gaterule 才判成 hands、不被代答後卡停住沒人知道
+# 建議行也要一字照寫：collect 先取 `建議:` 再看 (Recommended)，另寫一行沒有「你」的建議就會被代答
+for k in '`type: decision`' '你在看板派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行' '`建議: 你在看板派一個 claude pane 重產`'; do
   grep -qF -- "$k" "$FX/gate-noagent" || fail "無 Agent 工具 gate 缺 $k"
 done
 grep -F -- '- any other `產表失敗：<reason>`' "$MAP" > "$FX/gate-other"
@@ -198,7 +200,8 @@ for k in 'git rev-parse --git-path FETCH_HEAD' '`opened_at`' 'skip the fetch of 
 done
 # R3.1 重跑與改派的 claude pane 都從 mr: none 預檢重來，不跳過 D4；只有沒有 Agent 工具的 session 記 log 後停
 grep -F -- '- 重跑產表:' "$MAP" | grep -qF 'start again from the `mr: none` check before sub-step 1' || fail "重跑產表要從 mr: none 預檢重來"
-grep -F -- '- 派一個 claude pane 重產:' "$MAP" > "$FX/ans-claude"
+grep -F -- '- 你在看板派一個 claude pane 重產:' "$MAP" > "$FX/ans-claude"
+[ -s "$FX/ans-claude" ] || fail "缺「你在看板派一個 claude pane 重產」答完的接續"
 for k in 'A session that has the Agent tool starts again from the `mr: none` check before sub-step 1' \
   'Only a session without the Agent tool runs `opsx log'; do
   grep -qF -- "$k" "$FX/ans-claude" || fail "派 claude pane 缺 $k"
@@ -234,6 +237,10 @@ for k in '`logic-map-undecided-r<N>`' '`type: decision`' '2 to 4 options' 'Recom
 done
 grep -F -- '- **Logic map gate answered.**' "$STEP4" > "$FX/answered"; [ -s "$FX/answered" ] || fail "Step 4 找不到 Logic map gate answered 段"
 for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' 'review 退回' '/opsx-workflow:apply <slug>' '/opsx-workflow:pr <slug>' 'not a round'; do
+  assert_fixed "$k" "$FX/answered"
+done
+# 協調者代答的題不記成使用者答的
+for k in 'starts with 「協調者代決」' '協調者 <日期> 代決邏輯表 ⚠ 選 <選項>'; do
   assert_fixed "$k" "$FX/answered"
 done
 assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$STEP5"

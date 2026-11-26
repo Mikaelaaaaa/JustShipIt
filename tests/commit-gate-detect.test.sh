@@ -181,5 +181,127 @@ for c in 'env -i GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.ci GIT_CONFIG_VALUE_0
 done
 out="$(cgin "$N" "(cd $N) && git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "作用的 repo 沒有 workplan，不擋: $(reason "$out")"
 out="$(cgin "$N" "GIT_DIR=$N/.git git commit -m x")"; [ "$(decision "$out")" != deny ] || fail "沒有 workplan 時 GIT_DIR 不擋: $(reason "$out")"
+# 相對路徑的 git 與後接分隔符的 commit 都算 commit（$R 在 main，沒有卡）
+for c in './git commit -m x' 'bin/git commit -m x' 'git commit; echo x' 'git commit;echo x' 'git commit&& echo x' '(git commit)' 'echo $(( ((1)) <<3 )); git commit -m x' $'echo $((\n1 <<3 )); git commit -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "要認得是 commit：${c}｜$(reason "$out")"
+done
+out="$(cgin "$FX/wt" './git commit -m x')"; assert_eq "$(decision "$out")" allow "./git 照卡的 worktree 判: $(reason "$out")"
+for p in "$N|bin/git commit -m x" "$R|git commit-tree x; echo y" "$R|./gitk; echo commit"; do
+  c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" allow "不該擋：${c}｜$(reason "$out")"
+done
+# 別名寫入的其他寫法：相對路徑、大小寫、include、設定檔變數、env 帶值選項、一次性別名的 -C
+# 一次性的 -c 當成 commit 判（R 在 main，原因是對不到卡）；寫進設定或環境變數的當別名寫入
+for p in "別名|$R|bin/git config alias.ci commit" "別名|$R|./git config alias.ci commit" "對不到|$R|git -c ALIAS.ci=commit ci -m x" "別名|$R|git config Alias.ci commit" "別名|$R|GIT_CONFIG_GLOBAL=/tmp/g git ci -m x" "別名|$R|GIT_CONFIG_SYSTEM=/tmp/g git ci -m x" "對不到|$R|git -c include.path=/tmp/g ci -m x" "別名|$R|git config includeIf.gitdir:/x/.path /tmp/g" "別名|$R|env -u HOME GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.ci GIT_CONFIG_VALUE_0=commit git ci" "對不到|$N|git -c alias.ci=commit -C $R ci -m x" "對不到|$N|git -C $R -c alias.ci=commit ci -m x"; do
+  k="${p%%|*}"; p="${p#*|}"; c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" deny "別名寫入要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q "$k" || fail "deny 要提到 ${k}（${c}）: $(reason "$out")"
+done
+for p in "$R|git config --get Alias.ci" "$R|git config --get include.path" "$N|git -c alias.ci=commit -C $N ci -m x"; do
+  c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; [ "$(decision "$out")" != deny ] || fail "不該擋：${c}｜$(reason "$out")"
+done
+# [no-change] 只認那個 git commit 自己的參數
+for c in "git log --grep='[no-change]'; git commit -m x" "git commit -m x; echo '[no-change]'" 'echo [no-change] && git commit -m x' "git commit -m x | tee '[no-change]'" "git commit;echo '[no-change]'" "git commit -m x && echo '[no-change]'" $'git commit -m x\necho [no-change]' "echo 'git commit [no-change]'; git commit -m x" 'git commit -m x # [no-change]' $'git commit -m wip <<EOF\n[no-change]\nEOF' $'git commit -F - <<-EOF\n\tfix: x\n\tEOF\necho [no-change]' $'git commit -F - <<EOF\nx\nEOF\necho <<EOF\n[no-change]\nEOF' "git -c alias.ci=commit ci -m '[no-change] x'"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別的命令裡的 [no-change] 不算：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '對不到' || fail "deny 要說 branch 對不到卡（${c}）: $(reason "$out")"
+done
+out="$(cgin "$R" $'git commit -F - <<\'EOF\'\nx\nEOF\necho [no-change]')"; assert_eq "$(decision "$out")" deny "heredoc 結束之後的 [no-change] 不算: $(reason "$out")"
+for c in "git commit -m 'docs [no-change]'" 'git commit -m "chore [no-change]"' 'git commit -m "a; b [no-change]"' "git add f && git commit -m '[no-change] x'" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF' $'git commit -F - <<EOF\nfix: y\n\n[no-change]\nEOF' $'git commit -m "$(cat <<\'EOF\'\nfix: 27" monitor\n\n[no-change]\nEOF\n)"' $'git commit -F - <<-EOF\n\t[no-change] docs\n\tEOF' $'git commit -F - <<\\EOF\n[no-change] x\nEOF' $'git commit -F - <<"EOF"\n[no-change] x\nEOF' $'git commit -F - <<\'EOF\' && git push\n[no-change] chore\nEOF' $'git commit --file=- <<E\nfix: y\nExplained: [no-change]\nE'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "commit 訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
+done
+# 寫檔 heredoc 與 opsx answer 裡的 [no-change] 不打開逃生口
+for c in $'cat > f <<\'EOF\'\n[no-change]\nEOF\ngit commit -m x' "opsx answer c '[no-change]' && git commit -m x" $'tee f <<EOF\n[no-change]\nEOF\ngit commit -m x' $'cat >> f <<-\'EOF\'\n\t[no-change]\n\tEOF\ngit commit -m x' 'git commit -m x && opsx answer c --gate g "[no-change]"' $'cat > f <<\'EOF\'\ngit commit -m \'[no-change]\'\nEOF\ngit commit -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "寫檔或回 gate 的 [no-change] 不算：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '對不到' || fail "deny 要說 branch 對不到卡（${c}）: $(reason "$out")"
+done
+for c in $'cat > f <<\'EOF\'\nhello\nEOF\ngit commit -m \'[no-change] x\'' "opsx answer c 'ok' && git commit -m \"chore [no-change]\"" $'git commit -m "$(cat <<\'EOF\'\n[no-change] x\nEOF\n)"' $'cat > f <<\'EOF\'\n[no-change]\nEOF\ngit commit -F - <<\'EOF\'\n[no-change] x\nEOF'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "旁邊有寫檔或回 gate，訊息裡的 [no-change] 放行：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'bypass.log' || fail "放行要提到 bypass.log（${c}）: $(reason "$out")"
+done
+# opsx answer 下一行的 commit 訊息照算；bash 讀成 heredoc 資料的假 commit 訊息不算（反斜線續行讓 perl 與 bash 對 heredoc 結尾的判斷不同）
+out="$(cgin "$R" $'opsx answer c --grant push\ngit commit -m \'[no-change] x\'')"; assert_eq "$(decision "$out")" allow "opsx answer 下一行 commit 的 [no-change] 放行: $(reason "$out")"
+reason "$out" | grep -q 'bypass.log' || fail "opsx answer 下一行的放行要提到 bypass.log: $(reason "$out")"
+out="$(cgin "$R" $'cat > f <<EOF\na\\\nEOF\ngit commit -m \'[no-change] x\'\nEOF\ngit commit -m real')"; assert_eq "$(decision "$out")" deny "續行 heredoc 裡的假 commit 訊息不算: $(reason "$out")"
+# -F 檔案的內容不算；-F - 的 heredoc 照算
+printf '[no-change] x' > "$R/msg.txt"
+out="$(cgin "$R" 'git commit -F msg.txt')"; assert_eq "$(decision "$out")" deny "-F 檔案裡的 [no-change] 不算: $(reason "$out")"
+reason "$out" | grep -q '對不到' || fail "-F 檔案的 deny 要說 branch 對不到卡: $(reason "$out")"
+out="$(cgin "$R" $'git commit -F - <<\'EOF\'\n[no-change] x\nEOF')"; assert_eq "$(decision "$out")" allow "-F - 的 heredoc 裡的 [no-change] 放行: $(reason "$out")"
+reason "$out" | grep -q 'bypass.log' || fail "-F - 放行要提到 bypass.log: $(reason "$out")"
+# 計數用的 perl 失敗：deny 並點名 perl，不當成沒有標記往下判
+mkdir -p "$FX/noperl-l3"
+printf '#!/usr/bin/env bash\ncase "$1" in *cmd-containers.pl) exit 1 ;; esac\nexec %s "$@"\n' "$(command -v perl)" > "$FX/noperl-l3/perl"; chmod +x "$FX/noperl-l3/perl"
+out="$(PATH="$FX/noperl-l3:$PATH" cgin "$R" "git commit -m '[no-change] x'")"; assert_eq "$(decision "$out")" deny "計數的 perl 失敗要 deny: $(reason "$out")"
+reason "$out" | grep -q 'perl' || fail "計數失敗的 deny 要提到 perl: $(reason "$out")"
+# env -C、env --chdir 照 git -C 算；command -- cd、builtin -- cd 照 cd 算
+for c in "env -C $R git commit -m x" "env --chdir=$R git commit -m x" "env --chdir $R git commit -m x" "env -i -C $R git commit -m x" "command -- cd $R && git commit -m x" "builtin -- cd $R && git commit -m x"; do
+  out="$(cgin "$N" "$c")"; assert_eq "$(decision "$out")" deny "改目錄到 R 要照 R 判：${c}｜$(reason "$out")"
+done
+for c in "env -C $FX/wt git commit -m x" "command -- cd $FX/wt && git commit -m x" "env -C $N git commit -m x"; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "改目錄到卡或 N 照那裡判：${c}｜$(reason "$out")"
+done
+# env -C 只對同一個命令的 git 生效：換行之後的 git commit 不受前一行的 env -C 影響
+out="$(cgin "$R" "env -C $N true"$'\n'"git commit -m x")"; assert_eq "$(decision "$out")" deny "前一行的 env -C 不改這個 commit 的目錄: $(reason "$out")"
+out="$(cgin "$FX/wt" "env -C $R true"$'\n'"git commit -m x")"; assert_eq "$(decision "$out")" allow "前一行的 env -C 不改這個 commit 的目錄（卡的 worktree）: $(reason "$out")"# 環境變數指到有 workplan 的 repo：session 沒有 workplan 也擋
+for p in "GIT_DIR|GIT_DIR=$R/.git git commit -m x" "CDPATH|CDPATH=$FX cd Acmecorp-AI && git commit -m x" "GIT_DIR|cd $FX && GIT_DIR=Acmecorp-AI/.git git commit -m x" "GIT_COMMON_DIR|env GIT_COMMON_DIR=$R/.git git commit -m x" "CDPATH|CDPATH=/nonexistent-opsx:$FX cd Acmecorp-AI && git commit -m x"; do
+  c="${p#*|}"; out="$(cgin "$N" "$c")"; assert_eq "$(decision "$out")" deny "變數指到 R 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q "${p%%|*}" || fail "deny 要點名 ${p%%|*}: $(reason "$out")"
+done
+for c in 'GIT_DIR=$X git commit -m x' "CDPATH=$FX cd $N && git commit -m x"; do
+  out="$(cgin "$N" "$c")"; [ "$(decision "$out")" != deny ] || fail "指到 N 或讀不出來不擋：${c}｜$(reason "$out")"
+done
+# 加引號的 commit：子程序判斷照樣生效
+for c in "(cd $R; git \"commit\" -m x)" "(cd $R; git 'commit' -m x)" "(cd $R && /usr/bin/git \"commit\" -m x)"; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "子程序裡 cd 之後加引號的 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
+done
+for p in "$FX/wt|git \"commit\" -m x" "$N|(cd $N; git \"commit\" -m x)" "$FX/wt|git \"commit\" -m \"(cd x)\""; do
+  c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" allow "不該擋：${c}｜$(reason "$out")"
+done
+# 一次性別名 commit 跟一般 commit 一樣：前面子程序裡的 cd 要擋
+# 驗收：openspec/changes/agent-20261123-0958/specs/commit-gate-detect/spec.md
+for c in 'bash -c "cd /tmp"; git -c alias.ci=commit ci -m x' "sh -c 'cd /tmp'; git -c alias.ci=commit ci -m x" '(cd /tmp); git -c alias.ci=commit ci -m x' 'eval "cd /tmp"; git -c alias.ci=commit ci -m x' 'bash -c "cd /tmp"; git -c "alias.ci=commit" ci -m x'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "別名 commit 前面子程序的 cd 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C（${c}）: $(reason "$out")"
+done
+# 一般 commit 與別名 commit 合計兩個以上要擋；同一個 git 同時比中兩種寫法只算一個
+for c in 'git -C /tmp -c alias.ci=commit ci -m a; git -c alias.ci=commit ci -m b' 'git -C /tmp -c alias.ci=commit ci -m a; git commit -m b' 'git -C /tmp commit -m a; git -c alias.ci=commit ci -m b'; do
+  out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫（${c}）: $(reason "$out")"
+done
+for p in "allow|$FX/wt|git -c alias.ci=commit ci -m x" "deny|$R|git -c alias.ci=commit ci -m x" "allow|$FX/wt|git add \$(git ls-files -m) && git -c alias.ci=commit ci -m x" "allow|$FX/wt|git -c alias.ci=commit commit -m x"; do
+  want="${p%%|*}"; p="${p#*|}"; c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"
+  assert_eq "$(decision "$out")" "$want" "單一別名 commit 照目錄判：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' && fail "單一 commit 不能算成兩個（${c}）: $(reason "$out")"
+done
+# 引號裡提到 git -c alias. 不能讓後面子程序裡的 cd 被跳過
+out="$(cgin "$R" "echo \"git -c alias.x\"; bash -c \"cd $FX/wt\"; git commit -m x")"; assert_eq "$(decision "$out")" deny "引號裡的別名字樣不能蓋掉子程序 cd: $(reason "$out")"
+reason "$out" | grep -q 'git -C' || fail "deny 要說改法 git -C: $(reason "$out")"
+# 換行分開的兩個 commit 也算兩個；非 commit 的一次性別名照算一個 commit（D6）
+for p in "$R|git -C /tmp -c alias.ci=commit ci -m a"$'\n'"git -c alias.ci=commit ci -m b" "$R|git commit -m a"$'\n'"git -c alias.ci=commit ci -m b" "$FX/wt|git -c alias.st=status st; git commit -m x" "$FX/wt|git commit -m x && git -c alias.st=status st"; do
+  c="${p#*|}"; out="$(cgin "${p%%|*}" "$c")"; assert_eq "$(decision "$out")" deny "兩個 commit 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫（${c}）: $(reason "$out")"
+done
+# commit 自己的訊息裡提到 git commit、(、cd 不算子程序 cd
+for c in 'git commit -m "fix(scope): cd and git commit flow"' $'git commit -m "$(cat <<\'EOF\'\nfix(gate): cd before git commit runs\nEOF\n)"' $'git commit -F - <<\'EOF\'\nfix(gate): cd before git commit\nEOF' 'git commit -m "fix(x): cd then git -c alias.ci=commit ci"'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "訊息裡的字樣不算子程序 cd：${c}｜$(reason "$out")"
+done
+# 一次性 include.path 加一個 commit 照兩個 commit 擋（D7）
+out="$(cgin "$FX/wt" 'git -c include.path=/x status && git commit -m y')"; assert_eq "$(decision "$out")" deny "include.path 加一個 commit 要擋: $(reason "$out")"
+reason "$out" | grep -q '兩個 Bash 呼叫' || fail "deny 要說分成兩個 Bash 呼叫: $(reason "$out")"
+# command -p（可重複、合寫）、command --、command -p --、builtin -- 之後是命令位置
+for pre in 'command -p' 'command -p --' 'command --' 'builtin --' 'command -pp' 'command -p -p'; do
+  c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後的 cd 要照目錄判：${c}｜$(reason "$out")"
+done
+for pre in 'command -p' 'builtin --'; do
+  c="$pre cd $FX/wt && git commit -m x"; out="$(cgin "$R" "$c")"; assert_eq "$(decision "$out")" allow "前綴之後 cd 到卡的 worktree 放行：${c}｜$(reason "$out")"
+done
+for pre in 'command -p' 'command --' 'builtin --'; do
+  c="$pre export GIT_CONFIG_COUNT=1; git ci -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "前綴之後設 GIT_CONFIG_* 要擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q '別名' || fail "deny 要提到別名（${c}）: $(reason "$out")"
+done
+# command -v、-V 只印描述，後面的 cd 不切目錄
+for pre in 'command -v' 'command -V' 'command -pv'; do
+  c="$pre cd $R && git commit -m x"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "command -v 後面的 cd 不算：${c}｜$(reason "$out")"
+done
 git -C "$R" worktree remove --force "$FX/wt"
 echo "commit-gate-detect ok"

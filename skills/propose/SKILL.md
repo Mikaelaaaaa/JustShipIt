@@ -159,6 +159,10 @@ When the `## 派工指示` of the change's inbox.md has 「做到 propose 完成
 
 A P0 or P1 card with that note continues to apply as usual and opens no gate. A card without that note gets no such gate.
 
+### 6c. Release the pane for a card the coordinator filled
+
+Only a card whose `## 派工指示` contains 「協調者補卡」 takes this step; check for it before 6b, and when it is there, this step replaces 6b and the Output section's hand-over. `opsx coordinate` dispatched such a card from the inbox only to get it proposed, and it will dispatch apply later in a fresh pane under the normal P0/P1 rules. So once the artifacts are written and `opsx check <name>` prints nothing, run `opsx release <name>` and stop: open no `dispatch-<name>` gate and 不接 apply. The release marks the dispatch entry so that the Stop hook lets this pane stop, `opsx reap` closes it once the agent is idle, and the board puts the card back in 待指派. Continuing to apply here would hold a pane the coordinator did not budget for; running `opsx stop` instead would mark the card as stopped by a human, and the coordinator never dispatches it again.
+
 ## Output
 
 After completing all artifacts, summarize:

@@ -609,7 +609,18 @@ gcard t-plain   '## g1\ntype: decision\nstatus: open\n問題: 選\n選項: A | B
 gcard t-badneed '## g1\ntype: decision\nneeds: ssh\nstatus: open\n問題: 選\n'
 gcard t-waits   '## g1\ntype: decision\nwaits-on:  grant-gate-levels \nstatus: open\n問題: 等別張卡\n建議: 合併後再開\n'
 gcard t-waitsempty '## g1\ntype: decision\nwaits-on:\nstatus: open\n問題: 空值\n建議: 合併後再開\n'
+# split gate：拆法有兩行 main change 時，explore 忘了刪的 (Recommended) 與建議都不算建議；只有一行照舊
+SPLIT_HEAD='## split\ntype: decision\nstatus: open\n問題: 照這個拆法建殼、寫 workplan？\n拆法:\n  - session s1 (milestone: none, depends-on: [])\n    - main change pa · feat/pa/x (depends-on: [])\n      - sub-change sa (depends-on: [])\n'
+gcard t-split2 "$SPLIT_HEAD"'    - main change pb · feat/pb/x (depends-on: [pa])（不當子 change：要單獨上線）\n選項: 照這個拆法 (Recommended) | 改拆法 | 不拆\n建議: 照這個拆法\n'
+gcard t-split1 "$SPLIT_HEAD"'選項: 照這個拆法 (Recommended) | 改拆法 | 不拆\n'
+# 邏輯表 ⚠ gate：`選項:` 底下以題號開頭的逐項選項行進 waiting.items，讓 gaterule 比對被選那一項
+gcard t-lmap '## logic-map-undecided-r1\ntype: decision\nstatus: open\n問題: 各選一個\n選項: 1A 2A (Recommended) | 逐項另選\n1 D3 欄位：A 直接 DROP COLUMN legacy (Recommended) | B 保留\n2 D5 文案：A 照舊 (Recommended) | B 改短\n建議: 1A 2A\n'
 J="$(opsx collect --root "$R7")"; assert_eq "$?" 0 "gate-type collect rc"
+assert_eq "$(q "$(card "$J" r6 t-lmap)" waiting.items)" '["1 D3 欄位：A 直接 DROP COLUMN legacy (Recommended) | B 保留", "2 D5 文案：A 照舊 (Recommended) | B 改短"]' "邏輯表 gate 的逐項選項進 waiting.items"
+assert_eq "$(q "$(card "$J" r6 t-plain)" waiting.items)" '[]' "一般 gate 沒有逐項選項"
+assert_eq "$(q "$(card "$J" r6 t-split2)" waiting.recommended)" null "兩張主 change 的 split gate 沒有建議"
+assert_eq "$(q "$(card "$J" r6 t-split2)" waiting.options)" '["照這個拆法", "改拆法", "不拆"]' "兩張主 change 的 split gate 選項照列"
+assert_eq "$(q "$(card "$J" r6 t-split1)" waiting.recommended)" 照這個拆法 "一張主 change 的 split gate 照 (Recommended) 取建議"
 w() { q "$(card "$J" r6 "$1")" "waiting.$2"; }
 assert_eq "$(w t-auth type)" 等待授權 "authorization 是授權"
 assert_eq "$(w t-auth options)" '["這次", "這張卡", "這個 repo 永遠", "拒絕"]'
@@ -854,6 +865,22 @@ assert_eq "$(mwait indented waiting.type) $(mwait longsha waiting.type)" "可以
 # report.md 讀不了只壞這一張卡：不標可以合併、記一筆 errors，別張卡照常
 assert_eq "$(mwait badreport waiting)" null "report.md 讀不了不標可以合併"
 printf '%s' "$J" | python3 -I -c 'import json,sys;sys.exit(0 if any("badreport" in e["message"] for e in json.load(sys.stdin)["errors"]) else 1)' || fail "report.md 讀不了要記 errors：$(q "$J" errors)"
+
+# 邏輯表行的路徑要是本卡（specs/board-mergeable-map「路徑是別張卡的邏輯表行不算對到 head」「卡名裡的符號照字面比對」）
+H="abc1234$(printf '0%.0s' $(seq 33))"
+mapm() { python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import mergeready; print(mergeready.map_matches(sys.argv[2], sys.argv[3], sys.argv[4]))' "$OPSX_ROOT/bin/lib" "$1" "$2" "$H"; }
+assert_eq "$(mapm m 'openspec/changes/m/logic-map.md · abc1234')" True "本卡路徑"
+assert_eq "$(mapm m 'openspec/changes/other/logic-map.md · abc1234')" False "別張卡"
+assert_eq "$(mapm m 'openspec/changes/m2/logic-map.md · abc1234')" False "別張卡以本卡名開頭"
+assert_eq "$(mapm m 'openspec/changes/xm/logic-map.md · abc1234')" False "別張卡以本卡名結尾"
+assert_eq "$(mapm m 'openspec/changes/other/m/logic-map.md · abc1234')" False "多一層目錄，最後一層是本卡名"
+assert_eq "$(mapm m 'openspec/changes/m/x/logic-map.md · abc1234')" False "多一層目錄，第一層是本卡名"
+assert_eq "$(mapm a.b 'openspec/changes/axb/logic-map.md · abc1234')" False "卡名的點照字面比對"
+# 看板一端：report.md 寫別張卡路徑的卡不是可以合併，進度是 testing
+mr21 otherpath "openspec/changes/other/logic-map.md · abc1234" >/dev/null
+J="$(OPSX_TEST_HERDR_AGENTS="$FX/agents-m.json" opsx collect --root "$RM" --state "$SM")"
+assert_eq "$(mwait otherpath waiting) $(mwait ok waiting.type)" "null 可以合併" "別張卡路徑不標可以合併"
+assert_eq "$(mwait otherpath progress_class)" testing "別張卡路徑的進度是 testing"
 
 # ---------- 進度與卡的分類（progress-collect，specs/board-collect「卡的進度分類」「每個 repo 的進度」） ----------
 R10="$FX/code10"; S10="$FX/state10"; mkdir -p "$R10/r/.git" "$R10/n/.git" "$S10" "$R10/r/openspec/changes/archive/2026-11-01-arch-x"
