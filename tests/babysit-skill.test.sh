@@ -165,7 +165,7 @@ for s in \
   'write one `needs: run` gate with a `by: coordinator` line' \
   'and stop this run' \
   'PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)' \
-  '/pipelines/<pipeline-id>/jobs?per_page=100' \
+  '/pipelines/<pipeline-id>/jobs?scope%5B%5D=failed&per_page=100' \
   'keep the jobs with `status=failed`' \
   '/jobs/<job-id>/trace' \
   'When `glab ci` gives the log, classify from it and write no such gate' \
@@ -174,6 +174,8 @@ for s in \
 done
 assert_not_fixed 'glab api' "$STEP7"
 assert_not_fixed 'test_report' "$STEP7"
+# 不編碼的 scope[] 會被 curl 當成 URL glob，exit 3 bad range；協調者又不准加 -g
+assert_not_fixed 'scope[]' "$STEP7"
 # 兩步 curl 都要 -fsS：少了 -f，401 仍 exit 0，錯誤 JSON 會被當結果回貼；只檢查第一步會漏掉第二步改成 -s
 python3 -I - "$STEP7" <<'PY' || fail "步 7 的兩步 curl 都要是 curl -fsS"
 import re, sys
@@ -183,7 +185,7 @@ PY
 # URL 用 https、放單引號：沒 scheme 時 curl 走 http 明文送 token；協調者只跑單引號字面值的 URL
 for s in \
   'Fill `<api>` with `https://` plus the primary remote'"'"'s host plus `/api/v4`' \
-  '"PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)" '"'"'<api>/projects/<id>/pipelines/<pipeline-id>/jobs?per_page=100'"'"'' \
+  '"PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)" '"'"'<api>/projects/<id>/pipelines/<pipeline-id>/jobs?scope%5B%5D=failed&per_page=100'"'"'' \
   '"PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)" '"'"'<api>/projects/<id>/jobs/<job-id>/trace'"'"''; do
   assert_fixed "$s" "$STEP7"
 done

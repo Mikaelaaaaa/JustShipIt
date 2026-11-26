@@ -102,7 +102,7 @@ case "$RUN" in *'When you list a reset gate in block ①, add that the PUT merge
 for s in \
   'The one multi-step 建議 you do run is a CI log read' \
   'This is the one exception to the one-command rule above' \
-  'the first to `pipelines/<pipeline-id>/jobs`, the second to `jobs/<job-id>/trace`' \
+  'the first to `pipelines/<pipeline-id>/jobs?scope%5B%5D=failed&per_page=100`, the second to `jobs/<job-id>/trace`' \
   'Each step is exactly `curl -fsS`, the one header `-H "PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)"` and one URL' \
   'the host of every URL is the host of that card'"'"'s primary remote, and the project in it is that remote'"'"'s project' \
   'Any other flag (such as `-X`, `-d`, `-F`, `-T`, `-L`, `-o` or `--json`), another host or another endpoint makes it not one command' \
