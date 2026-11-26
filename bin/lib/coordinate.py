@@ -1,4 +1,4 @@
-"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、照建議答 opsx-workflow 的 decision gate、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
+"""opsx coordinate 的一輪：讀 opsx collect，依序收尾已合併的卡、照建議答有建議的 decision gate、通知等人答的 gate、停等依賴的卡、重派死掉的卡、派新卡。
 
 每個動作是一條外部指令（opsx / git / openspec）。推節點（送 /<stage>）是每張卡的 drive 的事，這裡不送。
 合併永遠由人按（板上的「合併」或 forge 網頁），這裡從不呼叫 opsx merge。
@@ -66,19 +66,27 @@ COORDINATOR = "opsx-coordinator"
 # _notified 的值帶這個前綴，表示只送到桌面、協調者還沒收到：協調者回來那輪要補送
 DESKTOP_ONLY = "desktop "
 AGENT_NAME = chain.AGENT_NAME
+# answer.sh --by coordinator 寫進 decisions.tsv 的文字開頭；可以合併通知的代決清單只認這種列
+PROXY_PREFIX = "自動採用："
+# 協調者代答送給 agent 的答案是 PROXY_HEAD + 建議 + PROXY_TAIL；代決清單只列建議本身
+PROXY_HEAD = "協調者代決，照建議："
+# 改版前代答的答案開頭，decisions.tsv 裡還留著這種列
+PROXY_HEAD_OLD = "照建議："
+PROXY_TAIL = "（套用 ponytail 原則：最小改動、不加沒人要的東西）"
+# 代決清單每項附的題目長度
+PROXY_QUESTION_CHARS = 60
 # gaterule.decide 回「留給人」時，各理由代碼寫進 log 的那行與通知標題後半
 GATE_HUMAN = {
     "stuck": ("?? %(key)s gate %(gate)s 是 drive 或 Stop hook 卡住時寫的，建議欄是給人看的提示，不代答：%(q100)s", "卡住了，要你看"),
     "run": ("?? %(key)s gate %(gate)s 要人在終端機跑指令再貼結果，不代答：%(rec100)s", "要你在終端機跑指令"),
     "merge-grant": ("?? %(key)s gate %(gate)s 要合併授權，不代答：合併由人在板上按", "要合併授權"),
     "type": ("?? %(key)s gate %(gate)s 的 type 沒寫或不在 approval | decision，不代答，要人看：%(q100)s", "的 type 不明"),
-    "split": ("?? %(key)s gate %(gate)s 是拆法確認，只有使用者能答，不代答、不停 pane：%(q100)s", "要你確認拆法"),
     "merge": ("?? %(key)s gate %(gate)s 是合併類決定題，不代答：%(q100)s → %(pick60)s", "是合併的決定"),
+    "level3": ("?? %(key)s gate %(gate)s 是部署／CI／secrets、花錢或對外的決定，不代答：%(q100)s → %(pick60)s", "是部署／CI／secrets、花錢或對外的決定"),
     "no-pick": ("?? %(key)s gate %(gate)s 沒有選項也沒有建議，要人看：%(q120)s", "沒有選項也沒有建議"),
     "no-rec": ("?? %(key)s gate %(gate)s 有選項沒有建議，要你選：%(q100)s → %(opts60)s", "有選項沒有建議，要你選"),
     "hands": ("?? %(key)s gate %(gate)s 要人動手，不代答：%(q100)s → %(pick60)s", "要你動手"),
     "approval": ("?? %(key)s gate %(gate)s 要授權，不代答：%(q100)s", "要你授權"),
-    "decision": ("?? %(key)s gate %(gate)s 要你決定，不代答：%(q100)s → %(pick60)s", "要你決定"),
     # gaterule.decide 回「協調者代跑」：不記 ??，這題不用人看；通知照樣先送協調者 session
     "coordinator-run": ("-- %(key)s gate %(gate)s 交協調者代跑，coordinate 不跑也不答：%(rec100)s", "要協調者代跑"),
 }
@@ -614,7 +622,7 @@ class Round:
                     w = sub.get("waiting")
                     if not w:
                         continue
-                    verdict = gaterule.decide(w, s["repo"])
+                    verdict = gaterule.decide(w)
                     if verdict[0] == "answer":
                         main = {"repo": s["repo"], "slug": m["slug"], "dispatch": None}
                         if self.answer_gate(main, repo_paths[s["repo"]], w, verdict[1], sub=sub["slug"]):
@@ -627,10 +635,10 @@ class Round:
                     self.notify_gate(c, w, "要人看（子 change）")
 
     def answer_gate(self, c, top, w, pick, sub=None):
-        """照建議答 gaterule 回 answer 的 gate（opsx-workflow 的 decision）。sub 是子 change 名，這時 c 是它的主 change。
+        """照建議答 gaterule 回 answer 的 gate（每個 repo 有建議的 decision）。sub 是子 change 名，這時 c 是它的主 change。
         送不到 agent 就重派；其他失敗記 ?? 並通知人。答成功回 True。"""
         target = {"repo": c["repo"], "slug": "%s/%s" % (c["slug"], sub) if sub else c["slug"]}
-        text = "照建議：%s（套用 ponytail 原則：最小改動、不加沒人要的東西）" % pick
+        text = PROXY_HEAD + pick + PROXY_TAIL
         args = ["opsx", "answer", c["slug"]] + (["--sub", sub] if sub else []) + ["--gate", w["gate_id"], "--by", "coordinator", "--repo", top, "--", text]
         rc, out, err = self.act(args)
         if rc == 0:
@@ -783,7 +791,7 @@ class Round:
         """派出去的卡的第一個 open gate：照 gaterule.decide 的處置照建議答、停 pane、通知人，或通知協調者 session 代跑。
         代跑由協調者 session 做，這裡不跑建議裡的指令。"""
         w, key = c["waiting"], card_key(c)
-        verdict = gaterule.decide(w, c["repo"])
+        verdict = gaterule.decide(w)
         q = w.get("question") or ""
         if verdict[0] == "answer":
             self.answer_gate(c, top, w, verdict[1])
@@ -1760,6 +1768,43 @@ def stale_wait_gate(c, now, card_dir):
     return "stale-wait-" + at.strftime("%Y%m%d%H%M%S")
 
 
+def proxy_question(gates_path, gate_id):
+    """代決清單裡那題的題目前 PROXY_QUESTION_CHARS 字，取自同一個殼的 gates.md。"""
+    part = late.gate_section(gates_path, gate_id)
+    m = re.search(r"(?m)^問題:[ \t]*(.*)$", part) if part is not None else None
+    if m is None:
+        return "（gates.md 沒有這題的題目）"
+    return m.group(1).strip()[:PROXY_QUESTION_CHARS]
+
+
+def proxy_rows(shell_dir, label):
+    """一個殼的 decisions.tsv 裡協調者代答的列（answer.sh 寫的「協調者 已決定 自動採用：<答案> <gate id>」），
+    回「<label><gate id> <題目> → <建議>」。decisions.tsv 不存在等於沒有代決。"""
+    try:
+        with open(os.path.join(shell_dir, "decisions.tsv"), encoding="utf-8") as f:
+            lines = f.read().split("\n")
+    except FileNotFoundError:
+        return []
+    rows = [line.split("\t") for line in lines]
+    gates_path = os.path.join(shell_dir, "gates.md")
+    return ["%s%s %s → %s" % (label, r[4], proxy_question(gates_path, r[4]),
+                              r[3][len(PROXY_PREFIX):].removeprefix(PROXY_HEAD).removeprefix(PROXY_HEAD_OLD).removesuffix(PROXY_TAIL))
+            for r in rows if len(r) >= 5 and r[1] == "協調者" and r[3].startswith(PROXY_PREFIX)]
+
+
+def proxy_line(card_dir):
+    """可以合併通知的代決行：主殼與每個子 change 的 decisions.tsv，子 change 的列標 <子>/。
+    讀不了照樣回一行：清單是附帶資訊，不能擋住可以合併通知。"""
+    subs = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(card_dir, "subs", "*", "decisions.tsv")))
+    try:
+        rows = proxy_rows(card_dir, "")
+        for sub_dir in subs:
+            rows += proxy_rows(sub_dir, os.path.basename(sub_dir) + "/")
+    except (OSError, UnicodeDecodeError) as e:
+        return "代決：讀不到（%s）" % e
+    return "代決：" + ("；".join(rows) or "無")
+
+
 def main():
     state, dry = sys.argv[1], "--dry" in sys.argv[2:]
     rerun = os.path.join(state, "coordinator.rerun")
@@ -1828,12 +1873,14 @@ def one_round(state, dry):
                 r.bad_dispatch(c, e)
         elif w and w["type"] not in ("可以合併", "report 待你決定") and not paused:
             # 沒派出的卡只處理照建議答的題：留給人的看板上就看得到，也沒有 pane 可停
-            verdict = gaterule.decide(w, c["repo"])
+            verdict = gaterule.decide(w)
             if verdict[0] == "answer":
                 r.answer_gate(c, repo_paths[c["repo"]], w, verdict[1])
         # 推了新 commit 再全綠是新的一次，所以綁 head sha
         if w and w["type"] == "可以合併":
-            r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：" + c["mr"]["url"])
+            card_dir = os.path.join(repo_paths[c["repo"]], "openspec", "changes", c["slug"])
+            r.notify(c, "ready", c["mr"]["head_sha"], "可以合併", "看板按「合併」：%s · 邏輯表：[logic-map.md](file://%s) · %s"
+                     % (c["mr"]["url"], os.path.join(card_dir, "logic-map.md"), proxy_line(card_dir)))
         if w and w["type"] == "report 待你決定":
             r.notify(c, "report", c["mr"]["head_sha"], "report 待你決定", "看 report.md 的待修與 Consider：" + c["mr"]["url"])
         # 沒有 stuck 是升級前的 MR 快取、有 error 是查不到：都分不出卡住沒有，不推也不清鍵
