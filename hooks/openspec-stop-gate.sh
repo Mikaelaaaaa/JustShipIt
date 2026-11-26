@@ -49,7 +49,7 @@ stop_reason() { # <dir> <slug> <stage>
     if [ -n "$missing" ]; then
       printf '%s' "facts|opsx：${slug} 或它開出去的卡缺事實欄位（opsx check ${slug}）：
 $missing
-開卡用 opsx new --kind-of-work …（incident 加 --impact 與 --evidence）；手寫的卡補 inbox.md 的 kind_of_work、impact、evidence。補齊再停；事實查不到就用 Edit 或 Write 寫 gates.md 說缺哪一欄、為什麼，不要編 evidence。"
+開卡用 opsx new --name <描述性卡名> --kind-of-work …（incident 加 --impact 與 --evidence；卡名會是 PR 名和 branch 名）；手寫的卡補 inbox.md 的 kind_of_work、impact、evidence。補齊再停；事實查不到就用 Edit 或 Write 寫 gates.md 說缺哪一欄、為什麼，不要編 evidence。"
       return 0
     fi
   fi

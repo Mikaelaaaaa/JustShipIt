@@ -21,7 +21,7 @@ grep -q '^evidence:.*有 impact 就要 evidence' "$FX/tpl-fm" || fail "evidence 
 # --- Scenario：opsx new 寫 planned ---
 cd "$FX"   # 從 dispatch 的 worktree 跑時，cwd 不能讓 opsx new 把 fixture 的卡當成 agent 開的
 A="$(mk_opsx_repo a)"
-out="$(opsx new --repo "$A" -- 一句話)"; assert_eq "$?" 0 "new: $out"
+out="$(opsx new --name planned-card --repo "$A" -- 一句話)"; assert_eq "$?" 0 "new: $out"
 frontmatter "$A/openspec/changes/$out/inbox.md" > "$FX/new-fm"
 assert_grep '^kind_of_work: planned$' "$FX/new-fm"
 assert_eq "$(grep -A1 '^related:' "$FX/new-fm" | tail -1)" 'kind_of_work: planned' "kind_of_work 緊接在 related: 之後"

@@ -372,7 +372,7 @@ class ProgressLinesTest(unittest.TestCase):
         rows = tm.rows(FIVE, done_open=False)
         cur = tm.Cursor(rows)
         cur.move(99)
-        tui.draw(scr, rows, cur, FIVE, "", None, tm.LineInput())
+        tui.draw(scr, rows, cur, FIVE, "", None, tm.LineInput("+ 收件匣："))
         self.assertEqual(len(scr.reversed), 1, "輸入框開著（底列 1 行）時反白列要畫出來：%s" % scr.lines)
 
     def test_cursor_row_shown_with_three_line_footer(self):
@@ -391,7 +391,7 @@ class ProgressLinesTest(unittest.TestCase):
 
 
 def typed(*keys):
-    box = tm.LineInput()
+    box = tm.LineInput("+ 收件匣：")
     results = [box.feed(k) for k in keys]
     return box, results
 
@@ -424,19 +424,19 @@ class LineInputTest(unittest.TestCase):
 
 class NewArgvTest(unittest.TestCase):
     def test_single_repo_scope_passes_repo_path(self):
-        self.assertEqual(tm.new_argv("/root", WDATA, "w1", "修 X"),
-                         ["bash", "/root/bin/opsx", "new", "--repo", "/r/a", "--", "修 X"])
+        self.assertEqual(tm.new_argv("/root", WDATA, "w1", "fix-x", "修 X"),
+                         ["bash", "/root/bin/opsx", "new", "--name", "fix-x", "--repo", "/r/a", "--", "修 X"])
 
     def test_all_scope_goes_to_unfiled(self):
-        self.assertEqual(tm.new_argv("/root", WDATA, None, "修 X"), ["bash", "/root/bin/opsx", "new", "--", "修 X"])
+        self.assertEqual(tm.new_argv("/root", WDATA, None, "fix-x", "修 X"), ["bash", "/root/bin/opsx", "new", "--name", "fix-x", "--", "修 X"])
 
     def test_multi_repo_scope_goes_to_unfiled(self):
         data = dict(WDATA, scopes=[{"workspace": "w1", "repos": ["a", "b"]}])
-        self.assertEqual(tm.new_argv("/root", data, "w1", "修 X"), ["bash", "/root/bin/opsx", "new", "--", "修 X"])
+        self.assertEqual(tm.new_argv("/root", data, "w1", "fix-x", "修 X"), ["bash", "/root/bin/opsx", "new", "--name", "fix-x", "--", "修 X"])
 
     def test_unmounted_single_repo_uses_its_path(self):
-        self.assertEqual(tm.new_argv("/root", WDATA, tm.UNMOUNTED, "y"),
-                         ["bash", "/root/bin/opsx", "new", "--repo", "/r/b", "--", "y"])
+        self.assertEqual(tm.new_argv("/root", WDATA, tm.UNMOUNTED, "y", "y"),
+                         ["bash", "/root/bin/opsx", "new", "--name", "y", "--repo", "/r/b", "--", "y"])
 
 
 OPEN = ["bash", "/root/herdr-board/scripts/open-board.sh"]
@@ -574,23 +574,45 @@ def drive(feed, scr, runs=None):
 
 class MainLoopTest(unittest.TestCase):
     def test_pasted_lines_after_submit_are_not_hotkeys(self):
-        argvs = drive(FakeFeed(WDATA), FakeScr(["+", "a", "b", "\n", "o", "q"]))
-        self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--", "ab"]],
+        argvs = drive(FakeFeed(WDATA), FakeScr(["+", "n", "\n", "a", "b", "\n", "o", "q"]))
+        self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--name", "n", "--", "ab"]],
                          "只送出第一行；換行後的 o 不開網頁、q 不關 TUI")
 
     def test_new_does_not_pass_opsx_card_to_opsx(self):
         runs = Runs()
         with mock.patch.dict(os.environ,{"OPSX_CARD": "foo"}):
-            drive(FakeFeed(WDATA), FakeScr(["+", "a", "\n"]), runs)
+            drive(FakeFeed(WDATA), FakeScr(["+", "a", "\n", "b", "\n"]), runs)
         self.assertEqual(len(runs.kws), 1)
         self.assertNotIn("OPSX_CARD", runs.kws[0]["env"])
+
+    def test_new_asks_card_name_first(self):
+        argvs = drive(FakeFeed(WDATA), FakeScr(["+", *"chat-keyboard", "\n", *"聊天視窗被鍵盤蓋住", "\n"]))
+        self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--name", "chat-keyboard", "--", "聊天視窗被鍵盤蓋住"]])
+
+    def test_bad_card_name_keeps_name_box_and_says_the_rule(self):
+        notes = []
+        with mock.patch.object(tui, "draw", lambda *a: notes.append(a[4])):
+            argvs = drive(FakeFeed(WDATA), FakeScr(["+", "B", "\n", "\x7f", "b", "\n", "x", "\n"]))
+        self.assertTrue(any("kebab-case" in n and "32" in n for n in notes), notes)
+        self.assertEqual(argvs, [["bash", str(HERE.parent.parent / "bin" / "opsx"), "new", "--name", "b", "--", "x"]],
+                         "不合規則時留在卡名框（文字留著，退格改掉再送），不開第二個框")
+
+    def test_card_name_rule(self):
+        for ok in ("a", "chat-keyboard", "kb-export2", "a" * 32):
+            self.assertTrue(tm.card_name_ok(ok), ok)
+        for bad in ("Chat Keyboard", "kb_export2", "a--b", "chat-", "-chat", "1chat", "a" * 33):
+            self.assertFalse(tm.card_name_ok(bad), bad)
+
+    def test_empty_card_name_or_text_cancels(self):
+        self.assertEqual(drive(FakeFeed(WDATA), FakeScr(["+", "\n"])), [], "卡名空的就取消")
+        self.assertEqual(drive(FakeFeed(WDATA), FakeScr(["+", "a", "\n", "\n"])), [], "一句話空的也取消")
 
     def test_queued_keys_after_cancel_are_not_hotkeys(self):
         self.assertEqual(drive(FakeFeed(WDATA), FakeScr(["+", "a", "\x1b", "z", "\x1b"])), [], "Esc 取消後排隊的 z、Esc 不執行")
 
     def test_failed_collect_keeps_scope_and_board(self):
         feed = FakeFeed(WDATA)
-        argvs = drive(feed, FakeScr(["\t", feed.fail, "+", "x", "\n"]))
+        argvs = drive(feed, FakeScr(["\t", feed.fail, "+", "n", "\n", "x", "\n"]))
         self.assertEqual(argvs[-1][-4:], ["--repo", "/r/a", "--", "x"], "collect 失敗一次，範圍仍是 w1")
 
     def test_failed_collect_replaces_only_errors(self):

@@ -20,7 +20,7 @@ POST /api/archive {slug, repo} 在 repo 根跑 `openspec archive <slug> -y`；�
                  （dispatch 是 null 或 agent_status 是 unknown）的活卡，不符回 422、不叫 openspec。specs/board-actions「歸檔已合併的卡」。
 POST /api/priority {repo, slug, level, reason} 轉 `opsx priority <slug> --set <level> --reason <理由> --repo <repo>`；
                  level 不是 P0/P1/P2 或理由空白回 400，不叫 opsx。
-POST /api/paste {text, repo?, files: [{name, data(base64)}]} 把檔寫進暫存資料夾，轉呼叫 `opsx new [--repo] --attach <檔>… -- <一句話>`，
+POST /api/paste {name, text, repo?, files: [{name, data(base64)}]} 把檔寫進暫存資料夾，轉呼叫 `opsx new --name <卡名> [--repo] --attach <檔>… -- <一句話>`，
                  跑完刪暫存。body 上限 PASTE_MAX_BODY，其他 POST 是 MAX_BODY。
 
 /api/* 要 header X-Opsx-Token 等於 <state>/board-token（第一次啟動時產生，之後重用）。只聽 127.0.0.1。
@@ -82,7 +82,7 @@ ACTIONS = {
     "merge": {"slug": True, "required": (), "flags": ("repo",), "trailing": None},
     "stop": {"slug": True, "required": (), "flags": ("repo",), "trailing": None},
     "dispatch": {"slug": True, "required": (), "flags": ("agent", "model", "mode", "kind", "repo", "note"), "trailing": None},
-    "new": {"slug": False, "required": ("text",), "flags": ("repo",), "trailing": "text"},
+    "new": {"slug": False, "required": ("name", "text"), "flags": ("name", "repo"), "trailing": "text"},
     "file": {"slug": True, "required": ("repo",), "flags": ("repo",), "trailing": None},
     "drop": {"slug": True, "required": ("text",), "flags": ("repo",), "trailing": "text"},
     "merge-card": {"slug": True, "required": ("into", "repo"), "flags": ("into", "repo"), "trailing": None},
@@ -107,6 +107,7 @@ FLAG_RE = {
     "source": re.compile(r"^(gitlab|github|debt|obsidian)$"),
     "note": re.compile(r"^[^\n\r\0]{1,2000}\Z"),   # \Z 不是 $：$ 會放過結尾的 \n
     "pane": PANE_RE,
+    "name": re.compile(r"^(?=.{1,32}\Z)[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z"),   # 卡名規則同 opsx new --name（kebab-case，最多 32 字）
 }
 LEVELS = ("P0", "P1", "P2")
 
@@ -234,8 +235,10 @@ def build_args(action: str, body: dict) -> list[str]:
 
 
 def paste_parts(body: dict) -> tuple[list[str], list[tuple[str, bytes]], str]:
-    """把 /api/paste 的 body 拆成 (--repo 參數, [(檔名, 內容)], 一句話)。欄位不合格就 raise ValueError，呼叫端回 400。"""
-    text, files = body.get("text"), body.get("files")
+    """把 /api/paste 的 body 拆成 (--name 與 --repo 參數, [(檔名, 內容)], 一句話)。欄位不合格就 raise ValueError，呼叫端回 400。"""
+    card_name, text, files = body.get("name"), body.get("text"), body.get("files")
+    if not isinstance(card_name, str) or not FLAG_RE["name"].match(card_name):
+        raise ValueError("name 不合格：%r" % card_name)
     if not isinstance(text, str):
         raise ValueError("text 要是字串：%r" % text)
     if "\0" in text:
@@ -270,12 +273,12 @@ def paste_parts(body: dict) -> tuple[list[str], list[tuple[str, bytes]], str]:
         decoded.insert(0, ("paste.md", text.encode("utf-8")))
     one_liner = lines[0][:ONE_LINER_MAX] if lines else "附件：%s" % decoded[0][0]
     repo = body.get("repo")
-    repo_args = []
+    flag_args = ["--name", card_name]
     if repo is not None and repo != "":
         if not isinstance(repo, str) or not FLAG_RE["repo"].match(repo) or not repo_ok(repo):
             raise ValueError("repo 不是 opsx repo 的根目錄：%r" % repo)
-        repo_args = ["--repo", repo]
-    return repo_args, decoded, one_liner
+        flag_args += ["--repo", repo]
+    return flag_args, decoded, one_liner
 
 
 def write_attachments(root: pathlib.Path, files: list[tuple[str, bytes]]) -> list[str]:
@@ -646,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
                         r["hint"] = hint
                 self.send_json(200, r); return
             if action == "paste":
-                repo_args, files, one_liner = paste_parts(body)
+                flag_args, files, one_liner = paste_parts(body)
             else:
                 args = priority_args(body) if action == "priority" else build_args(action, body)
         except (ValueError, json.JSONDecodeError) as e:
@@ -669,7 +672,7 @@ class Handler(BaseHTTPRequestHandler):
         if action == "paste":
             with tempfile.TemporaryDirectory(prefix="opsx-paste.") as d:
                 attach = write_attachments(pathlib.Path(d), files)
-                r = run(["bash", str(OPSX), "new", "--source", "me", *repo_args, *attach, "--", one_liner], ACTION_TIMEOUT, self.opsx_env(), self.cfg.state)
+                r = run(["bash", str(OPSX), "new", "--source", "me", *flag_args, *attach, "--", one_liner], ACTION_TIMEOUT, self.opsx_env(), self.cfg.state)
             self.invalidate()
             self.send_json(200, r); return
         r = run(["bash", str(OPSX), *args], ACTION_TIMEOUT, self.opsx_env(), self.cfg.state if action == "new" else None)
