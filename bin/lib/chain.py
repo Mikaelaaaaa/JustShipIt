@@ -374,8 +374,20 @@ def session_members(top: str, repo: str, feature: str, dispatch: dict) -> list:
 
 
 def session_alive(entry: dict) -> bool:
-    """session 條目還代表一個活的 pane：沒停、pane 沒被 opsx stop 關掉、沒被 reap 收掉（reap 只記 reaped_at，不改 mode）。"""
-    return entry.get("mode") != "stopped" and not entry.get("pane_closed_at") and not entry.get("reaped_at")
+    """session 條目還代表一個活的 pane：沒停、pane 沒被 opsx stop 關掉、沒被 reap 收掉（reap 只記 reaped_at，不改 mode）、
+    沒被 opsx release 放掉（propose 完放掉的 pane 等 reap 收）。"""
+    return (entry.get("mode") != "stopped" and not entry.get("pane_closed_at") and not entry.get("reaped_at")
+            and not entry.get("released_at"))
+
+
+def released_waiting(entry: dict) -> bool:
+    """opsx release 放掉了、pane 還沒收（沒有 pane_closed_at 也沒有 reaped_at）：pane 還在同一棵 worktree 上，不能再派。"""
+    return bool(entry.get("released_at")) and not (entry.get("pane_closed_at") or entry.get("reaped_at"))
+
+
+def released_done(entry: dict) -> bool:
+    """opsx release 放掉了、pane 也收了：可以重派，也不再佔著分支。"""
+    return bool(entry.get("released_at")) and bool(entry.get("pane_closed_at") or entry.get("reaped_at"))
 
 
 def human_stopped(entry, feature: str) -> bool:

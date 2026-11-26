@@ -22,6 +22,8 @@ hook_prompt() { jqr '.prompt'; }
 cmd_skeleton() { printf '%s' "$1" | perl "$OPSX_ROOT/hooks/cmd-skeleton.pl"; }
 # 第三級比對用的文字：原文，只扣掉 commit 訊息、opsx answer 答案、寫檔 heredoc 三種容器的資料部分。認不得的寫法都留著。
 cmd_l3text() { printf '%s' "$1" | perl "$OPSX_ROOT/hooks/cmd-containers.pl"; }
+# 同上，只扣 commit 訊息（commit 閘門數 [no-change] 用，答案與寫檔 heredoc 裡的標記不算）
+cmd_l3commit() { printf '%s' "$1" | perl "$OPSX_ROOT/hooks/cmd-containers.pl" --commit-only; }
 # push 的 force / main 檢查用：cmd_l3text 之後再照 shell 解析參數的方式去引號、併續行（hooks/cmd-normalize.pl）
 cmd_l3norm() { printf '%s' "$1" | perl "$OPSX_ROOT/hooks/cmd-containers.pl" | perl "$OPSX_ROOT/hooks/cmd-normalize.pl" "${@:2}"; }
 hook_event() { jqr '.hook_event_name'; }

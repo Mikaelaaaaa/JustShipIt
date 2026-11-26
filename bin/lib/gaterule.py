@@ -11,7 +11,11 @@ decide(waiting, repo) 回傳四種處置之一：
 import re
 
 # 建議裡有這些字，代表要人動手
-HUMAN_WORDS = ("你", "使用者", "沙盒外", "自己跑", "本人", "人工", "跑指令", "跑腳本", "錄", "貼路徑")
+HUMAN_WORDS = (
+    "使用者", "沙盒外", "自己跑", "本人", "人工", "跑指令", "跑腳本", "貼路徑",
+    "你自己", "你在終端機", "你的終端機", "在你平常的", "你在 sandbox 外", "你在沙盒外", "要你做", "要你跑", "你一條命令")
+# 要人錄音錄影；記錄、紀錄、目錄、收錄、附錄、語錄、登錄、抄錄不算
+HUMAN_RECORD = re.compile(r"(?<![記紀目收附語登抄])錄(完|一次|下)")
 HUMAN_QUESTION = ("只有你能做", "誰來跑")
 # 協調者會照抄建議去跑，git merge origin/main 這類指令也不能交給它，所以代跑檢查刻意用寬的字詞比對
 MERGE_WORDS = ("合併", "merge")
@@ -73,7 +77,8 @@ def decide(w, repo):
         return ("human", "merge")
     if not pick:
         return ("human", "no-pick")
-    if any(k in (w.get("recommended") or "") for k in HUMAN_WORDS) or any(k in q for k in HUMAN_QUESTION):
+    rec = w.get("recommended") or ""
+    if any(k in rec for k in HUMAN_WORDS) or HUMAN_RECORD.search(rec) or any(k in q for k in HUMAN_QUESTION):
         return ("human", "hands")
     if repo == ANSWER_REPO:
         return ("answer", pick) if w.get("recommended") else ("human", "no-rec")

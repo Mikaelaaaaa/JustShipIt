@@ -15,4 +15,18 @@ rm -rf "$OPSX_STATE_DIR/stop-chain"
 out="$(printf '{"cwd":"%s","stop_hook_active":false}' "$R" | bash "$H/openspec-stop-gate.sh" 2>/dev/null)" || true
 assert_eq "$(printf '%s' "$out" | jq -r '.decision // "allow"')" block "帶指示、0 個勾了、沒有 gate 要擋: $out"
 printf '%s' "$out" | jq -r '.reason' | grep -q '/opsx-workflow:apply' || fail "理由要叫接 /opsx-workflow:apply: $out"
+
+# 條目沒有 released_at（照擋，反例）
+printf '{"Acmecorp-AI/talk":{"mode":"autopilot","pane":"w1:p1"}}' > "$OPSX_STATE_DIR/dispatch.json"
+rm -rf "$OPSX_STATE_DIR/stop-chain"
+out="$(printf '{"cwd":"%s","stop_hook_active":false}' "$R" | bash "$H/openspec-stop-gate.sh" 2>/dev/null)" || true
+assert_eq "$(printf '%s' "$out" | jq -r '.decision // "allow"')" block "條目沒放掉要照擋: $out"
+
+# 帶補卡記號、條目有 released_at（放行，dispatch-release）
+printf '## 一句話\n\n討論\n\n## 派工指示\n\n- 2026-11-17T10:00 做到 propose 完成就停（協調者補卡）\n' > "$C/inbox.md"
+printf '{"Acmecorp-AI/talk":{"mode":"autopilot","pane":"w1:p1","released_at":"2026-11-22T10:00:00+08:00"}}' > "$OPSX_STATE_DIR/dispatch.json"
+rm -rf "$OPSX_STATE_DIR/stop-chain"
+out="$(printf '{"cwd":"%s","stop_hook_active":false}' "$R" | bash "$H/openspec-stop-gate.sh" 2>/dev/null)" || true
+assert_eq "$out" "" "放掉的卡停下要放行（不印 block）"
+grep -q 'reap' "$OPSX_STATE_DIR/stop-said/Acmecorp-AI-talk" || fail "停住紀錄要寫等 reap 收 pane"
 echo "stop-gate-discussion-cards ok"

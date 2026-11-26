@@ -71,6 +71,43 @@ assert_eq "$(decide_in opsx-workflow '{"waits_on": "card-x", "recommended": "用
 assert_eq "$(decide_in opsx-workflow '{"recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "opsx MR 合併的決定題"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個"}')" "('human', 'no-pick')" "opsx 沒選項沒建議"
 assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "你在 sandbox 外跑"}')" "('human', 'hands')" "opsx 建議要人動手"
+# 要人動手看片語（Scenario Outline，正例）：建議取自真實 gate
+hands() { assert_eq "$(decide_in opsx-workflow "{\"question\": \"下一步？\", \"recommended\": \"$1\"}")" "('human', 'hands')" "要人動手片語：$1"; }
+hands '你自己 rebase，rebase 完重跑 tests/new.test.sh'
+hands '你在 sandbox 外用 `!` 跑'
+hands '在你平常的 pane 起 claude --settings 再貼輸出'
+hands '訊息與指令都已備好，你一條命令就完成'
+hands '你在終端機跑上面那行並貼結果'
+hands '開 DevTools 錄一次回答 gate，連同機器型號貼回來'
+hands '你在 sandbox 外合併，合完我跑 /archive board-inbox'
+hands '你在沙盒外跑一次全套'
+hands '在你的終端機跑 opsx init --global'
+hands '這一步要你做，我做不到'
+hands '這題要你跑一次指令才知道'
+hands '五分鐘內可以錄完'
+hands '錄下畫面再回這題'
+hands '重新錄下畫面'
+hands '手動錄完再貼'
+# 單字「你」「錄」不算要人動手（Scenario Outline，反例）
+not_hands() { assert_eq "$(decide_in opsx-workflow "{\"question\": \"選哪個？\", \"recommended\": \"$1\"}")" "('answer', '$1')" "單字你錄不算：$1"; }
+not_hands 'A，照你上一題說的最小改動'
+not_hands 'A：跟你在 D6 的選擇一致，只影響錯誤訊息'
+not_hands '留在待指派：照派工指示，由你決定何時派'
+not_hands '不改。沒有 codex 撞到這問題的紀錄'
+not_hands '照記錄撤回'
+not_hands '1A。用相對路徑起 drive 只有在 bin/ 目錄裡手打才會發生'
+not_hands '錄影第一格就是看板，跟主圖重複'
+not_hands '建議你確認第一項'
+not_hands '照派工指示停，所以開這題請你決定'
+not_hands '開新卡。改 skill 要再跑 eval，又是一輪你跑的指令'
+not_hands 'A。記錄完整的 log 就好'
+not_hands '照記錄下方的 D3'
+not_hands '請記錄一次失敗原因'
+not_hands '紀錄完再回報'
+not_hands '放在 bin/ 目錄下就好'
+not_hands '收錄完再發'
+not_hands '附錄下方表格'
+assert_eq "$(decide_in other-repo '{"question": "選哪個？", "recommended": "A，照你上一題說的最小改動"}')" "('human', 'decision')" "其他 repo 不再判要人動手時仍留給人"
 # MR 合併的決定題留給人（Scenario Outline，正例）
 assert_eq "$(decide_in opsx-workflow '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
 assert_eq "$(decide_in opsx-workflow '{"question": "要不要先合併 MR？", "recommended": "先合併 MR 再說"}')" "('human', 'merge')" "MR 合併：合併 MR"
@@ -100,6 +137,15 @@ assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這�
 assert_eq "$(decide_in opsx-workflow '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "opsx 沒建議、第一個選項含你，不算要你動手"
 assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'decision')" "其他 repo 沒建議、第一個選項含你，留在 decision"
 assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
+# 要人動手只看建議與題目，沒建議時選項裡的字不算（Scenario Outline，正例＋反例）
+assert_eq "$(decide_in opsx-workflow '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-rec')" "選項含「錄」不算要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-rec')" "選項含「你」不算要人動手"
+assert_eq "$(decide_in other-repo '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'decision')" "其他 repo 選項含「錄」是要你決定"
+assert_eq "$(decide_in opsx-workflow '{"question": "這段怎麼驗", "recommended": "你在 sandbox 外跑", "options": ["你在 sandbox 外跑", "略過"]}')" "('human', 'hands')" "建議含「你」要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "先錄一段畫面", "options": ["先錄一段畫面", "略過"]}')" "('human', 'hands')" "建議含「錄」要人動手"
+assert_eq "$(decide_in opsx-workflow '{"question": "這只有你能做", "options": ["A", "B"]}')" "('human', 'hands')" "邊界：題目端命中，沒建議也算"
+assert_eq "$(decide_in other-repo '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
+assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "用 A", "options": ["照你說的", "用 A"]}')" "('answer', '用 A')" "邊界：有建議時不看選項"
 # decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
 # terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
 missing_human_text() { # <gaterule.py> <coordinate.py> → 沒有文字的理由代碼，空白分隔；全有時印空行

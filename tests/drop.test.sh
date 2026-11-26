@@ -159,13 +159,19 @@ PATH="$FX/slowbin:$PATH" opsx drop "$T" --repo "$A" -- 不要了 > "$FX/drop.out
 DROP=$!
 for _ in $(seq 100); do [ -e "$OPSX_TEST_ARCHIVING" ] && break; sleep 0.05; done
 [ -e "$OPSX_TEST_ARCHIVING" ] || fail "drop 沒有跑到 archive：$(cat "$FX/drop.out")"
+# new 在鎖外選併入目標，選完才叫 inboxmerge.py append 拿卡鎖：標記出現前放行 archive，new 會找不到目標而另開新卡
+printf '#!/usr/bin/env bash\ncase "$*" in *"inboxmerge.py append"*) : > "$OPSX_TEST_MERGING" ;; esac\nexec "%s" "$@"\n' "$PYBIN" > "$FX/pywrap"; chmod +x "$FX/pywrap"
+export OPSX_TEST_MERGING="$FX/merging"; rm -f "$OPSX_TEST_MERGING"
+printf '%s\n' "$FX/pywrap" > "$OPSX_STATE_DIR/python"
 (cd "$W" && opsx new --name late-merge --kind-of-work planned --repo "$A" -- "bin/x.sh 晚到的併入") > "$FX/new.out" 2> "$FX/new.err" &
 NEW=$!
-sleep 1
+for _ in $(seq 200); do [ -e "$OPSX_TEST_MERGING" ] && break; sleep 0.05; done
+[ -e "$OPSX_TEST_MERGING" ] || fail "opsx new 沒有走到併入：$(cat "$FX/new.out" "$FX/new.err")"
 assert_not_grep '晚到的併入' "$CH/$T/inbox.md"
 : > "$OPSX_TEST_RELEASE"
 wait "$DROP"; assert_eq "$?" 0 "drop: $(cat "$FX/drop.out")"
 wait "$NEW"; rc=$?
+printf '%s\n' "$PYBIN" > "$OPSX_STATE_DIR/python"
 [ $rc -ne 0 ] || fail "卡已歸檔，opsx new 不能併進去：$(cat "$FX/new.out")"
 assert_grep '併不進' "$FX/new.err"
 assert_not_grep '晚到的併入' "$CH/archive/2026-11-11-$T/inbox.md"
