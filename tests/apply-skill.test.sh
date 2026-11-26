@@ -98,19 +98,23 @@ grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註�
 
 # agent-20261126-1119-2：第 4 步不手改產生檔（specs/apply-generated-files）
 grep -E '^\| 4 \|' "$SK" > "$FX/apply4"
-# 認定產生檔的訊號（Examples 每一列）
-has 'A generated file is never edited by hand: regenerate it with its generator' "$FX/apply4"
-has 'when the repo CLAUDE.md says so' "$FX/apply4"
-has 'when a guard test asserts it equals the generator output' "$FX/apply4"
-has 'when its header says generated or do not edit' "$FX/apply4"
-has 'tells you to hand-edit after generating (drizzle migration SQL, say) follows CLAUDE.md' "$FX/apply4"
-# 產生器被拒，有守門測試；手改後守門測試紅
-has 'hand-edit the file in the exact generator output format only when such a guard test exists' "$FX/apply4"
-has 'run that test before the commit and commit only when it is green' "$FX/apply4"
-# 產生器被拒，沒有守門測試
-has 'write the step 5 gate with `type: decision`, `needs: run` and `by: coordinator`' "$FX/apply4"
-has 'the full generator command as its recommendation, and do not hand-edit the file' "$FX/apply4"
-# 第 4 步不另寫守門測試找法
-has 'find the guard test as the Test agent section says' "$FX/apply4"
+# 每句連條件一起比：刪掉條件、對調分支或把 or 改成 and 都要紅（review R1.3）
+# 改檔之前就找守門測試，找法只指到 Test agent（D6）
+has 'Before you edit a file, decide whether a generator owns it, and look for its guard test as the Test agent section says before the edit, not after it.' "$FX/apply4"
 ! grep -qF 'git grep -l -F' "$FX/apply4" || fail "第 4 步不該自己列守門測試的找法"
+# 認定產生檔的訊號（Examples 每一列）
+has 'A generator owns the file when the repo CLAUDE.md says so, when a guard test asserts it equals the generator output, or when its header says generated or do not edit.' "$FX/apply4"
+has 'A file with none of these signals is edited directly.' "$FX/apply4"
+has 'A file the repo CLAUDE.md tells you to hand-edit after generating follows CLAUDE.md, for example drizzle migration SQL.' "$FX/apply4"
+# 兩類產生器（D5）
+has 'When the generator builds the file from another input, edit that input and run the generator again, and never edit the generated file.' "$FX/apply4"
+has 'When the generator reads the file back and rewrites it in canonical form, such as `pnpm i18n:split` or a formatter, edit the file directly and run the generator, its `--check` mode or the guard test before the commit.' "$FX/apply4"
+# 產生器跑不了，有守門測試；沙盒擋下也算（D7）
+has 'When a hook, dontAsk or the sandbox stops the generator from running, and a guard test asserts the file equals the generator output, edit the file in the exact generator output format, run that test before the commit and commit only when it is green.' "$FX/apply4"
+# 手改後守門測試紅（D1）
+has 'When that test stays red, do not commit, and after two failed rounds of fixes follow the Test agent On FAIL rule.' "$FX/apply4"
+# 產生器跑不了，沒有守門測試
+has 'When the generator cannot run and no such guard test exists, write the step 5 gate with `type: decision`, `needs: run` and `by: coordinator`, the full generator command as its recommendation, and do not hand-edit the file.' "$FX/apply4"
+# 產生器自己報錯不算跑不了（D7）
+has 'A generator that runs and reports its own error is a failure to fix, not a generator that cannot run.' "$FX/apply4"
 echo ok
