@@ -123,7 +123,11 @@ done
 case "$RUN" in *'Before you write it, strip ANSI escape sequences, `\r` and GitLab'"'"'s `section_start:` and `section_end:` markers, so no ESC character reaches a pane through `opsx answer`'*) ;; *) fail "讀 log 回貼前要清掉 ANSI、\\r 與 section 標記" ;; esac
 # 回貼有上限、遮掉密碼類字串：trace 可能很長，也可能印出 token 或密碼
 case "$RUN" in *'Keep at most 4000 characters for each failed job, cut the rest and end it with `（已截斷）`'*) ;; *) fail "讀 log 回貼每個 job 要有 4000 字元上限" ;; esac
-case "$RUN" in *'replace with `***` the value after `PRIVATE-TOKEN`, `token`, `password` or `secret` followed by `:` or `=`, and every string that starts with `glpat-`'*) ;; *) fail "讀 log 回貼要遮掉密碼類字串" ;; esac
+case "$RUN" in *'replace with `***`, ignoring case, the value after any name that contains `token`, `password` or `secret` (`PRIVATE-TOKEN`, `CI_JOB_TOKEN` and `DB_PASSWORD` included) followed by `:` or `=`, and every string that starts with `glpat-`'*) ;; *) fail "讀 log 回貼要不分大小寫遮掉名稱含 token／password／secret 的值" ;; esac
+# 每個 job 有上限還不夠：30 個失敗 job 仍會塞進一個 opsx answer
+case "$RUN" in *'Keep the whole text at most 12000 characters; a failed job that does not fit is listed by name only'*) ;; *) fail "讀 log 回貼要有 12000 字元總上限" ;; esac
+# URL 的 pipeline id 要等於 gate id 的數字：寫錯時 babysit 會拿別條 pipeline 的 log 分類
+case "$RUN" in *'the `<pipeline-id>` in the first URL equals the `<n>` of the gate'"'"'s id `ci-log-<n>`'*) ;; *) fail "讀 log 例外要比對 URL 的 pipeline id 與 gate id" ;; esac
 # 回貼範本不能帶指令原文：<steps> 含 $(cat …token)，放進雙引號會展開成 token 值
 case "$RUN" in *'"協調者代跑：<steps> → exit 0；<that text>"'*) fail "讀 log 回貼範本不能帶 <steps>" ;; esac
 case "$RUN" in *'When either step carries `-X`, `--request`, `-d` or `--data`'*) fail "讀 log 例外要用允許清單，不是禁止清單" ;; esac
