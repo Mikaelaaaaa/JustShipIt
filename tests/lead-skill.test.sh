@@ -85,8 +85,11 @@ for s in 'force' '`+` refspec' "another card's branch" 'delete' 'merge'; do
 done
 case "$RUN" in *'"協調者代跑：<指令> → exit 0'*) ;; *) fail "回結果開頭要寫「協調者代跑：」：$RUN" ;; esac
 # 合併類唯一例外：同時帶 merge_when_pipeline_succeeds=true 與 sha= 的 auto-merge 重設照跑，少一個就當合併（specs/opsx-lead「代跑帶 sha 的 auto-merge 重設」）
-case "$RUN" in *'auto-merge reset'*'merge_when_pipeline_succeeds=true'*'sha='*) ;; *) fail "代跑段要放行帶兩參數的 auto-merge 重設：$RUN" ;; esac
-case "$RUN" in *'either parameter is missing, it counts as a merge'*) ;; *) fail "少一個參數要當合併類：$RUN" ;; esac
+case "$RUN" in *'auto-merge reset'*'carrying both `merge_when_pipeline_succeeds=true` and `sha=<full head sha>`'*) ;; *) fail "代跑段要放行帶兩參數的 auto-merge 重設：$RUN" ;; esac
+case "$RUN" in *"\`<iid>\` is the MR in that card's report.md \`## MR\` URL"*) ;; *) fail "iid 要是這張卡的 MR：$RUN" ;; esac
+case "$RUN" in *'either parameter is missing, the sha is not a full 40-character sha, or the iid is another MR, it counts as a merge'*) ;; *) fail "少參數、sha 不完整、別張 MR 都當合併類：$RUN" ;; esac
+# 跑之前讀一次 pipeline，已 success 不跑、刪 by、列進 ①（D12）
+case "$RUN" in *'Before running it, read `glab mr view <iid> -F json` once'*'`head_pipeline.status` is `success`'*'do not run it'*'block ①'*) ;; *) fail "重設前要先讀 pipeline、已綠不跑：$RUN" ;; esac
 MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
 case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"

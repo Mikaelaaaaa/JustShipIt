@@ -30,14 +30,19 @@ hasnt '$(cat' "$PR"
 hasnt 'glab mr update` /' "$WHERE"
 grep -F 'glab mr update' "$UPD" | grep -qF 'do not use' || fail "步 4b 要寫明 GitLab 不用 glab mr update 更新描述"
 
-# --- 更新後讀回確認 ---
-has "step 5's read-back" "$UPD"
-has 'write the same gate again' "$UPD"
-has 'never try another way' "$UPD"
+# --- 更新後讀回確認；第二次仍不對改交使用者（D10）---
+has "run step 5's read-back, then step 4c" "$UPD"
+has 'for the first time, write the same gate again' "$UPD"
+has 'the second time, write it without the `by: coordinator` line' "$UPD"
+has 'Never try another way' "$UPD"
+# 開了更新 gate 也不停，接著 4c
+has 'then go on to step 4c' "$UPD"
+hasnt 'and stop.' "$UPD"
 
-# --- 描述沒變就不更新 ---
-has 'same as mr.md' "$UPD"
-has 'no update and no gate' "$UPD"
+# --- 描述沒變就不更新：只比 ## Changes 表格各列 ---
+has 'compare the rows of its `## Changes` table with the rows of the MR' "$UPD"
+has 'ignoring trailing whitespace' "$UPD"
+has 'When the rows are the same, there is no update and no gate' "$UPD"
 
 # --- 更新步驟只寫在 pr：babysit 引用、不重寫 ---
 has '`../pr/SKILL.md`' "$BS5"
@@ -45,21 +50,34 @@ has 'steps 4b and 4c' "$BS5"
 has 'only when it changed' "$BS5"
 has 'no gate' "$BS5"
 hasnt 'description=@' "$BS"
+# 步 8 的 push wave 推完也跑 4b、4c
+BS8="$FX/babysit8"
+awk '/^8\. /{on=1} /^9\. /{on=0} on' "$BS" > "$BS8"
+has 'run steps 4b and 4c of `../pr/SKILL.md`' "$BS8"
 
-# --- auto-merge：依狀態決定動作（Scenario Outline 兩張表每一列）---
-has 'merge_when_pipeline_succeeds' "$AM"
-has 'head_pipeline.status' "$AM"
-has 'When auto-merge is on, do nothing' "$AM"          # true + running
-for s in '`created`' '`pending`' '`running`'; do        # false + created / pending / running：開重設 gate
-  grep -F 'needs: run' "$AM" | grep -qF -- "$s" || fail "步 4c 開 gate 的狀態缺 $s"
-done
-has 'by: coordinator' "$AM"
-has 'auto-merge: no（pipeline 已綠，等合併）' "$AM"     # false + success
-has 'auto-merge: no（被取消）' "$AM"                     # false + failed
-grep -F '`success`' "$AM" | grep -qF 'write no gate' || fail "pipeline 已綠時不開 gate"
-grep -F '`failed`' "$AM" | grep -qF 'write no gate' || fail "pipeline 失敗時不開 gate"
-# 反例：重設指令同時帶兩個參數
-has 'glab api -X PUT projects/:fullpath/merge_requests/<iid>/merge -F merge_when_pipeline_succeeds=true -F sha=<head sha>' "$AM"
-# 步 4 指向 4c，不再只留一句「only if」
+# --- auto-merge：條件與時機 ---
+has "the repo's CLAUDE.md or the user's global CLAUDE.md" "$AM"
+has 'On a new MR it runs after step 5 has written the `## MR` line' "$AM"
+# 每種狀態一行（bullet），斷言對整行，狀態與動作綁在同一個 bullet
+line_of() { grep -F -- "$1" "$AM" || fail "步 4c 沒有含 '$1' 的行"; }
+# GitHub（D11）
+case "$(line_of '- GitHub:')" in *'write no gate'*'auto-merge: no（GitHub 不處理）'*) ;; *) fail "GitHub 那行要不開 gate、寫 GitHub 不處理" ;; esac
+# 讀三個欄位；auto-merge 開著不動（true + running）
+has 'read `merge_when_pipeline_succeeds`, `head_pipeline.status` and `head_pipeline.sha`' "$AM"
+has 'When auto-merge is on, do nothing' "$AM"
+# 邏輯表沒指到 head 或 undecided gate 還開著：先不開（D13）
+case "$(line_of '- When the line under `## 邏輯表`')" in *'does not name the current head'*'`logic-map-undecided-r*` gate is open'*'write no gate yet'*) ;; *) fail "邏輯表或 undecided gate 未定時先不開重設 gate" ;; esac
+# 還沒跑完（null、舊 sha、created／pending／running／waiting_for_resource 等）：開重設 gate
+GATE="$(line_of '- When `head_pipeline` is null')"
+case "$GATE" in *'its sha is not `git rev-parse HEAD`'*'not `success`, `failed`, `canceled` or `skipped`'*'write a `needs: run` gate with a `by: coordinator` line'*) ;; *) fail "沒跑完的狀態要開協調者 gate：$GATE" ;; esac
+case "$GATE" in *'glab api -X PUT projects/:fullpath/merge_requests/<iid>/merge -F merge_when_pipeline_succeeds=true -F sha=<head sha>'*) ;; *) fail "重設指令要同時帶兩個參數：$GATE" ;; esac
+# success：不開、寫已綠（false + success）
+case "$(line_of '- When the pipeline is `success`')" in *'write no gate'*'auto-merge: no（pipeline 已綠，等合併）'*) ;; *) fail "success 那行要不開 gate、寫已綠" ;; esac
+# failed／canceled／skipped：不開、寫被取消（false + failed）
+case "$(line_of '- When the pipeline is `failed`, `canceled` or `skipped`')" in *'write no gate'*'auto-merge: no（被取消）'*) ;; *) fail "failed 那行要不開 gate、寫被取消" ;; esac
+# 反例：success 與 failed 那兩行不得出現開 gate 的寫法
+grep -F -- '- When the pipeline is `success`' "$AM" | grep -qF 'write a `needs: run`' && fail "success 那行不能開 gate"
+grep -F -- '- When the pipeline is `failed`' "$AM" | grep -qF 'write a `needs: run`' && fail "failed 那行不能開 gate"
+# 步 4 指向 4c
 has 'Auto-merge is step 4c' "$PR"
 echo OK
