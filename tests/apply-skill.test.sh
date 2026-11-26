@@ -104,7 +104,7 @@ section "Test agent" > "$TA"
 has 'a static guard whose scan covers a file you changed' "$TA"
 has 'needs no database, network or other service' "$TA"
 # R1.1、D15：brief 帶被改檔案，清單用本地的 main，不 fetch
-has 'the files this change touches (`git diff --name-only <primary remote>/main...HEAD` against the local ref, no fetch, plus the uncommitted ones)' "$TA"
+has 'the files this change touches (`git diff --name-only <primary remote>/main...HEAD` against the local ref, no fetch, plus the uncommitted ones, untracked new files included, from `git status --porcelain`)' "$TA"
 # Scenario：不跑全套的原句保留
 has 'Do not run the whole suite; CI does that.' "$TA"
 ! grep -qiE 'exception to|except for static' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
@@ -141,7 +141,13 @@ has 'when the apply fails, keep the entry, leave the tree as it is, and write a 
 has 'never a bare `git stash`' "$TA"
 has 'When any of that cannot be done, do not run the base' "$TA"
 # D11、R3.3：逐筆比，去掉行號欄號
-has 'Compare failure by failure (file and message, with line and column numbers removed), not red against green.' "$TA"
+has 'Compare failure by failure (file and message, with line and column numbers removed), not red against green, and count them' "$TA"
+# D22：比筆數
+has 'count them: more failures with the same file and message on this change than on the base is this change'"'"'s failure' "$TA"
+# D23：base 跑完切不回或 apply 失敗
+has 'When the branch cannot be checked out again or the apply fails after the base ran, do not use the base result: the red is this change'"'"'s failure; stop and write a gate that names the commit you are on and the stash SHA' "$TA"
+# D21：被改檔案含 untracked
+has 'plus the uncommitted ones, untracked new files included' "$TA"
 has 'Every failure on this change also on the base: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and count that guard as green' "$TA"
 has 'the run'"'"'s other tests keep their own result' "$TA"
 has 'Any failure the base does not have: it is this change'"'"'s failure, and the two fix cycles below apply' "$TA"
