@@ -8,13 +8,14 @@ export OPSX_USER=mikaela OPSX_DISPATCH_RETRY_SLEEP=0
 mkdir -p "$OPSX_STATE_DIR"
 
 # 假 pnpm 跟假 herdr 寫同一個 log，才比得出誰先誰後；結束碼讀 $FX/pnpm-rc，輸出讀 $FX/pnpm-msg（printf %b，可放 \r）。
-# 跑的當下 git-dir 有沒有標記檔記成 pnpm-marker 一行
+# 跑的當下 git-dir 有沒有標記檔記成 pnpm-marker 一行；工作目錄記成 pnpm-cwd 一行（corepack 依工作目錄選 pnpm 版本）
 echo 0 > "$FX/pnpm-rc"
 echo 'ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with frozen-lockfile' > "$FX/pnpm-msg"
 cat > "$FX/fakebin/pnpm" <<EOF
 #!/usr/bin/env bash
 printf 'pnpm %s\n' "\$*" >> "$OPSX_FAKE_LOG"
-if [ -f "\$(git -C "\$2" rev-parse --absolute-git-dir)/opsx-deps-pending" ]; then echo 'pnpm-marker yes' >> "$OPSX_FAKE_LOG"; fi
+printf 'pnpm-cwd %s\n' "\$(pwd -P)" >> "$OPSX_FAKE_LOG"
+if [ -f "\$(git rev-parse --absolute-git-dir)/opsx-deps-pending" ]; then echo 'pnpm-marker yes' >> "$OPSX_FAKE_LOG"; fi
 printf '%b\n' "\$(cat "$FX/pnpm-msg")"
 exit "\$(cat "$FX/pnpm-rc")"
 EOF
@@ -39,13 +40,23 @@ R="$(new_repo Inst-A ok-card pnpm-lock.yaml)"
 out="$(cd "$R" && opsx dispatch ok-card --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
 assert_eq "$rc" 0 "dispatch rc: $out"
 assert_eq "$(grep -c '^pnpm ' "$OPSX_FAKE_LOG")" 1 "pnpm 要剛好叫一次：$(cat "$OPSX_FAKE_LOG")"
-assert_grep "^pnpm --dir $R/.claude/worktrees/ok-card install --frozen-lockfile\$" "$OPSX_FAKE_LOG"
+assert_grep '^pnpm install --frozen-lockfile$' "$OPSX_FAKE_LOG"
+# dispatch 從主 repo 跑，pnpm 的工作目錄仍要是新 worktree
+assert_eq "$(grep '^pnpm-cwd ' "$OPSX_FAKE_LOG")" "pnpm-cwd $(cd "$R/.claude/worktrees/ok-card" && pwd -P)" "pnpm 要在新 worktree 裡跑：$(cat "$OPSX_FAKE_LOG")"
 p="$(line_of '^pnpm ')"; a="$(line_of '^agent start ok-card')"
 [ -n "$a" ] && [ "$p" -lt "$a" ] || fail "pnpm 要在 agent start 之前：$(cat "$OPSX_FAKE_LOG")"
 assert_no_file "$R/openspec/changes/ok-card/gates.md"
 # install 跑的時候標記已經在（中途被殺也留得下來），裝好就刪
 assert_grep '^pnpm-marker yes$' "$OPSX_FAKE_LOG"
 assert_no_file "$(git -C "$R/.claude/worktrees/ok-card" rev-parse --absolute-git-dir)/opsx-deps-pending"
+
+# 從另一個 repo 帶 --repo 派工（me-20261126-0949 的派法）：pnpm 的工作目錄是目標的新 worktree，不是呼叫者的目錄
+: > "$OPSX_FAKE_LOG"
+R="$(new_repo Inst-R far-card pnpm-lock.yaml)"
+CALLER="$(mk_repo Inst-Caller "git@gitlab.example.com:acmecorp/Inst-Caller.git")"
+out="$(cd "$CALLER" && opsx dispatch far-card --repo "$R" --agent claude --mode interactive --kind dev 2>&1)"; rc=$?
+assert_eq "$rc" 0 "dispatch rc: $out"
+assert_eq "$(grep '^pnpm-cwd ' "$OPSX_FAKE_LOG")" "pnpm-cwd $(cd "$R/.claude/worktrees/far-card" && pwd -P)" "從別的 repo 派工，pnpm 仍要在目標的新 worktree 裡跑：$(cat "$OPSX_FAKE_LOG")"
 
 # 既有 worktree 不裝
 : > "$OPSX_FAKE_LOG"

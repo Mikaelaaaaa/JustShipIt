@@ -65,6 +65,73 @@ case "$out" in *w3:t2*) ;; *) fail "要印出它的 tab：$out" ;; esac
 assert_grep '^agent get opsx-coordinator$' "$OPSX_FAKE_LOG"
 assert_not_grep '^tab create' "$OPSX_FAKE_LOG"
 assert_not_grep '^agent start' "$OPSX_FAKE_LOG"
+# 上面幾次 lead 起協調者時記了指紋，之後參數與設定都沒變：只說已在跑
+case "$out" in *關掉*) fail "指紋一致不該叫人關掉：$out" ;; esac
+
+# --- 協調者的指紋：啟動時記下；已在跑時參數或設定變了、或沒有記錄，要說哪樣並叫人關掉重開 ---
+F="$OPSX_STATE_DIR/coordinator-launch.cksum"
+rm -f "$F"; : > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(opsx lead 2>&1)"; assert_eq "$?" 0 "lead rc：$out"
+assert_file "$F"
+# 兩行要對得上這次真的帶給 agent start 的參數和設定檔內容，不然參數改了指紋也不會變
+started="$(sed -n 's/^agent start opsx-coordinator .* -- //p' "$OPSX_FAKE_LOG")"
+[ -n "$started" ] || fail "fake herdr 記錄裡找不到 agent start 的參數"
+assert_eq "$(grep '^args ' "$F")" "args $(printf '%s' "$started" | cksum)" "args 行要是實際啟動參數的 cksum"
+assert_eq "$(grep '^settings ' "$F")" "settings $(cksum < "$S")" "settings 行要是設定檔內容的 cksum"
+cp "$F" "$FX/launch.orig"
+cp "$S" "$FX/settings.orig"
+stale_ok() { # <情境> <要有的字> <不該有的字>
+  : > "$OPSX_FAKE_LOG"
+  out="$(OPSX_TEST_COORDINATOR_UP=1 opsx lead 2>&1)"; assert_eq "$?" 0 "$1 要退出 0：$out"
+  case "$out" in *w3:p7*) ;; *) fail "$1：要印出它的 pane：$out" ;; esac
+  case "$out" in *"$2"*) ;; *) fail "$1：要說 $2：$out" ;; esac
+  case "$out" in *關掉*"opsx lead"*) ;; *) fail "$1：要叫人關掉再跑 opsx lead：$out" ;; esac
+  [ -z "$3" ] || case "$out" in *"$3"*) fail "$1：不該說 $3：$out" ;; esac
+  assert_not_grep '^tab create' "$OPSX_FAKE_LOG"
+  assert_not_grep '^agent start' "$OPSX_FAKE_LOG"
+}
+# 參數寫死在 lead.sh，測試換不了，改記下的那一行模擬「起它時的參數跟現在不同」
+sed 's/^args .*/args 0 0/' "$FX/launch.orig" > "$F"
+stale_ok "啟動參數變了" 啟動參數 coordinator-settings.json
+cp "$FX/launch.orig" "$F"; printf '{"sandbox":{"x":1}}\n' > "$S"
+stale_ok "設定變了" coordinator-settings.json 啟動參數
+sed 's/^args .*/args 0 0/' "$FX/launch.orig" > "$F"
+stale_ok "兩樣都變" 啟動參數 ""
+case "$out" in *coordinator-settings.json*) ;; *) fail "兩樣都變要兩樣都說：$out" ;; esac
+cp "$FX/settings.orig" "$S"; rm -f "$F"
+stale_ok "沒有指紋檔" 啟動記錄 ""
+# 名字被占用那條不比對指紋：另一個是剛起的
+: > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(OPSX_TEST_START_FAIL=agent_name_taken opsx lead 2>&1)"; assert_eq "$?" 0 "name taken 要退出 0：$out"
+case "$out" in *啟動記錄*|*關掉*) fail "名字被占用不該比對指紋：$out" ;; esac
+# 指紋檔寫不進去：警告一行，協調者照常開好
+mkdir "$F"; : > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(opsx lead 2>&1)"; assert_eq "$?" 0 "指紋寫不進去仍要 0：$out"
+case "$out" in *指紋*) ;; *) fail "指紋寫不進去要警告：$out" ;; esac
+assert_grep '^agent start opsx-coordinator ' "$OPSX_FAKE_LOG"
+assert_grep '^agent prompt opsx-coordinator /opsx-workflow:lead$' "$OPSX_FAKE_LOG"
+rmdir "$F"
+# 第一句送不進去時協調者已經用這次的設定起來，指紋要已換成這次的，不能留著上一次的
+sed 's/^settings .*/settings 0 0/' "$FX/launch.orig" > "$F"
+: > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+echo agent_not_ready > "$FX/coord-err"
+out="$(OPSX_TEST_COORD_ERR="$FX/coord-err" opsx lead 2>&1)"; [ $? -ne 0 ] || fail "第一句送不進去要非 0：$out"
+assert_eq "$(grep '^settings ' "$F")" "settings $(cksum < "$S")" "第一句失敗也要記下這次的指紋"
+# 設定檔讀不出來算不出指紋：刪掉舊的，下次走「沒有啟動記錄」，不留空檔或舊檔
+cp "$FX/launch.orig" "$F"; chmod 000 "$S"
+: > "$OPSX_FAKE_LOG"; rm -f "$OPSX_FAKE_LOG.coordinator-up"
+out="$(opsx lead 2>&1)"; assert_eq "$?" 0 "算不出指紋仍要 0：$out"
+chmod 644 "$S"
+case "$out" in *指紋*) ;; *) fail "算不出指紋要警告：$out" ;; esac
+assert_no_file "$F"
+# 已在跑、設定檔讀不出來：說看不出是不是舊的，不當成一致
+cp "$FX/launch.orig" "$F"; chmod 000 "$S"
+: > "$OPSX_FAKE_LOG"
+out="$(OPSX_TEST_COORDINATOR_UP=1 opsx lead 2>&1)"; rc=$?
+chmod 644 "$S"
+assert_eq "$rc" 0 "已在跑、讀不出設定仍要 0：$out"
+case "$out" in *"讀不出 coordinator-settings.json"*) ;; *) fail "讀不出設定要說看不出是不是舊的：$out" ;; esac
+assert_not_grep '^agent start' "$OPSX_FAKE_LOG"
 
 # --- start 回 agent_name_taken（兩個 lead 同時跑；或 get 查不到但其實在跑）：已在跑不是錯誤 ---
 # 關掉剛開的 tab、印出另一個在哪、退出 0；不能叫人關掉那個 pane（那就是正在跑的協調者）

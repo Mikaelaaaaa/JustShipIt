@@ -182,7 +182,9 @@ for k in '`type: decision`' '`needs: run`' 'git -C <absolute path of this checko
   grep -qF -- "$k" "$FX/gate-fetch" || fail "fetch gate 缺 $k"
 done
 grep -F -- '- `產表失敗：無 Agent 工具`:' "$MAP" > "$FX/gate-noagent"
-for k in '`type: decision`' '派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行'; do
+# 選項要寫成要人動手的字，gaterule 才判成 hands、不被代答後卡停住沒人知道
+# 建議行也要一字照寫：collect 先取 `建議:` 再看 (Recommended)，另寫一行沒有「你」的建議就會被代答
+for k in '`type: decision`' '你在看板派一個 claude pane 重產 (Recommended)' '這張不要表，直接放行' '`建議: 你在看板派一個 claude pane 重產`'; do
   grep -qF -- "$k" "$FX/gate-noagent" || fail "無 Agent 工具 gate 缺 $k"
 done
 grep -F -- '- any other `產表失敗：<reason>`' "$MAP" > "$FX/gate-other"
@@ -198,7 +200,8 @@ for k in 'git rev-parse --git-path FETCH_HEAD' '`opened_at`' 'skip the fetch of 
 done
 # R3.1 重跑與改派的 claude pane 都從 mr: none 預檢重來，不跳過 D4；只有沒有 Agent 工具的 session 記 log 後停
 grep -F -- '- 重跑產表:' "$MAP" | grep -qF 'start again from the `mr: none` check before sub-step 1' || fail "重跑產表要從 mr: none 預檢重來"
-grep -F -- '- 派一個 claude pane 重產:' "$MAP" > "$FX/ans-claude"
+grep -F -- '- 你在看板派一個 claude pane 重產:' "$MAP" > "$FX/ans-claude"
+[ -s "$FX/ans-claude" ] || fail "缺「你在看板派一個 claude pane 重產」答完的接續"
 for k in 'A session that has the Agent tool starts again from the `mr: none` check before sub-step 1' \
   'Only a session without the Agent tool runs `opsx log'; do
   grep -qF -- "$k" "$FX/ans-claude" || fail "派 claude pane 缺 $k"
@@ -236,6 +239,10 @@ grep -F -- '- **Logic map gate answered.**' "$STEP4" > "$FX/answered"; [ -s "$FX
 for k in 'design.md' '使用者 <日期> 回邏輯表 ⚠ 選 <選項>' 'review 退回' '/opsx-workflow:apply <slug>' '/opsx-workflow:pr <slug>' 'not a round'; do
   assert_fixed "$k" "$FX/answered"
 done
+# 協調者代答的題不記成使用者答的
+for k in 'starts with 「協調者代決」' '協調者 <日期> 代決邏輯表 ⚠ 選 <選項>'; do
+  assert_fixed "$k" "$FX/answered"
+done
 assert_fixed 'A `沒經過決定` ⚠ in the logic map is not Consider: its gate holds the card before `/opsx-workflow:pr`.' "$STEP5"
 
 # --- R1.1 第 1 輪產表不建出 report.md：router 看到 report.md 會判成 pr（bin/lib/stage.sh） ---
@@ -253,8 +260,14 @@ GATE0='Before reading the round: when the newest `logic-map-undecided-r*` gate i
 assert_fixed "$GATE0" "$STEP0"
 [ "$(line_of "$GATE0" "$SK")" -lt "$(line_of 'Read the round from report.md' "$SK")" ] || fail "Step 0 認 gate 的段落要在算輪數之前"
 assert_not_fixed 'and stop there' "$STEP0"
-# --- R2.2 每輪自己的 gate id，認最新一個 ---
-assert_fixed 'with id `logic-map-undecided-r<N>`, where N is this review round' "$FX/undecided"
+# --- R2.2 每輪自己的 gate id，認最新一個；logic-map-undecided-gate D2：取比現有都大的號，至少等於輪次，pr／babysit 同一條 ---
+assert_fixed 'with id `logic-map-undecided-r<N>`, where N is the largest existing `logic-map-undecided-r*` number plus 1, and at least this review round' "$FX/undecided"
+assert_fixed '`/opsx-workflow:pr` and babysit take N the same way' "$FX/undecided"
+assert_fixed 'Never reuse an id' "$FX/undecided"
+assert_not_fixed 'where N is this review round' "$FX/undecided"
+# --- logic-map-undecided-gate D3：處理過的項在 logic-map.md 行尾留標記，bug 與程式整理不加 ---
+assert_fixed 'append ` · 開卡 <slug>` (card opened) or ` · gate <gate id>` (entered the gate) at the end of that item'"'"'s line under `### ⚠ 要看的地方` in logic-map.md; nothing follows it.' "$FX/undecided"
+assert_fixed '`bug：` and `程式整理` items get no mark.' "$FX/undecided"
 # --- R2.1 改程式的答案也進待修，pr 與 Stop hook 才擋得到；R2.3 群組編號接現有最大的 R ---
 assert_fixed 'list it under `### 待修（範圍內）` in report.md with its task id' "$FX/answered"
 assert_fixed 'numbered after the largest `## R<k>.` group already in tasks.md, not after the round' "$FX/answered"

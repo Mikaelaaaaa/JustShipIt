@@ -95,16 +95,24 @@ def late_commits(top, remote, branch, head_sha):
     return commits
 
 
-def gate_status(gates_path, gate_id):
-    """gates.md 裡 ## <gate_id> 那段的 status；沒有這段回 None。"""
+def gate_section(gates_path, gate_id):
+    """gates.md 裡 ## <gate_id> 那段的全文；沒有這個檔或這段回 None。"""
     if not os.path.exists(gates_path):
         return None
     with open(gates_path, encoding="utf-8") as f:
         for part in re.split(r"(?m)^(?=## )", f.read()):
             if part.split("\n", 1)[0][3:].strip() == gate_id:
-                m = re.search(r"(?m)^status:\s*(\S+)", part)
-                return m.group(1) if m else ""
+                return part
     return None
+
+
+def gate_status(gates_path, gate_id):
+    """gates.md 裡 ## <gate_id> 那段的 status；沒有這段回 None。"""
+    part = gate_section(gates_path, gate_id)
+    if part is None:
+        return None
+    m = re.search(r"(?m)^status:\s*(\S+)", part)
+    return m.group(1) if m else ""
 
 
 def open_gate(gates_path, gate_id, commits, branch, head_sha):

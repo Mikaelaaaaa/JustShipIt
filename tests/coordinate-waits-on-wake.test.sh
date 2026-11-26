@@ -119,15 +119,21 @@ woken "parked 的卡在等待中"
 
 # report 待你決定不是 gate：不停 pane、不走 handle_gate；照 head sha 通知一次（CI 在 babysit 停下後才轉綠時 Stop hook 沒推過）
 wp pending pending; rm -f "$MEMO"; printf '{}' > "$DISP"
-REPORT_CARD='[{"slug":"card-a","section":"待處理","dispatch":'"$D"',"agent_status":"idle","mr":{"url":"https://gitlab.example.com/a/r/-/merge_requests/9","head_sha":"abc1234def","state":"ready","stuck":null,"error":null,"merged_at":null},"waiting":{"type":"report 待你決定","waits_on":null,"gate_id":null,"needs":null,"action":null,"question":"report.md 有留給人決定的項目","recommended":null,"options":["開啟 pane"]}}]'
+REPORT_CARD='[{"slug":"card-a","section":"待處理","dispatch":'"$D"',"agent_status":"idle","mr":{"url":"https://gitlab.example.com/a/r/-/merge_requests/9","head_sha":"abc1234def","state":"ready","stuck":null,"error":null,"merged_at":null},"waiting":{"type":"report 待你決定","waits_on":null,"gate_id":null,"needs":null,"action":null,"question":"邏輯表有沒經過決定的項目沒處理","recommended":null,"options":["開啟 pane"]}}]'
 cards "$REPORT_CARD"
 round || fail "rc: $(cat "$FX/out")"
+# 通知照 waiting.question 寫出擋住的原因，只剩邏輯表沒處理的項時不叫人去看 report.md
+assert_grep '^notification show \[demo/card-a\] report 待你決定 .*--body 邏輯表有沒經過決定的項目沒處理：' "$OPSX_FAKE_LOG"
 assert_eq "$(count '^opsx (stop|answer|dispatch)')" 0 "report 待你決定不停 pane、不答、不派：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(count 'gate None')" 0 "不當成 gate 通知：$(cat "$OPSX_FAKE_LOG")"
 grep -q "card-a.*gate" "$LOG" && fail "不走 handle_gate：$(cat "$LOG")"
 assert_grep '^notification show \[demo/card-a\] report 待你決定 .*merge_requests/9' "$OPSX_FAKE_LOG"
 round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count 'report 待你決定')" 0 "同一個 head sha 不重送：$(cat "$OPSX_FAKE_LOG")"
+# 同一個 head、原因換了要再通知一次（design D15）
+cards "${REPORT_CARD/邏輯表有沒經過決定的項目沒處理/report.md 有留給人決定的項目}"
+round || fail "rc: $(cat "$FX/out")"
+assert_grep '^notification show \[demo/card-a\] report 待你決定 .*--body report.md 有留給人決定的項目：' "$OPSX_FAKE_LOG"
 printf '{"demo/card-a":{"mode":"stopped","agent":"claude","pane":"w1:p9","drive_pid":null}}' > "$DISP"
 
 # apply 前有活 pane 的卡在待指派：沒有 tasks.md，協調者不派（design D10）

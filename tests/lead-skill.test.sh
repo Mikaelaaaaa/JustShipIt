@@ -7,6 +7,8 @@ assert_file "$F"
 # babysit 之後 MR 全綠卻沒標可以合併時 Stop hook 推的兩行（me-20261117-1421），協調者要查得到
 grep -qF '停住：babysit 做完，邏輯表不是 MR 最新 head' "$F" || fail "skill 缺新推送：邏輯表不是 MR 最新 head"
 grep -qF '停住：babysit 做完，report.md 有留給人決定的項目' "$F" || fail "skill 缺新推送：report.md 有留給人決定的項目"
+grep -qF '停住：babysit 做完，邏輯表有沒經過決定的項目沒處理' "$F" || fail "skill 缺新推送：邏輯表有沒經過決定的項目沒處理"
+grep -qF 'whichever `停住：babysit 做完，…` line the hook sent for that card' "$F" || fail "skill 要把 report 待你決定跟 hook 任一條 babysit 停住行算同一項"
 ! grep -qF 'only three states stay silent: the MR is ready (coordinate sends 可以合併)' "$F" || fail "MR ready 不再一律靜音"
 
 # 五塊依序出現
@@ -198,16 +200,34 @@ done
 
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
-# 職責 2：opsx-workflow 的 decision 由 opsx coordinate 照建議答並列在 ④，其餘 gate 轉給使用者（specs/opsx-lead「opsx repo 的決定題由 coordinate 照建議答」「其他 gate 仍不代答」）
+# 職責 2：每個 repo 有建議的 decision 由 opsx coordinate 照建議答、註「協調者代決」並列在 ④，其餘 gate 轉給使用者
+# （specs/opsx-lead「職責 2 寫明所有 repo 照建議答」「職責 2 不再限定 repo、不再有範圍判斷例外」）
 D2="$(grep -E '^2\. ' "$F")"; [ -n "$D2" ] || fail "缺職責 2"
-for k in 'opsx-workflow' 'decision' '照建議' 'ponytail' '④' 'Every other gate is the user'"'"'s' \
-  'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' '①'; do
+for k in 'every repo' '協調者代決' 'decision' '照建議' 'ponytail' '④' 'approval' 'Every other gate is the user'"'"'s' \
+  'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' '①' \
+  'deploys, changes CI, touches secrets, spends money or speaks outside the team'; do
   case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
 done
 case "$D2" in *"Every gate is the user's"*) fail "職責 2 不該再寫每個 gate 都是使用者的" ;; esac
-# ④ 的資料來源是 decisions.tsv（D14）；另開卡題的範圍判斷只在其他 repo（D13）
-for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event' 'In other repos, a gate that asks whether to open another card'; do
+for k in 'In other repos, a gate that asks whether to open another card' 'every gate in other repos' '協調者判定：範圍內' 'In the opsx-workflow repo'; do
+  case "$D2" in *"$k"*) fail "職責 2 不該再有 [$k]" ;; esac
+done
+# ④ 的資料來源是 decisions.tsv
+for k in 'decisions.tsv' 'whose who column is 協調者' 'sends you no event'; do
   case "$D2" in *"$k"*) ;; *) fail "職責 2 缺 [$k]" ;; esac
 done
 case "$D2" in *"lists what it answered in block ④"*) fail "職責 2 不能寫成 opsx coordinate 自己列 ④" ;; esac
+
+# 職責 17 與報告 ②：每支可合併 MR 附邏輯表連結與代決清單，不分 repo；其他 repo 照舊貼邏輯圖
+# （specs/opsx-lead「報告 ② 有連結與代決清單」「opsx-workflow 的 MR 不再只有一行」）
+D17="$(duty 17)"; [ -n "$D17" ] || fail "缺職責 17"
+R2="$(awk '/^### ② /{f=1;next} f&&/^### /{exit} f' "$F")"; [ -n "$R2" ] || fail "找不到報告 ②"
+for k in 'file:///' '代決' 'opsx-workflow'; do
+  case "$D17" in *"$k"*) ;; *) fail "職責 17 缺 [$k]" ;; esac
+done
+case "$D17" in *'logic graph pasted inline'*) ;; *) fail "職責 17 要保留 logic graph pasted inline" ;; esac
+case "$D17" in *'one line saying it is ready is enough'*) fail "職責 17 不該再說 opsx-workflow 一行即可" ;; esac
+for k in 'file:///' '代決：' '代決：無'; do
+  case "$R2" in *"$k"*) ;; *) fail "報告 ② 缺 [$k]" ;; esac
+done
 echo ok

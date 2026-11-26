@@ -284,8 +284,9 @@ install_deps() { # <worktree> <標記檔>：裝不起來不擋派工，原因寫
   printf 'pnpm install 沒跑完（dispatch 在安裝途中被停）\n' > "$mark"
   say "dispatch: 在 $wt 跑 pnpm install --frozen-lockfile"
   # --frozen-lockfile：鎖檔對不上就失敗，不讓新分支一開就有改過的 pnpm-lock.yaml
+  # 在 worktree 裡跑而不用 --dir：corepack 依工作目錄的 packageManager 選 pnpm 版本，不看 --dir
   # shortcut: 沒有時限，registry 卡住時 dispatch 跟著等、coordinate 那一輪也停住；量到最大的 pnpm repo 實際要裝幾秒，或 coordinate 真的被卡過一輪，就加 timeout，逾時照 install 失敗開 gate
-  if out="$(pnpm --dir "$wt" install --frozen-lockfile < /dev/null 2>&1)"; then rm -f "$mark"; say "dispatch: 依賴裝好了"; return 0; fi
+  if out="$(cd "$wt" && pnpm install --frozen-lockfile < /dev/null 2>&1)"; then rm -f "$mark"; say "dispatch: 依賴裝好了"; return 0; fi
   # \r 也換掉：看板用 Python 讀 gates.md 時把 \r 當換行，依賴的安裝腳本印的字會變成假的 gate 欄位
   out="$(printf '%s\n' "$out" | tail -10 | tr '\r\n' '  ')"
   say "dispatch: pnpm install 失敗，派出去後在卡上開 gate：$out"
