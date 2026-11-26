@@ -215,6 +215,9 @@ assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選�
 COLON_B_ITEMS='["1 D2 收尾：A 保留 (Recommended) | B 清理：刪除分支 feat/x"]'
 assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$COLON_B_ITEMS"'}')" "('human', 'level3')" "邏輯表項：後面的選項帶冒號，選中的 1B 是刪除分支"
 assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$COLON_B_ITEMS"'}')" "('answer', '1A')" "邏輯表項邊界：後面的選項帶冒號，選 1A 保留照答"
+PATH_ITEMS='["1 bin/lib/gaterule.py:30 收尾：A 刪除分支 feat/x (Recommended) | B 保留"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$PATH_ITEMS"'}')" "('human', 'level3')" "邏輯表項：標題帶 path:line，選中的 1A 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$PATH_ITEMS"'}')" "('answer', '1B')" "邏輯表項邊界：標題帶 path:line，選 1B 保留照答"
 # D14：同一張卡第 3 個 logic-map-failed gate 起交人
 assert_eq "$(decide '{"gate_id": "logic-map-failed-2", "question": "產表失敗", "recommended": "重跑產表"}')" "('answer', '重跑產表')" "logic-map-failed-2 照建議答"
 assert_eq "$(decide '{"gate_id": "logic-map-failed-3", "question": "產表失敗", "recommended": "重跑產表"}')" "('human', 'stuck')" "logic-map-failed-3 交人"

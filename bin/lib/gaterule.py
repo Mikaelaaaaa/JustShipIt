@@ -76,8 +76,8 @@ def chosen_option(recommended, options):
 
 def item_choices(recommended, items):
     """逐項建議（「1A 2B」）在 items 裡選中的每個選項文字，用空格接起來。items 一項一行，
-    形如「1 D3 欄位：A 直接 DROP COLUMN (Recommended) | B 保留」：第一個冒號之前是題號與標題，之後以 | 分段，
-    看每段開頭的代號。選項文字自己帶冒號（「A 改設定：刪除分支」）時整段照比。"""
+    形如「1 D3 欄位：A 直接 DROP COLUMN (Recommended) | B 保留」：以 | 分段，代號在段首或冒號之後，從代號取到段尾。
+    標題帶 path:line、選項文字自己帶冒號（「A 改設定：刪除分支」）時都照比整個選項。"""
     by_number = {}
     for line in items:
         m = ITEM.match(line)
@@ -85,9 +85,8 @@ def item_choices(recommended, items):
             by_number[m.group(1)] = line
     picked = []
     for number, label in ITEM_PICK.findall(recommended):
-        segments = [s.strip() for s in re.split(r"[：:]", by_number.get(number, ""), maxsplit=1)[-1].split("|")]
-        option = re.compile(r"[(（]?" + re.escape(label) + r"(?![A-Za-z0-9])", re.IGNORECASE)
-        picked += [s for s in segments if option.match(s)]
+        option = re.compile(r"(?:^|[：:])\s*([(（]?" + re.escape(label) + r"(?![A-Za-z0-9]).*)", re.IGNORECASE)
+        picked += [m.group(1) for m in (option.search(s.strip()) for s in by_number.get(number, "").split("|")) if m]
     return " ".join(picked)
 
 
