@@ -153,3 +153,38 @@ STEP5="$FX/step5"
 awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
 [ -s "$STEP5" ] || fail "skills/babysit/SKILL.md 沒有步 5"
 assert_not_fixed 'regenerate the logic map' "$STEP5"
+
+# --- babysit-ci-log：步 6 從 MR 讀 head pipeline，仍不用 glab api；GitHub 照舊 ---
+grep -F -- '- GitLab:' "$STEP6" | grep -qF 'read `head_pipeline.id`, `head_pipeline.status` and `head_pipeline.sha` from `glab mr view <iid> -F json`' || fail "步 6 的 GitLab 那條要從 glab mr view -F json 讀 head_pipeline"
+grep -F -- '- GitHub:' "$STEP6" | grep -qF 'gh pr checks <number>' || fail "步 6 的 GitHub 那條要維持 gh pr checks"
+
+# --- babysit-ci-log：步 7 讀不到 job log 時開兩步讀 log 的 gate ---
+for s in \
+  'When `glab ci view` or `glab ci trace` cannot give a failed job'"'"'s log (403, `insufficient_granular_scope`, or an x509 TLS error)' \
+  'write one `needs: run` gate with a `by: coordinator` line' \
+  'and stop this run' \
+  'PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)' \
+  '/pipelines/<pipeline-id>/jobs?per_page=100' \
+  'keep the jobs with `status=failed`' \
+  '/jobs/<job-id>/trace' \
+  'When `glab ci` gives the log, classify from it and write no such gate' \
+  'GitLab only'; do
+  assert_fixed "$s" "$STEP7"
+done
+assert_not_fixed 'glab api' "$STEP7"
+assert_not_fixed 'test_report' "$STEP7"
+# 回貼的是斷言段，非測試 job 貼第一段錯誤，不是只貼尾段
+for s in \
+  'the failing test'"'"'s name and its assertion block (vitest'"'"'s `AssertionError` with Expected and Received)' \
+  'for a job with no test assertion (build, lint, type check), its first error block' \
+  'not only the last lines of the output'; do
+  assert_fixed "$s" "$STEP7"
+done
+# 不用本機替身、自己不跑 curl、token 不外洩
+for s in \
+  'Never run a local lint or test to stand in for a CI failure you cannot read' \
+  'never run these curl commands yourself' \
+  'never echo the token or write its value into a gate, a reply or a file' \
+  'no curl `-v` or `--trace`'; do
+  assert_fixed "$s" "$STEP7"
+done

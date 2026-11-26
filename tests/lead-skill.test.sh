@@ -98,6 +98,17 @@ case "$RUN" in *'when `head_pipeline.status` is `success`, the PUT would merge a
 case "$RUN" in *'The window between that read and the PUT is accepted'*'merges at once'*) ;; *) fail "要寫明讀取到 PUT 之間的窗口：$RUN" ;; esac
 # 轉給使用者時提醒已綠會直接合併（D26）
 case "$RUN" in *'When you list a reset gate in block ①, add that the PUT merges at once if the pipeline has turned `success`'*) ;; *) fail "轉給使用者時要提醒已綠會直接合併：$RUN" ;; esac
+# 讀 CI log 的兩步 gate 是單一指令規則唯一的多步例外（babysit-ci-log-gate，specs/opsx-lead「代跑兩步讀 CI log 的 gate」）
+for s in \
+  'The one multi-step 建議 you do run is a CI log read' \
+  'both steps are `curl` GETs carrying `PRIVATE-TOKEN: $(cat ~/.local/state/opsx/gitlab-read-token)`' \
+  'the first to `pipelines/<pipeline-id>/jobs`, the second to `jobs/<job-id>/trace`' \
+  'with the GitLab host in `allowed_domains`' \
+  'paste back each failed job'"'"'s name, the failing test'"'"'s name and its assertion block, or the first error block for a job with no test assertion, not the tail of the output' \
+  'When either step carries `-X`, `--request`, `-d` or `--data`, or calls any other endpoint, it is not one command' \
+  'Never echo the token, never use curl'"'"'s `-v` or `--trace`, and never write the token'"'"'s value into an answer, a gate or a file'; do
+  case "$RUN" in *"$s"*) ;; *) fail "代跑段缺讀 CI log 的例外：$s" ;; esac
+done
 MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
 case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"
