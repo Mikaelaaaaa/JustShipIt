@@ -572,11 +572,12 @@ class Round:
         if not lines:
             coordq.done(files)
             return
-        title = "[opsx] 協調者不在，排隊的 %d 則事件" % len(lines)
+        kept = coordq.dedup(lines)
+        title = "[opsx] 協調者不在，排隊的 %d 則事件" % len(kept)
         if coordq.lost(why):
-            self.log("?? 協調者 %s 對不到活著的 pane，排隊的 %d 則改發桌面錯誤：%s" % (COORDINATOR, len(lines), why.replace("\n", " ")[:200]))
-            title = coordq.lost_title("[opsx] 排隊的 %d 則事件" % len(lines))
-        rc, out, err = self.act(runtime.notify(title, coordq.merge(lines), sound="request"))
+            self.log("?? 協調者 %s 對不到活著的 pane，排隊的 %d 則改發桌面錯誤：%s" % (COORDINATOR, len(kept), why.replace("\n", " ")[:200]))
+            title = coordq.lost_title("[opsx] 排隊的 %d 則事件" % len(kept))
+        rc, out, err = self.act(runtime.notify(title, coordq.merge(kept), sound="request"))
         if rc == 0:
             coordq.done(files)
             return
@@ -1495,8 +1496,8 @@ def auto_continue_stopped(text):
     """畫面停在 Automatic continue stopped：那行是輸入框上面最後一行內容，之後只有空行、輸入框和狀態列。
     之後還有內容（已送過繼續、agent 回了話）就是續上了。看不到輸入框時取整段畫面的最後一行內容。"""
     lines = text.splitlines()
-    rules = [i for i, line in enumerate(lines) if coordq.RULE.match(line)]
-    above = lines[:rules[-2]] if len(rules) >= 2 else lines
+    span = coordq.box_span([coordq.bright_text(line) for line in lines])
+    above = lines[:span[0]] if span else lines
     content = [line for line in above if line.strip()]
     return bool(content) and AUTO_CONTINUE_LINE.match(content[-1]) is not None
 
