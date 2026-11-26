@@ -90,4 +90,24 @@ grep -E '^\| 5 \|' "$SK" | grep -qF 'opsx-workflow repo' || fail "apply 第 5 �
 grep -E '^\| 5 \|' "$SK" | grep -qF 'not one that needs your hands, a merge, has no recommendation, is a stuck gate or carries `needs: run`' || fail "apply 第 5 步要寫哪些 opsx decision 仍留給人（D2）"
 grep -E '^\| 5 \|' "$SK" | grep -qF 'in other repos, a 要不要另開卡／併進這張 gate' || fail "apply 第 5 步要寫另開卡題的範圍判斷只在其他 repo（D13）"
 ! grep -qF 'The coordinator never answers any gate' "$SK" || fail "apply SKILL.md 不該再寫協調者不答任何 gate"
+
+# --- agent-20261126-1119 specs/apply-related-checks：Test agent 的型別檢查與守門測試 ---
+TA="$FX/test-agent"
+section "Test agent" > "$TA"
+[ -s "$TA" ] || fail "section missing: Test agent"
+# 觸發條件與指令找法（D2、D3、D5）
+for k in 'typecheck' 'exported symbol' 'imported by a file outside the diff' '`git diff --name-only HEAD^1 HEAD`' '`.tsx`' '`.py`' 'mypy' 'no typecheck command' 'say so in the reply'; do
+  has "$k" "$TA"
+done
+# 被拒開 gate，不交 CI（D5）
+for k in 'dontAsk' '`type: decision`' '`needs: run`' '`by: coordinator`' 'does not continue to review' 'never hand it to CI'; do
+  has "$k" "$TA"
+done
+# 紅時先在 main 跑（D6）
+has '`<remote>/main`' "$TA"
+has 'not fixed here' "$TA"
+# 守門測試三個來源（D4）
+for k in 'guard tests' '`git grep -l -F' 'directory above it' 'do not guess'; do
+  has "$k" "$TA"
+done
 echo ok

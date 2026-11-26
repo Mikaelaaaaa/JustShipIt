@@ -122,3 +122,11 @@ STEP5="$FX/step5"
 awk '/^5\. /{on=1} /^6\. /{on=0} on' "$SK" > "$STEP5"
 [ -s "$STEP5" ] || fail "skills/babysit/SKILL.md 沒有步 5"
 assert_not_fixed 'regenerate the logic map' "$STEP5"
+
+# --- agent-20261126-1119 D1：merge 後引用 apply Test agent 的型別檢查與守門測試規則，不另列觸發條件 ---
+assert_fixed '../apply/SKILL.md' "$STEP5"
+assert_fixed 'Test agent' "$STEP5"
+assert_fixed 'typecheck' "$STEP5"
+assert_fixed 'guard test' "$STEP5"
+assert_not_fixed 'HEAD^1' "$STEP5"
+assert_not_fixed 'exported symbol' "$STEP5"
