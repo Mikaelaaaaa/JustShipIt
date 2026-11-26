@@ -96,6 +96,8 @@ case "$RUN" in *'In every other case the PUT would merge at once'*"delete its \`
 case "$RUN" in *'when `head_pipeline.status` is `success`, the PUT would merge at once, so do not run it'*) fail "防線不能只擋 success：$RUN" ;; esac
 # 讀取到 PUT 之間變綠的窗口寫明接受（D18）
 case "$RUN" in *'The window between that read and the PUT is accepted'*'merges at once'*) ;; *) fail "要寫明讀取到 PUT 之間的窗口：$RUN" ;; esac
+# 轉給使用者時提醒已綠會直接合併（D26）
+case "$RUN" in *'When you list a reset gate in block ①, add that the PUT merges at once if the pipeline has turned `success`'*) ;; *) fail "轉給使用者時要提醒已綠會直接合併：$RUN" ;; esac
 MR17="$(printf '%s\n' "$DUTIES" | grep -F '17. **Mergeable report.**')"
 case "$MR17" in *'Never set auto-merge on your own'*) ;; *) fail "職責 17 要寫協調者不自己發起設 auto-merge：$MR17" ;; esac
 FG="$(printf '%s\n' "$DUTIES" | grep -F '2. **Forward gates')"

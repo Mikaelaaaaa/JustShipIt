@@ -39,6 +39,9 @@ has 'Never try another way' "$UPD"
 has 'run the same `gh pr edit` once more' "$UPD"
 has 'the second time, write a `needs: run` gate with that command for the user' "$UPD"
 has 'after the user ran it, write no more gates and put `描述更新失敗` on the `## MR` line' "$UPD"
+# 讀回要比到這次的內容；同一題 gate 還開著時不重開（D22、D23）
+has 'and its (編號, 對應測試) pairs match mr.md, compared as in step 4b' "$PR"
+has 'When gates.md already has an open description-update gate for this MR, write no second one' "$UPD"
 # 開了更新 gate 也不停
 has 'carry on without waiting for it' "$UPD"
 hasnt 'and stop.' "$UPD"
@@ -83,11 +86,11 @@ line_of() { grep -F -- "$1" "$AM" || fail "步 4c 沒有含 '$1' 的行"; }
 case "$(line_of '- GitHub:')" in *'write no gate'*'auto-merge: no（GitHub 不處理）'*) ;; *) fail "GitHub 那行要不開 gate、寫 GitHub 不處理" ;; esac
 # 讀三個欄位；auto-merge 開著不動（true + running）
 has 'read `merge_when_pipeline_succeeds`, `head_pipeline.status` and `head_pipeline.sha`' "$AM"
-has 'When auto-merge is on, do nothing' "$AM"
+has 'When auto-merge is on, put `auto-merge: yes` on the line and do nothing else' "$AM"
 # 邏輯表沒指到 head（skip： 行算已定）或 undecided gate 還開著：先不開（D13）
 case "$(line_of '- When the line under `## 邏輯表`')" in *'neither names the current head nor starts with `skip：`'*'`logic-map-undecided-r*` gate is open'*'write no gate yet'*) ;; *) fail "邏輯表或 undecided gate 未定時先不開重設 gate" ;; esac
 # null：沒有 pipeline，PUT 會直接合併，不開 gate（沒有 CI 的 repo）
-case "$(line_of '- When `head_pipeline` is null')" in *'write no gate'*'auto-merge: no（沒有 pipeline）'*) ;; *) fail "null 那行要不開 gate、寫沒有 pipeline" ;; esac
+case "$(line_of '- When `head_pipeline` is null')" in *'write no gate'*'auto-merge: no（沒有 pipeline）'*'the next babysit run comes back to it'*) ;; *) fail "null 那行要不開 gate、寫沒有 pipeline、下次 babysit 再看" ;; esac
 grep -F -- '- When `head_pipeline` is null' "$AM" | grep -qF 'write a `needs: run`' && fail "null 那行不能開 gate"
 # 舊 sha：不開 gate、等新 pipeline（D20）
 case "$(line_of '- When `head_pipeline.sha` is not `git rev-parse HEAD`')" in *'write no gate'*'auto-merge: no（等新 pipeline）'*) ;; *) fail "舊 sha 那行要不開 gate、寫等新 pipeline" ;; esac
@@ -95,6 +98,7 @@ grep -F -- '- When `head_pipeline.sha` is not' "$AM" | grep -qF 'write a `needs:
 # 放行清單內的狀態：開重設 gate，清單跟協調者同一份（D21）
 GATE="$(line_of '- When the status is `created`, `pending`, `running`, `waiting_for_resource`, `preparing` or `scheduled`')"
 case "$GATE" in *'the same list the coordinator runs the reset for'*'write a `needs: run` gate with a `by: coordinator` line'*) ;; *) fail "放行清單內的狀態要開協調者 gate：$GATE" ;; esac
+case "$GATE" in *'Then put `auto-merge: no（等協調者重設）` on the line'*) ;; *) fail "開重設 gate 時 ## MR 行要寫等協調者重設：$GATE" ;; esac
 # 其他狀態（manual 等）：不開、寫 pipeline <status>（D21）
 case "$(line_of '- Any other status')" in *'write no gate'*'auto-merge: no（pipeline <status>）'*) ;; *) fail "其他狀態那行要不開 gate、寫 pipeline <status>" ;; esac
 case "$GATE" in *'glab api -X PUT projects/:fullpath/merge_requests/<iid>/merge -F merge_when_pipeline_succeeds=true -F sha=<full 40-character output of git rev-parse HEAD>'*) ;; *) fail "重設指令要帶兩個參數、sha 完整 40 碼：$GATE" ;; esac
