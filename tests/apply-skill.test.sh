@@ -173,7 +173,9 @@ has 'When it lists several documents, read every one that has a table of test fi
 has 'with line and column numbers and any other numbers in the message removed' "$TA"
 has 'a matched failure whose number is higher on this change than on the base is this change'"'"'s failure' "$TA"
 # D30：import 被改檔也算蓋到
-has 'A guard that imports a file you changed also covers it.' "$TA"
+has 'A guard that imports a file you changed directly also covers it; an indirect import is left to CI.' "$TA"
+# D34：列不出可比失敗時不比 base
+has 'When a red guard lists no failure to compare (it timed out, or only exited non-zero), do not run the base: the red is this change'"'"'s failure.' "$TA"
 # D31：比同一位置的數字，對不上照筆數
 has 'The number compared is the one in the same place in the message once line and column numbers are removed; when the places do not line up, compare by count.' "$TA"
 # D32：stash 之後任何一步失敗都先切回並 apply
