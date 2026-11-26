@@ -66,6 +66,15 @@ printf "$REPORT" 'openspec/changes/x/logic-map.md · abc1234' > "$C/report.md"
 printf '\n## 四桶\n### 待修（範圍內）\n- a.ts:9 漏判 null · task R1.1\n' >> "$C/report.md"
 refused '留給人決定' "待修有一項"
 printf "$REPORT" 'openspec/changes/x/logic-map.md · abc1234' > "$C/report.md"
+# 邏輯表有沒標記的沒經過決定項（logic-map-undecided-gate specs/board-collect「opsx merge 與 Stop hook 擋同一條」）
+printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後都 判斷\n' > "$C/logic-map.md"
+refused '邏輯表有沒經過決定的項目沒處理' "邏輯表有沒標記的項"
+# gate 答了還沒寫回：標記指到它的項不算處理過
+printf '# 邏輯表\n\n### ⚠ 要看的地方\n- 沒經過決定。D4：以後都 判斷 · gate logic-map-undecided-r1\n' > "$C/logic-map.md"
+printf '## logic-map-undecided-r1\ntype: decision\nstatus: answered\nanswer: 1A\n' > "$C/gates.md"
+refused '邏輯表有沒經過決定的項目沒處理' "gate 答了還沒寫回"
+rm -f "$C/gates.md"
+printf '# 邏輯表\n' > "$C/logic-map.md"
 # herdr 叫不通不擋
 out="$(OPSX_TEST_HERDR_LIST_FAIL='socket gone' opsx merge x 2>&1)"; assert_eq "$?" 0 "herdr 讀不到不擋: $out"
 rm -rf "$PD"

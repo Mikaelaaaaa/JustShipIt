@@ -38,7 +38,7 @@ print("no\t"+m["state"]+"\t"+",".join(bad))')"
   local sha; sha="$(printf '%s' "$verdict" | cut -f2)"
   [ -n "$sha" ] || die "merge: glab 沒回 MR 的 head sha，核准綁不到 commit，不核准"
 
-  # 五條件之外，agent 要停手、邏輯表要對應最新 head：跟 collect 標「可以合併」同一個判斷。看板刷新到按下按鈕之間 agent 可能又開工
+  # 五條件之外，agent 要停手、邏輯表要對應最新 head、表裡沒經過決定的項要處理過：跟 collect 標「可以合併」同一個判斷。看板刷新到按下按鈕之間 agent 可能又開工
   local agents="" blocked
   agents="$(runtime_list 2>/dev/null)" || agents=""
   blocked="$(printf '%s' "$agents" | OPSX_M_KEY="$repo/$slug" OPSX_M_SLUG="$slug" OPSX_M_GATES="$(st_open_gates "$d")" OPSX_M_REPORT="$d/report.md" \
@@ -56,8 +56,17 @@ card = jsonfile.load(os.path.join(os.environ["OPSX_M_SD"], "dispatch.json")).get
 status = mergeready.agent_status_of(agents, card.get("pane")) if card else None
 with open(os.environ["OPSX_M_REPORT"], encoding="utf-8") as f:
     report = f.read()
-has_map = os.path.isfile(os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "logic-map.md"))
-print("、".join(mergeready.blockers(os.environ["OPSX_M_SLUG"], json.loads(os.environ["OPSX_M_MR"]), os.environ["OPSX_M_GATES"] != "0", status, report, has_map)))')" \
+map_path = os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "logic-map.md")
+map_text = None
+if os.path.isfile(map_path):
+    with open(map_path, encoding="utf-8") as f:
+        map_text = f.read()
+gates_path = os.path.join(os.path.dirname(os.environ["OPSX_M_REPORT"]), "gates.md")
+gates_text = ""
+if os.path.isfile(gates_path):
+    with open(gates_path, encoding="utf-8") as f:
+        gates_text = f.read()
+print("、".join(mergeready.blockers(os.environ["OPSX_M_SLUG"], json.loads(os.environ["OPSX_M_MR"]), os.environ["OPSX_M_GATES"] != "0", status, report, map_text, gates_text)))')" \
     || die "merge: 判斷 $slug 能不能合併時出錯，不核准"
   [ -z "$blocked" ] || die "merge: $slug 還不能合併（${blocked}），不核准。等 agent 做完、看板再標「可以合併」"
 

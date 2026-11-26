@@ -65,10 +65,41 @@ for k in 'In `check` and `threads-only`' 'before step 5' '## 邏輯表' 'equal t
   grep -qF -- "$k" "$FX/entry" || fail "入口比對缺 $k"
 done
 
+# --- logic-map-undecided-gate D1：入口與步 8 重產後跑 review Step 4 的 Logic map, undecided；gate 開著不寫結論、不回 thread ---
+UND='run the **Logic map, undecided** rule of `../review/SKILL.md` Step 4 on the rebuilt map; while its gate is open, write no mergeable verdict and reply to no thread'
+grep -qF -- "$UND" "$FX/entry" || fail "入口重產後缺 Logic map, undecided"
+assert_fixed "$UND" "$STEP"
+assert_fixed 'After every regeneration in this step' "$STEP"
+
+# --- logic-map-undecided-gate D4：check／threads-only 一進來先看最新的 undecided gate，比 Logic map first 早；merge 模式不做 ---
+grep -F '**Undecided gate first.**' "$ENTRY" > "$FX/undecided"; [ -s "$FX/undecided" ] || fail "步 1 缺 Undecided gate first"
+for k in 'In `check` and `threads-only`' 'as `../pr/SKILL.md` does at its start' \
+  'look at the newest `logic-map-undecided-r*` gate in gates.md' 'If it is open, stop and repeat its question.' \
+  'If it is answered and has no `寫回:` line, run the **Logic map gate answered** step of `../review/SKILL.md` Step 4 first' \
+  'when tasks.md has an unchecked `R` task, continue to `/opsx-workflow:apply <slug>`' \
+  'otherwise continue here, not to `/opsx-workflow:pr`'; do
+  grep -qF -- "$k" "$FX/undecided" || fail "入口 undecided gate 缺 $k"
+done
+python3 -I - "$FX/undecided" <<'PY' || fail "Undecided gate first 要在 Logic map first 之前，merge 模式不做"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+und = text.index("**Undecided gate first.**")
+lm = text.index("**Logic map first.**")
+if not und < lm:
+    sys.exit("順序")
+if "The `merge <sha>` mode does none of this" not in text[und:lm]:
+    sys.exit("merge 模式")
+PY
+
 # --- D10 skip：mr: none 只在 workplan 還標 mr: none 時算已處理（入口與步 8）---
 MRNONE='`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workplan.yaml` still has `mr: none`'
 grep -qF -- "$MRNONE" "$FX/entry" || fail "入口缺 skip：mr: none 的條件"
 assert_fixed "$MRNONE" "$STEP"
+
+# --- logic-map-undecided-gate D9：表對到 head、但有沒標記的沒經過決定項時，不重產、對現有表跑 undecided 規則 ---
+grep -qF 'When the line names the current head but the map has a `沒經過決定` item (or, in a map that says 沒有 design.md，未分類, any item other than `bug：` and `程式整理`) with no ` · 開卡 <slug>` or ` · gate <id>` at the end of its line, or with a ` · gate <id>` whose gate is missing from gates.md or is neither open nor has a `寫回:` line, do not rebuild: run the **Logic map, undecided** rule of `../review/SKILL.md` Step 4 on the existing map' "$FX/entry" || fail "入口缺：表對到 head 但有沒標記項時對現有表跑 undecided 規則"
+# D22：標記指到的 gate 不在、或沒開著也沒寫回，那一項當沒標記，補開 gate 並改標記
+grep -qF 'treat such a marked item as unmarked: put it in the new gate and replace its mark' "$FX/entry" || fail "入口缺：標到沒效的 gate 時當沒標記、補開 gate 並改標記"
 
 # --- D9 放行之後步 8 也不重產 ---
 assert_fixed 'unless the line under `## 邏輯表` starts with `skip：`' "$STEP"
