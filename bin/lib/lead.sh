@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # opsx lead：在目前的 herdr workspace 開協調者 session（herdr 名 opsx-coordinator），第一句載入 /opsx-workflow:lead。
 # specs/opsx-lead/spec.md。權限模式不帶，用使用者平常的模式：這個 session 能連 herdr socket，不再放寬。
+# --autocompact 400k 只給協調者：它長時間跑，提早壓縮省用量；卡的 pane 不帶。
 
 # 印出協調者的啟動指紋兩行：args <參數的 cksum>、settings <設定檔的 cksum>。已在跑時拿它比對協調者是不是用現在這組起的
 lead_fingerprint() { # <settings> <claude 參數...>
@@ -18,7 +19,7 @@ opsx_lead() {
   [ -d "$dir" ] || die "lead: 不是目錄：$dir"
   top="$(cd "$dir" && pwd -P)"
   [ -f "$settings" ] || die "lead: 沒有 ${settings}。先在沙盒外（你的終端機）跑 opsx init --global"
-  local -a args=(--settings "$settings" --add-dir "$OPSX_STATE_DIR")
+  local -a args=(--settings "$settings" --add-dir "$OPSX_STATE_DIR" --autocompact 400k)
 
   # agent get 的真輸出與錯誤碼沒有樣本，所以它只用來提早說「已在跑」：查不到、或讀不出位置就照常開，
   # 第二個協調者由 herdr 的名字唯一性擋（agent start 回 agent_name_taken）

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """opsx 看板的 herdr pane（最小 TUI，herdr-board D4）：同一份 `opsx collect`，一行一卡。
 按鍵：↑↓ / j k 選、Enter 跳到該卡的 agent（herdr agent focus <slug>）、r 重拉、i 展開/收起收件匣、d 展開/收起已完成、
-o 網頁開這張、+ 丟一句話進收件匣（opsx new）、Tab 換 workspace 範圍、z 全屏、q 關。
+o 網頁開這張、+ 先問卡名再丟一句話進收件匣（opsx new --name）、Tab 換 workspace 範圍、z 全屏、q 關。
 不回 gate、不派工、不合併：那些在網頁（open-board）。排序與游標在 tui_model.py，這裡只畫。
 collect 在背景 thread 跑，畫面迴圈只讀最新一份，所以 collect 慢的時候按鍵照樣有反應。
 """
@@ -64,7 +64,10 @@ def draw(scr, rows, cur: tm.Cursor, data: dict, note: str, scope: str | None, bo
     scr.addstr(0, 0, tm.fit(tm.top_line(data, scope), w - 1), curses.A_BOLD)
     errs = "；".join("%s：%s" % (e.get("source"), e.get("message")) for e in data.get("errors") or [])
     foot = note or errs or "↑↓ 選  ↵ 跳 pane  r 重拉  i 收件匣  d 已完成  o 網頁  + 收件匣  ⇥ 範圍  z 全屏  q 關  （回 gate / 指派 / 合併在網頁）"
-    foot_lines = [""] if box is not None else tm.wrap(foot, w - 1, 3)   # 沒有 opener 時的網址要整段看得到
+    if box is None:
+        foot_lines = tm.wrap(foot, w - 1, 3)   # 沒有 opener 時的網址要整段看得到
+    else:
+        foot_lines = (tm.wrap(note, w - 1, 2) if note else []) + [""]   # 最後一列是輸入框；note（卡名不合規則）畫在它上面
     # 矮視窗先砍進度行，至少留一列給卡片；捲動照實際可畫的列數算，游標列才不會被捲出畫面
     lines = tm.progress_lines(data, scope)[:max(0, h - 4 - len(foot_lines))]
     for i, line in enumerate(lines):
@@ -82,7 +85,9 @@ def draw(scr, rows, cur: tm.Cursor, data: dict, note: str, scope: str | None, bo
             scr.addstr(y, 2, tm.fit("%s %s" % (r["mark"], r["text"]), w - 3), attr)
         y += 1
     if box is not None:
-        prompt = tm.fit("+ 收件匣：" + box.text, w - 2)
+        for i, line in enumerate(foot_lines[:-1]):
+            scr.addstr(h - len(foot_lines) + i, 0, line, curses.A_DIM)
+        prompt = tm.fit(box.prompt + box.text, w - 2)
         scr.addstr(h - 1, 0, prompt)
         scr.move(h - 1, tm.width(prompt))
     else:
@@ -100,6 +105,7 @@ def main(scr) -> None:
     seen = 0
     scope = None
     box: tm.LineInput | None = None   # 不是 None 時底列在輸入，按鍵改用 get_wch 讀
+    new_name: str | None = None   # + 先問到的卡名；None 時底列在問卡名
     rows = tm.rows(data, done_open, inbox_open, scope)
     cur = tm.Cursor(rows)
     note = "載入中…"
@@ -115,14 +121,19 @@ def main(scr) -> None:
                 res = box.feed(scr.get_wch())
             except curses.error:   # timeout 到了沒有按鍵
                 continue
-            if res is not None:
+            if res is not None and res[0] == "submit" and new_name is None and not tm.card_name_ok(res[1]):
+                note = tm.CARD_NAME_RULE   # 留在卡名框，文字也留著，改完再按 Enter
+            elif res is not None and res[0] == "submit" and new_name is None:
+                new_name = res[1]; box = tm.LineInput("+ 收件匣："); note = ""
+            elif res is not None:
                 # 貼上的多行或手快多按的鍵還在緩衝裡，不清掉會落到一般模式當熱鍵（q 關 TUI、o 開網頁）
                 box = None; curses.curs_set(0); curses.flushinp(); note = ""
-            if res is not None and res[0] == "submit":
-                argv = tm.new_argv(str(HERE.parent), data, scope, res[1])
-                env = {k: v for k, v in os.environ.items() if k != "OPSX_CARD"}   # 繼承 OPSX_CARD 的話，使用者按 + 開的卡會被當成 agent 開的
-                r = subprocess.run(argv, capture_output=True, text=True, env=env)
-                note = tm.outcome(argv, r, "收件匣 +1：%s" % r.stdout.strip())
+                if res[0] == "submit":
+                    argv = tm.new_argv(str(HERE.parent), data, scope, new_name, res[1])
+                    env = {k: v for k, v in os.environ.items() if k != "OPSX_CARD"}   # 繼承 OPSX_CARD 的話，使用者按 + 開的卡會被當成 agent 開的
+                    r = subprocess.run(argv, capture_output=True, text=True, env=env)
+                    note = tm.outcome(argv, r, "收件匣 +1：%s" % r.stdout.strip())
+                new_name = None
             continue
         k = scr.getch()
         if k == -1:
@@ -154,7 +165,7 @@ def main(scr) -> None:
             else:
                 note = tm.open_outcome(argv, subprocess.run(argv, capture_output=True, text=True))
         elif k == ord("+"):
-            box = tm.LineInput(); curses.curs_set(1)
+            box = tm.LineInput("+ 卡名："); note = ""; curses.curs_set(1)
         elif k == ord("z"):
             note = tm.outcome(tm.ZOOM_ARGV, subprocess.run(tm.ZOOM_ARGV, capture_output=True, text=True), "全屏切換了")
 

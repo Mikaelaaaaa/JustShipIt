@@ -22,7 +22,7 @@ rejects() { # <名> <指令…>
   case "$out" in *"$LONG"*) ;; *) fail "${name}：訊息要含 slug 原文：$out" ;; esac
   assert_eq "$(snap)" "$before" "${name}：不能改檔"
 }
-OTHER="$(opsx new --repo "$A" -- 另一張卡)"
+OTHER="$(opsx new --name other-card --repo "$A" -- 另一張卡)"
 # 長名字的卡真的存在（手建或別的來源帶進來），拒絕的原因才會是名字不是「沒有這張卡」
 mkdir -p "$CH/$LONG"; printf 'schema: opsx\n' > "$CH/$LONG/.openspec.yaml"
 printf -- '---\ntype: 功能\nsource: me\n---\n\n## 一句話\n\n長名字\n\n## 證據\n\n' > "$CH/$LONG/inbox.md"

@@ -74,6 +74,30 @@ reset; printf '────\n\e[38;2;138;144;149m❯ \e[0m\e[2m提示\e[22m真�
 OPSX_TEST_AGENT_READ="$FX/undim" look queued "22 關掉 dim 之後的字算有字"
 # 輸入框有好幾行：第一行是 ❯ 開頭，後面接著打的字
 reset; awk '{ print } /^❯$/ && !d { print "第二行"; d=1 }' "$SAMPLE" > "$FX/multi"; OPSX_TEST_AGENT_READ="$FX/multi" look queued "❯ 之後還有一行字"
+# 上框線帶 session 標題：實跑樣本（--format ansi，只留輸入框附近幾行，輸入框裡是 dim 的提示字 /autocompact 400k）
+TITLED="$OPSX_ROOT/tests/fakes/herdr-samples/coordinator-titled.ansi"
+reset; OPSX_TEST_AGENT_READ="$TITLED" look sent "實跑樣本：上框線帶標題，輸入框只有 dim 的提示字"
+# ❯ 後面接的是 NBSP，不是一般空白
+perl -pe 's/^(❯\xc2\xa0\e\[0m)\e\[2m\/autocompact 400k/${1}幫我看一下/' "$TITLED" > "$FX/titled-typed.ansi"
+grep -q '^❯.*幫我看一下' "$FX/titled-typed.ansi" || fail "手寫的帶標題有字樣本沒換到輸入框那一行"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-typed.ansi" look queued "手寫樣本：上框線帶標題，❯ 後面有一般顏色的字"
+# 下框線之下的 agent 樹：實跑樣本沒抓到展開的樹，照 inbox 的描述手寫接在狀態列後面
+printf '\e[38;2;63;185;80m⏺\e[0m main\r\n  \e[38;2;138;144;149m◯\e[0m Verify compaction settings\r\n' > "$FX/tree"
+cat "$TITLED" "$FX/tree" > "$FX/titled-tree.ansi"; cat "$FX/titled-typed.ansi" "$FX/tree" > "$FX/titled-tree-typed.ansi"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-tree.ansi" look sent "上框線帶標題、下面有 agent 樹，輸入框只有提示字"
+reset; OPSX_TEST_AGENT_READ="$FX/titled-tree-typed.ansi" look queued "上框線帶標題、下面有 agent 樹，輸入框有字"
+# 邊界列直接看判讀結果：只看排不排隊分不出「有字」與「讀不出」
+judge() { # <期望 empty|typed|unknown> <畫面檔> <說明>
+  assert_eq "$("$PY" -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import coordq; print(coordq.box_state(open(sys.argv[2], encoding="utf-8").read()))' "$OPSX_ROOT/bin/lib" "$2")" "$1" "$3"
+}
+printf '───── x ──\n❯\n────\n' > "$FX/onechar"; judge empty "$FX/onechar" "標題只有一個字"
+printf '──── 一個很長的名稱\n❯\n────\n' > "$FX/longtitle"; judge empty "$FX/longtitle" "上框線的標題佔滿整行，沒留結尾橫線"
+printf '────\n❯\n────\n  ⏵⏵ auto mode on\n──── Tasks ─\n  ◯ x\n' > "$FX/below-titled"; judge empty "$FX/below-titled" "輸入框下方有帶標題的橫線"
+printf '────\n❯ 打到一半\n────\n  ⏵⏵ auto mode on\n────\n  ◯ x\n' > "$FX/below-rule"; judge typed "$FX/below-rule" "輸入框下方有整行橫線，輸入框有字"
+printf '────\n❯\n────\n\n❯ 舊的一句\nDo you want to proceed?\n  1. Yes\n' > "$FX/dialog-prompt"; judge unknown "$FX/dialog-prompt" "最後一行 ❯ 的正上方不是框線"
+judge unknown "$FX/dialog" "沒有 ❯ 開頭的行"
+# 下方有框線、正上方不是框線：只有上框線檢查擋得住
+printf '────\n❯\n────\n說明\n❯ 舊的一句\n────\n' > "$FX/no-top"; judge unknown "$FX/no-top" "最後一行 ❯ 的正上方不是框線，下方有框線"
 
 # --- 輸入框空了把佇列合成一則送出（正例） ---
 reset; printf '[a] 停住：等 reviewer\n[b] gate g1 要人看\n' > "$Q"
@@ -81,6 +105,23 @@ assert_eq "$(say '[c] 停住：等人答 gate')" sent
 assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator 排隊 3 則：[a] 停住：等 reviewer；[b] gate g1 要人看；[c] 停住：等人答 gate" "合成一則"
 assert_no_file "$Q"
 assert_eq "$(ls "$OPSX_STATE_DIR" | grep -c 'coordinator-queue.sending' || true)" 0 "沒有留下補送中的批次"
+
+# --- 合成時整行相同的事件只留一則（Scenario Outline，正例＋反例） ---
+dedup() { # <送出> <說明>：佇列由呼叫前的 printf 寫好
+  : > "$OPSX_FAKE_LOG"; flush || fail "$2 的 flush rc：$(cat "$FX/err")"
+  assert_eq "$(grep '^agent prompt' "$OPSX_FAKE_LOG")" "agent prompt opsx-coordinator $1" "$2"
+  assert_no_file "$Q"
+}
+reset; printf '[r/a] MR 卡在衝突：url\n[r/b] gate g1 要人看：x\n[r/a] MR 卡在衝突：url\n' > "$Q"
+dedup "排隊 2 則：[r/b] gate g1 要人看：x；[r/a] MR 卡在衝突：url" "整行相同留一則，排在最後一次出現的位置"
+reset; printf '[r/a] 啟動參數判不了：pane p1：unknown\n[r/a] 啟動參數判不了：pane p1：unfixed\n' > "$Q"
+dedup "排隊 2 則：[r/a] 啟動參數判不了：pane p1：unknown；[r/a] 啟動參數判不了：pane p1：unfixed" "同卡 args 的 unknown 與 unfixed 都送"
+reset; printf '[r/a] MR 卡在衝突：url\n[r/a] MR 卡在衝突：url\n' > "$Q"
+dedup "[r/a] MR 卡在衝突：url" "去重後只剩一則，原樣送出不加前綴"
+reset; printf '[r/a] MR 卡在衝突：舊\n[r/a] MR 卡在衝突：新\n' > "$Q"
+dedup "排隊 2 則：[r/a] MR 卡在衝突：舊；[r/a] MR 卡在衝突：新" "主旨相同、內文不同都送"
+reset; printf '[a] 停住：等 reviewer\n[r/a] 停住：等 reviewer\n' > "$Q"
+dedup "排隊 2 則：[a] 停住：等 reviewer；[r/a] 停住：等 reviewer" "只差在方括號也是不同的行"
 
 # 事件裡的換行換成空白：合成的一則永遠只有一行
 reset; assert_eq "$(say "$(printf '[c] 第一行\n第二行')")" sent
