@@ -73,6 +73,29 @@ awk 'index($0,"## Where you are")==1{on=1;next} /^## /{on=0} on' "$SK" > "$FX/wh
 assert_fixed 'Look at the newest `logic-map-undecided-r*` gate in gates.md. If it is open, stop and repeat its question.' "$FX/where"
 assert_fixed 'If it is answered and has no `寫回:` line, run the **Logic map gate answered** step of `../review/SKILL.md` Step 4 first' "$FX/where"
 
+# --- push 之前表要對上要推的 head（specs/pr-logic-map「push 之前表要對上要推的 head」）---
+STEP4="$FX/step4"
+awk '/^4\. /{on=1} /^5\. /{on=0} on' "$SK" > "$STEP4"
+[ -s "$STEP4" ] || fail "skills/pr/SKILL.md 沒有步 4"
+python3 -I - "$STEP4" <<'PY' || fail "步 4 的比對不在 git push 之前"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+check = text.index("Before the push")
+push = text.index("git push -u")
+if not check < push:
+    sys.exit("順序：check=%d push=%d" % (check, push))
+PY
+# 「push 前表對不上就先重產再 push」：sha、產表失敗行、沒有這段都算對不上
+assert_fixed 'run the check of step 5c against `git rev-parse HEAD`' "$STEP4"
+assert_fixed 'run sub-steps 1–4 of `../review/SKILL.md` step 1b' "$STEP4"
+# 「push 前已對上不重產」：照 5c 的檢查，skip： 行與對到 HEAD 的表不重產
+assert_fixed 'when it would continue without spawning anything, push' "$STEP4"
+# 「不看 auto-merge」
+assert_fixed 'whether or not the MR has auto-merge' "$STEP4"
+assert_fixed 'before any request that turns auto-merge back on' "$STEP4"
+# 「產表停在 gate 不 push」
+assert_fixed 'When step 1b stops at a gate, stop: do not push and do not open or update the MR' "$STEP4"
+
 # --- pr 與 babysit 用同一個段名與輸出路徑（Scenario「段名與路徑一致」）---
 BS="$OPSX_ROOT/skills/babysit/SKILL.md"
 for f in "$SK" "$BS"; do
