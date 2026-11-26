@@ -104,7 +104,7 @@ section "Test agent" > "$TA"
 has 'a static guard whose scan covers a file you changed' "$TA"
 has 'needs no database, network or other service' "$TA"
 # R1.1、D15：brief 帶被改檔案，清單用本地的 main，不 fetch
-has 'the files this change touches (`git diff --name-only <primary remote>/main...HEAD` against the local ref, no fetch, plus the uncommitted ones, untracked new files included, from `git status --porcelain`)' "$TA"
+has 'the files this change touches (`git diff --name-only <primary remote>/main...HEAD` against the local ref, no fetch, plus the uncommitted ones, untracked new files included, from `git status --porcelain`;' "$TA"
 # Scenario：不跑全套的原句保留
 has 'Do not run the whole suite; CI does that.' "$TA"
 ! grep -qiE 'exception to|except for static' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
@@ -178,6 +178,10 @@ has 'with line and column numbers and any other standalone numbers in the messag
 has 'a matched failure whose number is higher on this change than on the base is this change'"'"'s failure' "$TA"
 # D30：import 被改檔也算蓋到
 has 'A guard that imports a file you changed directly also covers it; an indirect import is left to CI.' "$TA"
+# D37：本地沒有 main ref 時先 fetch
+has 'when the local `<primary remote>/main` ref does not exist, `git fetch <primary remote> main` first' "$TA"
+# D38：detached HEAD 不跑 base
+has 'When it prints nothing (a detached HEAD), do not run the base: the red is this change'"'"'s failure.' "$TA"
 # D34：列不出可比失敗時不比 base
 has 'When a red guard lists no failure to compare (it timed out, or only exited non-zero), do not run the base: the red is this change'"'"'s failure.' "$TA"
 # D31：比同一位置的數字，對不上照筆數
