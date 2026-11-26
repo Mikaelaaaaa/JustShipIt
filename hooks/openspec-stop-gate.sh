@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop：branch 對到的卡，agent 要停時依 stage_name 看下一站。要擋就 block 並說原因：
-#   有等人答的 open gate（會擋的 gate 扣掉「卡在接」）時每一站都放行。其餘：
+#   有等人答的 open gate（會擋的 gate 扣掉「卡在接」）時每一站都放行；dispatch 條目有 released_at（opsx release 放掉）時也放行。其餘：
 #   有 tasks.md 且沒有會擋的 open gate 時主殼或子殼 spec 不合 Gherkin 寫法；apply 站 tasks.md 仍有 - [ ]、status.json tests 不是 green、有 commit 但 review 沒跑
 #   （report.md 有「確認: <sha>」且 HEAD 等於該 sha 時不算）、report.md 的「待修（範圍內）」還有項目；
 #   explore 站（explore.md 已存在、卡建立日期晚於 2026-11-10）## 步驟 不齊；
@@ -49,7 +49,7 @@ stop_reason() { # <dir> <slug> <stage>
     if [ -n "$missing" ]; then
       printf '%s' "facts|opsx：${slug} 或它開出去的卡缺事實欄位（opsx check ${slug}）：
 $missing
-開卡用 opsx new --kind-of-work …（incident 加 --impact 與 --evidence）；手寫的卡補 inbox.md 的 kind_of_work、impact、evidence。補齊再停；事實查不到就用 Edit 或 Write 寫 gates.md 說缺哪一欄、為什麼，不要編 evidence。"
+開卡用 opsx new --name <描述性卡名> --kind-of-work …（incident 加 --impact 與 --evidence；卡名會是 PR 名和 branch 名）；手寫的卡補 inbox.md 的 kind_of_work、impact、evidence。補齊再停；事實查不到就用 Edit 或 Write 寫 gates.md 說缺哪一欄、為什麼，不要編 evidence。"
       return 0
     fi
   fi
@@ -229,7 +229,7 @@ babysit_reason() {
   esac
 }
 
-# MR 全綠，但邏輯表不是 MR head 產的、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
+# MR 全綠，但邏輯表不是 MR head 產的、表裡有沒處理的沒經過決定項、或 report.md 有留給人決定的項：collect 不標可以合併、coordinate 不推，這裡不推就沒人知道卡停在哪。
 # 印 mergeready.card_blockers 的第一條；判斷跟 collect 共用。MR JSON 讀不懂或沒有 python 時印空字串，照原本不推（hook 不能以非 0 結束）
 ready_card_blocker() {
   printf '%s' "$mr_out" | OPSX_SLUG="$slug" OPSX_DIR="$d" OPSX_LIB="$OPSX_ROOT/bin/lib" "$OPSX_PY" -I -c '
@@ -239,7 +239,23 @@ mr = json.load(sys.stdin)
 d = os.environ["OPSX_DIR"]
 with open(os.path.join(d, "report.md"), encoding="utf-8") as f:
     report = f.read()
-got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, os.path.isfile(os.path.join(d, "logic-map.md")), mr.get("head_sha"))
+map_path = os.path.join(d, "logic-map.md")
+map_text = None
+if os.path.isfile(map_path):
+    try:
+        with open(map_path, encoding="utf-8") as f:
+            map_text = f.read()
+    except UnicodeDecodeError:
+        map_text = None  # 寫到一半的表跟 collect 一樣當沒有表，回報表過期
+gates_path = os.path.join(d, "gates.md")
+gates_text = ""
+if os.path.isfile(gates_path):
+    try:
+        with open(gates_path, encoding="utf-8") as f:
+            gates_text = f.read()
+    except UnicodeDecodeError:
+        gates_text = ""  # 寫到一半的 gates.md 當沒有，標記都不算處理過，照樣推
+got = mergeready.card_blockers(os.environ["OPSX_SLUG"], report, map_text, gates_text, mr.get("head_sha"))
 print(got[0] if mr.get("state") == "ready" and got else "")' 2>/dev/null
 }
 
@@ -272,6 +288,10 @@ esac
 state="$OPSX_STATE_DIR/stop-chain/$(repo_name)-$slug"
 said="$OPSX_STATE_DIR/stop-said/$(repo_name)-$slug"
 
+# 協調者補的卡 propose 完跑了 opsx release：這個 pane 等 reap 收，apply 由 coordinate 另開 pane 派，不逼它接站
+if [ -n "$(jq -r --arg k "$(repo_name)/$slug" '.[$k].released_at // empty' "$OPSX_STATE_DIR/dispatch.json" 2>/dev/null)" ]; then
+  rm -f "$state"; stop_record "propose 完放掉，等 reap 收 pane"; exit 0
+fi
 mode="$(card_mode "$(repo_name)" "$slug" 2>/dev/null || true)"
 # 人在看板按了停止：不再推它接站。opsx stop 關不掉 pane 時裡面的 claude 還活著，照擋會跟協調者答「卡在接」來回循環；重派時 dispatch 會清掉 stopped
 if [ "$mode" = stopped ]; then stop_record "人按了停止"; exit 0; fi

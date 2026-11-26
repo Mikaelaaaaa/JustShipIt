@@ -27,7 +27,10 @@ QUEUE = "coordinator-queue"
 SENDING = QUEUE + ".sending."
 LOCK = QUEUE + ".lock"
 IDENTITY = "coordinator.json"
-RULE = re.compile(r"^\s*─{3,}\s*$")
+# 輸入框的下框線：整行橫線，或橫線中間夾一段字、結尾仍是橫線
+RULE = re.compile(r"^\s*─{3,}(\s+\S(.*\S)?\s+─+)?\s*$")
+# 上框線只看開頭：Claude Code 把 session 名稱畫進上框線，名稱長時畫到行尾、不留結尾橫線
+TOP_RULE = re.compile(r"^\s*─{3,}")
 PROMPT = "❯"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 
@@ -69,17 +72,26 @@ def bright_text(line):
     return "".join(out)
 
 
+def box_span(lines):
+    """lines 是去掉色碼與 dim 字的畫面行。Claude Code 的輸入框從畫面最後一行以 ❯ 開頭的行算起：
+    它正上方是上框線，往下第一條框線是下框線。框線下方的狀態列、agent 樹裡的橫線不影響。
+    回 (上框線, 下框線) 的行號，找不到這樣的框（在對話框裡、或不是 Claude Code）回 None。"""
+    prompts = [i for i, line in enumerate(lines) if line.lstrip().startswith(PROMPT)]
+    if not prompts or prompts[-1] == 0 or not TOP_RULE.match(lines[prompts[-1] - 1]):
+        return None
+    below = [i for i in range(prompts[-1] + 1, len(lines)) if RULE.match(lines[i])]
+    if not below:
+        return None
+    return prompts[-1] - 1, below[0]
+
+
 def box_text(screen):
-    """Claude Code 的輸入框是兩條 ─ 橫線夾住、第一行以 ❯ 開頭。只看畫面最下面那一個框。
-    畫面是 --format ansi：dim 的提示字不算使用者打的字。
-    回框裡的字（折行接起來），找不到這樣的框（在對話框裡、或不是 Claude Code）回 None。"""
+    """畫面是 --format ansi：dim 的提示字不算使用者打的字。回框裡的字（折行接起來），找不到輸入框回 None。"""
     lines = [bright_text(line) for line in screen.splitlines()]
-    rules = [i for i, line in enumerate(lines) if RULE.match(line)]
-    if len(rules) < 2:
+    span = box_span(lines)
+    if span is None:
         return None
-    body = lines[rules[-2] + 1:rules[-1]]
-    if not body or not body[0].lstrip().startswith(PROMPT):
-        return None
+    body = lines[span[0] + 1:span[1]]
     return body[0].lstrip()[len(PROMPT):] + "".join(body[1:])
 
 
@@ -144,10 +156,17 @@ def one_line(text):
     return " ".join(text.splitlines())
 
 
+def dedup(lines):
+    """整行相同的事件只留一則，排在最後一次出現的位置。只看整行：同一個標題的不同事件，差別常在「：」後面。"""
+    last = {line: i for i, line in enumerate(lines)}
+    return [line for i, line in enumerate(lines) if last[line] == i]
+
+
 def merge(lines):
-    if len(lines) == 1:
-        return lines[0]
-    return "排隊 %d 則：%s" % (len(lines), "；".join(lines))
+    kept = dedup(lines)
+    if len(kept) == 1:
+        return kept[0]
+    return "排隊 %d 則：%s" % (len(kept), "；".join(kept))
 
 
 def queue_lock(state):

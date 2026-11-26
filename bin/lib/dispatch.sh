@@ -68,7 +68,11 @@ import os, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import chain, jsonfile
 d = jsonfile.load(sys.argv[1]); me = os.environ["OPSX_KEY"]; slug = os.environ["OPSX_SLUG"]; feature = os.environ["OPSX_FEATURE"]
 mine = d.get(me)
-if mine and (chain.session_alive(mine) if feature else mine.get("mode") != "stopped"):
+# opsx release 放掉、pane 還沒收：同一棵 worktree 不能再開第二個 pane
+if mine and mine.get("mode") != "stopped" and chain.released_waiting(mine):
+    sys.exit("dispatch: %s 已放掉（%s），pane %s 還沒收，等 reap 收 pane 再派" % (me, mine["released_at"], mine.get("pane")))
+# 單卡條目只有人停的、或放掉且 pane 已收的可以重派；feature session 看 pane 活不活
+if mine and (chain.session_alive(mine) if feature else mine.get("mode") != "stopped" and not chain.released_done(mine)):
     sys.exit("dispatch: %s 已經派出去了，在 %s · %s · %s（%s 起）。要換人先 opsx stop %s" % (me, mine.get("workspace"), mine.get("tab"), mine.get("pane"), mine.get("started_at"), me.split("/", 1)[1]))
 members = {k for k, v in d.items() if feature and k.startswith(me.split("/", 1)[0] + "/") and v.get("via") == "@" + feature}
 clash = [k for k, v in d.items() if k != me and k not in members and v.get("mode") != "stopped" and (v.get("herdr_name") or k.split("/", 1)[1]) not in (v.get("handed_to") or []) and (v.get("herdr_name") or k.split("/", 1)[1]) == slug]
@@ -325,8 +329,8 @@ def put(d):
     for k in ("workspace", "workspace_id", "tab", "pane", "worktree", "agent", "model", "mode"):
         e[k] = s[k]
     e["started_at"] = os.environ["OPSX_AT"]
-    e.pop("stopped_at", None)
-    e.pop("pane_closed_at", None)
+    for k in ("stopped_at", "pane_closed_at", "released_at", "reaped_at"):
+        e.pop(k, None)
 jsonfile.update(sys.argv[1], put)
 PY
   log_row "$d" 你 已指派 "交回 session ${feature}，送 [${slug}] /opsx-workflow:${first} ${slug}" "session ${feature}"

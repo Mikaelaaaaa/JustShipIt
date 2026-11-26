@@ -17,7 +17,8 @@ cards() {
 import json, sys
 top, given, errors = sys.argv[1], json.loads(sys.argv[2]), json.loads(sys.argv[3])
 base = {"repo": "demo", "kind": "dev", "stage": "apply", "section": "待指派", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": []}
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": [],
+        "since": None, "dedup_checked": None}
 out = [{**base, **c, "path": "%s/openspec/changes/%s" % (top, c["slug"])} for c in given]
 print(json.dumps({"repo_paths": {"demo": top}, "cards": out, "errors": errors}, ensure_ascii=False))
 PY
@@ -388,7 +389,7 @@ assert_grep "^opsx dispatch d --agent claude --mode autopilot --kind dev --repo 
 cp "$WP0" "$R/openspec/workplan.yaml"
 rm -f "$MEMO" "$DISP"
 
-# --- 任何開著的 gate 都不代答，只記 ?? 並通知（gate-rule：任何開著的 gate 都不代答） ---
+# --- 授權題、沒有建議的題不代答，只記 ?? 並通知（gate-rule：不該代答的 gate 不代答） ---
 mkcard a1
 sweep() { # <gate id> <waiting 的其餘欄位 JSON 片段>
   : > "$OPSX_FAKE_LOG"; : > "$LOG"; rm -f "$MEMO"
@@ -400,12 +401,23 @@ sweep() { # <gate id> <waiting 的其餘欄位 JSON 片段>
 }
 sweep g1 '"type":"等待授權","action":"push","question":"要 push","recommended":null,"options":["這次"]'
 sweep g2 '"type":"等待授權","action":"run-tests","question":"要跑測試","recommended":null,"options":["拒絕"]'
-sweep g3 '"type":"等待決定","question":"選哪個","recommended":"用 A","options":["用 A","B"]'
-sweep g4 '"type":"等待決定","question":"這要真機跑一次嗎","recommended":"跑","options":["跑","不跑"]'
-sweep g6 '"type":"等待決定","question":"可以 push 嗎","recommended":"用 A","options":["用 A"]'
 sweep g7 '"type":"等待決定","question":"選哪個","recommended":null,"options":["甲","乙"]'
-sweep orca-allow-scope '"type":"等待決定","question":"範圍要不要收窄？","recommended":"A。收窄","options":["A","B","C"]'
-sweep split '"type":"等待決定","question":"照這個拆法建殼、寫 workplan？","recommended":"照這個拆法","options":["照這個拆法"]'
+sweep g9 '"type":"等待決定","question":"下一步？","recommended":"部署到 spark1","options":["部署到 spark1"]'
+grep '??' "$LOG" | grep -q '是部署／CI／secrets、花錢或對外的決定' || fail "level3 的 ?? 行要寫明理由：$(cat "$LOG")"
+assert_grep '^notification show \[demo/a1\] gate g9 是部署／CI／secrets、花錢或對外的決定' "$OPSX_FAKE_LOG"
+# 以前其他 repo 留給人的有建議決定題，現在每一題照建議答一次、不通知
+answered() { # <gate id> <waiting 的其餘欄位 JSON 片段> <建議>
+  : > "$OPSX_FAKE_LOG"; : > "$LOG"; rm -f "$MEMO"
+  cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"'"$1"'",'"$2"'}}]'
+  round || fail "$1 rc: $(cat "$FX/out")"
+  assert_grep "^opsx answer a1 --gate $1 --by coordinator --repo $R -- 協調者代決，照建議：$3（套用 ponytail 原則：最小改動、不加沒人要的東西）\$" "$OPSX_FAKE_LOG"
+  assert_eq "$(count '^notification show')" 0 "$1 照建議答掉不通知：$(cat "$OPSX_FAKE_LOG")"
+}
+answered g3 '"type":"等待決定","question":"選哪個","recommended":"用 A","options":["用 A","B"]' '用 A'
+answered g4 '"type":"等待決定","question":"這要真機跑一次嗎","recommended":"跑","options":["跑","不跑"]' '跑'
+answered g6 '"type":"等待決定","question":"可以 push 嗎","recommended":"用 A","options":["用 A"]' '用 A'
+answered orca-allow-scope '"type":"等待決定","question":"範圍要不要收窄？","recommended":"A。收窄","options":["A","B","C"]' 'A。收窄'
+answered split '"type":"等待決定","question":"照這個拆法建殼、寫 workplan？","recommended":"照這個拆法","options":["照這個拆法"]' '照這個拆法'
 rm -f "$MEMO"
 
 # --- 答 gate：合併的授權題不代答（合併永遠由人按，D3） ---
@@ -420,6 +432,19 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "要人動手的不代答"
 grep '??' "$LOG" | grep a1 | grep -q g5 || fail "要記 ?? 與 gate id：$(cat "$LOG")"
 
+# --- 沒有建議的通知標題（gate-rule：沒有建議的通知標題）：opsx 的題只有選項、選項含「錄」 ---
+rm -f "$MEMO"
+cards '[{"repo":"opsx-workflow","slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"g7","question":"要不要寫 log","recommended":null,"options":["加記錄","不加"]}}]'
+jq --arg r "$R" '.repo_paths["opsx-workflow"] = $r' "$OPSX_TEST_COLLECT_JSON" > "$FX/ow-collect.json"; mv "$FX/ow-collect.json" "$OPSX_TEST_COLLECT_JSON"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 0 "沒有建議不代答：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep g7 | grep -q '沒有建議' || fail "?? 行要寫沒有建議：$(cat "$LOG")"
+grep g7 "$LOG" | grep -qE '要人動手|沒有選項也沒有建議' && fail "沒有建議的題不能寫成要人動手或沒有選項：$(cat "$LOG")"
+assert_eq "$(count '^notification show')" 1 "沒有建議要通知一次：$(cat "$OPSX_FAKE_LOG")"
+grep '^notification show' "$OPSX_FAKE_LOG" | grep -q '沒有建議' || fail "通知標題要寫沒有建議：$(cat "$OPSX_FAKE_LOG")"
+grep '^notification show' "$OPSX_FAKE_LOG" | grep -qE '要你動手|沒有選項也沒有建議' && fail "通知標題不能寫要你動手或沒有選項：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$MEMO"
+
 # --- 答 gate：授權題的 action 或題目跟合併有關就不代答（action 不一定剛好寫成 merge） ---
 for a in 'mr-merge|forge 回 405，要授權重試嗎' 'external|用 GitLab API 合併 MR !7'; do
   cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待授權","gate_id":"gx","action":"'"${a%%|*}"'","question":"'"${a#*|}"'","recommended":null,"options":["這次"]}}]'
@@ -429,12 +454,22 @@ for a in 'mr-merge|forge 回 405，要授權重試嗎' 'external|用 GitLab API 
 done
 
 # --- 答 gate：合併類決定題不代答（merge 永遠人：授權綁 sha，代答「重試合併」等於替人決定） ---
-for q in '要不要合併這個 PR？|合併' 'forge 拒絕合併（pipeline 紅），要怎麼做？|重跑 pipeline 後重試合併' '要授權合併嗎？|允許' 'Ready to merge?|yes'; do
+cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"gm","question":"要不要合併這個 PR？","recommended":"合併","options":["合併","停"]}}]'
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer')" 0 "合併類決定題不代答：$(cat "$OPSX_FAKE_LOG")"
+grep '??' "$LOG" | grep a1 | grep -q gm || fail "合併類決定題要記 ?? 與 gate id：$(cat "$LOG")"
+# 沒有 MR 錨點的合併字不算 MR 合併（gate-rule「講的是 MR 合併」），照建議答；真的合併仍由授權閘門擋、由人在板上按
+cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"gm","question":"forge 拒絕合併（pipeline 紅），要怎麼做？","recommended":"重跑 pipeline 後重試合併","options":["重跑 pipeline 後重試合併","停"]}}]'
+rm -f "$MEMO"; round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(count '^opsx answer a1 --gate gm ')" 1 "沒有 MR 錨點的合併字照建議答：$(cat "$OPSX_FAKE_LOG")"
+# 合併字加授權字（授權、允許、ready）是在問要不要合併，交人（派工指示「合併仍交人」）
+for q in '要授權合併嗎？|允許' 'Ready to merge?|yes'; do
   cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","gate_id":"gm","question":"'"${q%%|*}"'","recommended":"'"${q#*|}"'","options":["'"${q#*|}"'","停"]}}]'
-  round || fail "rc: $(cat "$FX/out")"
-  assert_eq "$(count '^opsx answer')" 0 "合併類決定題不代答（${q%%|*}）：$(cat "$OPSX_FAKE_LOG")"
-  grep '??' "$LOG" | grep a1 | grep -q gm || fail "合併類決定題要記 ?? 與 gate id（${q%%|*}）：$(cat "$LOG")"
+  rm -f "$MEMO"; round || fail "rc: $(cat "$FX/out")"
+  assert_eq "$(count '^opsx answer')" 0 "合併字加授權字不代答（${q%%|*}）：$(cat "$OPSX_FAKE_LOG")"
+  grep '??' "$LOG" | grep a1 | grep -q gm || fail "合併字加授權字要記 ?? 與 gate id（${q%%|*}）：$(cat "$LOG")"
 done
+rm -f "$MEMO"
 
 # --- 答 gate：沒派出去的不答 ---
 cards '[{"slug":"a1","section":"待處理","dispatch":null,"waiting":{"type":"等待授權","gate_id":"g1","action":"push","question":"要 push","recommended":null,"options":["這次"]}}]'
@@ -499,23 +534,14 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0; grep '??' "$LOG" | grep -q a1 || fail "終端機等輸入記 ??"
 rm -f "$MEMO"
 
-# --- 沒有 waits-on：建議寫了「合併後」也不當等別張卡，不停 pane、通知使用者（coordinate-split-park） ---
+# --- 沒有 waits-on：建議寫了「合併後」也不當等別張卡，不停 pane、照建議答（coordinate-split-park） ---
 mkcard p1
 : > "$OPSX_FAKE_LOG"; : > "$LOG"
 cards '[{"slug":"p1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","needs":null,"waits_on":null,"gate_id":"split","question":"照這個拆法建殼、寫 workplan？","recommended":"照這個拆法，forge session 等 grant-gate-levels 合併後再開","options":["照這個拆法","不拆"]}}]'
 round || fail "split rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx stop')" 0 "沒有 waits-on 不停 pane：$(cat "$OPSX_FAKE_LOG")"
-assert_eq "$(count '^opsx answer')" 0 "split gate 不代答：$(cat "$OPSX_FAKE_LOG")"
-assert_grep '^notification show \[demo/p1\] gate split ' "$OPSX_FAKE_LOG"
+assert_eq "$(count '^opsx answer p1 --gate split ')" 1 "有建議的 split gate 照建議答：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(memo_get _parked demo/p1)" "" "split gate 不記 parked：$(cat "$MEMO")"
-rm -f "$MEMO"; : > "$OPSX_FAKE_LOG"; : > "$LOG"
-
-# --- split gate 一律要人答：建議不含合併 / merge 也不代答（要人答不能靠建議剛好有哪個字） ---
-cards '[{"slug":"p1","section":"待處理","dispatch":'"$D"',"agent_status":"idle","waiting":{"type":"等待決定","needs":null,"waits_on":null,"gate_id":"split","question":"照這個拆法建殼、寫 workplan？","recommended":"照這個拆法，forge session 等 grant-gate-levels 進 main 再開","options":["照這個拆法","不拆"]}}]'
-round || fail "split 無合併字 rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx answer')" 0 "split gate 建議不含合併也不代答：$(cat "$OPSX_FAKE_LOG")"
-assert_eq "$(count '^opsx stop')" 0 "split gate 不停 pane：$(cat "$OPSX_FAKE_LOG")"
-assert_grep '^notification show \[demo/p1\] gate split ' "$OPSX_FAKE_LOG"
 rm -f "$MEMO"; : > "$OPSX_FAKE_LOG"; : > "$LOG"
 
 # --- waits-on 排在合併類規則之前：建議含「合併後」也照停 pane ---
@@ -1930,6 +1956,15 @@ round || fail "rc: $(cat "$FX/out")"
 assert_eq "$(notes)" 0 "送過的不再通知"
 rm -f "$MEMO"
 
+# --- 協調者不在時退回桌面的排隊事件也去重（正例） ---
+cards '[]'
+printf '[r/a] MR 卡在衝突：url\n[r/a] MR 卡在衝突：url\n' > "$CQ"
+round || fail "rc: $(cat "$FX/out")"
+assert_eq "$(notes)" 1 "排隊事件退回一則桌面通知：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(grep '^notification show' "$OPSX_FAKE_LOG")" "notification show [opsx] 排隊的 1 則事件 · 協調者 opsx-coordinator 對不到活著的 pane（在它的 pane 重開 session，或跑 opsx lead） --body [r/a] MR 卡在衝突：url --sound request" "標題的則數是去重後的"
+assert_no_file "$CQ"
+rm -f "$MEMO"
+
 # --- 終端機等待輸入：綁 pane 通知一次，內文指到 pane ---
 cards '[{"slug":"a1","section":"待處理","dispatch":'"$D"',"agent_status":"blocked","waiting":{"type":"終端機等待輸入","gate_id":null,"question":"agent 在終端機等輸入","recommended":"開啟 pane","options":["開啟 pane"]}}]'
 round || fail "rc: $(cat "$FX/out")"
@@ -2962,39 +2997,54 @@ assert_not_grep '?? demo/a' "$LOG"
 assert_eq "$(ecount '^opsx (stop|dispatch)')" 0 "超前 30 秒仍是 relaunch 中，不重派：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"; printf '{}' > "$DISP"
 
-# --- opsx-workflow 的決定題由協調者照建議答（gate-rule：協調者照純函式的處置做副作用） ---
+# --- 每個 repo 的決定題由協調者照建議答（gate-rule：協調者照純函式的處置做副作用） ---
 OW="$FX/opsx-workflow"; mkdir -p "$OW/openspec/changes/oa" "$OW/openspec/changes/ob" "$OW/openspec/changes/om/subs/os"
 OW="$(cd "$OW" && pwd -P)"
+AG="$FX/Agentory-AI"; mkdir -p "$AG/openspec/changes/oa" "$AG/openspec/changes/oc" "$AG/openspec/changes/a/subs/s"
+AG="$(cd "$AG" && pwd -P)"
 PONY='（套用 ponytail 原則：最小改動、不加沒人要的東西）'
+BY='協調者代決，照建議：'
 OWQ='"type":"等待決定","needs":null,"waits_on":null,"question":"範圍要不要收窄？","recommended":"A。收窄","options":["A。收窄","B"]'
 # owcards '<opsx-workflow 的卡 JSON 陣列>' ['<sessions JSON 陣列>']
 owcards() {
-  python3 -I - "$R" "$OW" "$1" "${2:-[]}" > "$OPSX_TEST_COLLECT_JSON" <<'PY'
+  python3 -I - "$R" "$OW" "$AG" "$1" "${2:-[]}" > "$OPSX_TEST_COLLECT_JSON" <<'PY'
 import json, sys
-demo, ow, given, sessions = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), json.loads(sys.argv[4])
+demo, ow, ag, given, sessions = sys.argv[1], sys.argv[2], sys.argv[3], json.loads(sys.argv[4]), json.loads(sys.argv[5])
 base = {"repo": "opsx-workflow", "kind": "dev", "stage": "apply", "section": "待處理", "archived": False,
-        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": []}
-out = [{**base, **c, "path": "%s/openspec/changes/%s" % ({"opsx-workflow": ow, "demo": demo}[c.get("repo", "opsx-workflow")], c["slug"])} for c in given]
-print(json.dumps({"repo_paths": {"demo": demo, "opsx-workflow": ow}, "cards": out, "errors": [], "sessions": sessions}, ensure_ascii=False))
+        "waiting": None, "open_gates": [], "dispatch": None, "agent_status": None, "mr": None, "stopped": None, "notes": [],
+        "since": None, "dedup_checked": None}
+out = [{**base, **c, "path": "%s/openspec/changes/%s" % ({"opsx-workflow": ow, "demo": demo, "Agentory-AI": ag}[c.get("repo", "opsx-workflow")], c["slug"])} for c in given]
+print(json.dumps({"repo_paths": {"demo": demo, "opsx-workflow": ow, "Agentory-AI": ag}, "cards": out, "errors": [], "sessions": sessions}, ensure_ascii=False))
 PY
 }
-# 協調者照建議答 opsx 的決定題（Scenario Outline）：派出去的卡、沒派出的卡、子 change 各答一次
-owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
+# 協調者照建議答決定題（Scenario Outline）：opsx-workflow 派出去的卡、沒派出的卡、子 change，Agentory-AI 派出去的卡各答一次
+owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}},{"repo":"Agentory-AI","slug":"oc","dispatch":'"${D/w1:p1/w1:p9}"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
   '[{"repo":"opsx-workflow","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
-round || fail "opsx 代答 rc: $(cat "$FX/out")"
-assert_grep "^opsx answer oa --gate g1 --by coordinator --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
-assert_grep "^opsx answer ob --gate g1 --by coordinator --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
-assert_grep "^opsx answer om --sub os --gate g1 --by coordinator --repo $OW -- 照建議：A。收窄$PONY\$" "$OPSX_FAKE_LOG"
-assert_eq "$(count '^opsx answer')" 3 "三張各答一次：$(cat "$OPSX_FAKE_LOG")"
+round || fail "代答 rc: $(cat "$FX/out")"
+assert_grep "^opsx answer oa --gate g1 --by coordinator --repo $OW -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer ob --gate g1 --by coordinator --repo $OW -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer om --sub os --gate g1 --by coordinator --repo $OW -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer oc --gate g1 --by coordinator --repo $AG -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_eq "$(count '^opsx answer')" 4 "四張各答一次：$(cat "$OPSX_FAKE_LOG")"
 assert_eq "$(count '^notification show')" 0 "照建議答掉的題不通知：$(cat "$OPSX_FAKE_LOG")"
 grep -q 'opsx-workflow/oa.*g1' "$LOG" || fail "代答要記 log 含卡與 gate：$(cat "$LOG")"
 grep -q 'opsx-workflow/om/os.*g1' "$LOG" || fail "子 change 代答要記 log：$(cat "$LOG")"
+grep -q 'Agentory-AI/oc.*g1' "$LOG" || fail "Agentory-AI 代答要記 log：$(cat "$LOG")"
 grep '??' "$LOG" | grep -q 'gate g1' && fail "照建議答掉的題不記 ??：$(cat "$LOG")"
+rm -f "$MEMO"
+
+# 留給人的 gate 通知（正例）：Agentory-AI 有選項沒有建議
+: > "$OPSX_FAKE_LOG"; : > "$LOG"
+owcards '[{"repo":"Agentory-AI","slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g5","type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":null,"options":["B","C"]}}]'
+round || fail "Agentory-AI 留給人 rc: $(cat "$FX/out")"
+grep '??' "$LOG" | grep -q 'gate g5' || fail "Agentory-AI 留給人的題記 ??：$(cat "$LOG")"
+assert_eq "$(count '^notification show')" 1 "Agentory-AI 留給人的題通知一次：$(cat "$OPSX_FAKE_LOG")"
+assert_eq "$(count '^opsx answer')" 0 "Agentory-AI 沒有建議不代答：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"
 
 # 答不出去就通知人（反例）
 OPSX_TEST_FAIL_answer='answer: gates.md 寫不進去'; export OPSX_TEST_FAIL_answer
-owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}}]'
+owcards '[{"repo":"Agentory-AI","slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}}]'
 round || fail "答不出去 rc: $(cat "$FX/out")"
 grep '??' "$LOG" | grep oa | grep -q g1 || fail "答不出去要記 ?? 含 gate id：$(cat "$LOG")"
 assert_eq "$(count '^notification show')" 1 "答不出去通知一次：$(cat "$OPSX_FAKE_LOG")"
@@ -3022,11 +3072,11 @@ owsweep() { # <repo> <gate id> <waiting 的其餘欄位 JSON 片段>
   round || fail "$1 $2 rc: $(cat "$FX/out")"
   assert_eq "$(count '^opsx answer')" 0 "$1 $2 不代答：$(cat "$OPSX_FAKE_LOG")"
 }
-mkdir -p "$R/openspec/changes/oa"
-owsweep demo g3 "$OWQ"
-grep '??' "$LOG" | grep -q g3 || fail "其他 repo 的決定題要記 ??：$(cat "$LOG")"
-assert_eq "$(count '^notification show')" 1 "其他 repo 的決定題通知一次：$(cat "$OPSX_FAKE_LOG")"
-owsweep demo split '"type":"等待決定","needs":null,"waits_on":null,"question":"照這個拆法建殼？","recommended":"照這個拆法","options":["照這個拆法"]'
+owsweep Agentory-AI ga '"type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":"准","options":["這次"]'
+grep '??' "$LOG" | grep -q 'gate ga 要授權' || fail "Agentory-AI 的授權題要記 ??：$(cat "$LOG")"
+owsweep Agentory-AI g3 '"type":"等待決定","needs":null,"waits_on":null,"question":"下一步？","recommended":"部署到 spark1","options":["部署到 spark1"]'
+grep '??' "$LOG" | grep 'gate g3' | grep -q '是部署／CI／secrets、花錢或對外的決定' || fail "Agentory-AI 的部署題要記 ?? 與理由：$(cat "$LOG")"
+assert_eq "$(count '^notification show \[Agentory-AI/oa\] gate g3 是部署／CI／secrets、花錢或對外的決定')" 1 "部署題通知一次：$(cat "$OPSX_FAKE_LOG")"
 owsweep opsx-workflow ga '"type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":null,"options":["這次"]'
 owsweep opsx-workflow gr '"type":"等待決定","needs":"run","waits_on":null,"question":"要跑嗎","recommended":"用 A","options":["用 A"]'
 owsweep opsx-workflow gh '"type":"等待決定","needs":null,"waits_on":null,"question":"這段怎麼驗","recommended":"你在 sandbox 外跑","options":["你在 sandbox 外跑"]'
@@ -3050,17 +3100,74 @@ assert_eq "$(count '^notification show \[opsx-workflow/oa\] gate gw ')" 1 "opsx 
 owcards '[{"slug":"ob","waiting":{"gate_id":"ga","type":"等待授權","needs":null,"waits_on":null,"action":"push","question":"要 push","recommended":null,"options":["這次"]}}]'
 round || fail "沒派出的授權題 rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx (answer|stop)')" 0 "沒派出的授權題不答不停：$(cat "$OPSX_FAKE_LOG")"
-# 其他 repo 沒派出的卡、子 change 的一般決定題不代答（反例）
-: > "$OPSX_FAKE_LOG"; rm -f "$MEMO"; mkdir -p "$R/openspec/changes/ob"
+# 其他 repo 沒派出的卡、子 change 的決定題也照建議答
+: > "$OPSX_FAKE_LOG"; rm -f "$MEMO"; mkdir -p "$R/openspec/changes/ob" "$R/openspec/changes/om/subs/os"
 owcards '[{"repo":"demo","slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
   '[{"repo":"demo","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
 round || fail "其他 repo 沒派出與子 change rc: $(cat "$FX/out")"
-assert_eq "$(count '^opsx answer')" 0 "其他 repo 沒派出的卡與子 change 不代答：$(cat "$OPSX_FAKE_LOG")"
+assert_grep "^opsx answer ob --gate g1 --by coordinator --repo $R -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
+assert_grep "^opsx answer om --sub os --gate g1 --by coordinator --repo $R -- ${BY}A。收窄$PONY\$" "$OPSX_FAKE_LOG"
 # 用量上限暫停中不答（邊界）
 printf '{"_usage_limit":{"seen_at":"%s","resets_at":"2099-01-01T00:00:00+08:00"}}' "$(ago 1)" > "$MEMO"
-owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}}]' \
+owcards '[{"slug":"oa","dispatch":'"$D"',"agent_status":"idle","waiting":{"gate_id":"g1",'"$OWQ"'}},{"slug":"ob","waiting":{"gate_id":"g1",'"$OWQ"'}},{"repo":"Agentory-AI","slug":"oc","dispatch":'"${D/w1:p1/w1:p9}"',"agent_status":"idle","waiting":{"gate_id":"g1","type":"等待決定","needs":null,"waits_on":null,"question":"選哪個","recommended":"用 A","options":["用 A"]}}]' \
   '[{"repo":"opsx-workflow","feature":"f","mains":[{"slug":"om","subs":[{"slug":"os","waiting":{"gate_id":"g1",'"$OWQ"'}}]}]}]'
 round || fail "暫停中 rc: $(cat "$FX/out")"
 assert_eq "$(count '^opsx answer')" 0 "用量上限暫停中不答：$(cat "$OPSX_FAKE_LOG")"
 rm -f "$MEMO"; printf '{}' > "$DISP"
+
+# --- 可以合併通知帶邏輯表連結與代決清單（opsx-coordinate：可以合併通知帶邏輯表連結與代決清單） ---
+AGD="$AG/openspec/changes/a"
+AGREADY='{"url":"https://forge.example/mr/1","state":"ready","head_sha":"abc","conditions":{"no_conflicts":true},"merged_at":null}'
+# ready_round <代決行>：可以合併通知一次，內文有 MR 網址、邏輯表連結與那行代決
+ready_round() {
+  : > "$OPSX_FAKE_LOG"; : > "$LOG"; rm -f "$MEMO"
+  owcards '[{"repo":"Agentory-AI","slug":"a","stage":"babysit","dispatch":'"$D"',"agent_status":"idle","mr":'"$AGREADY"',"waiting":{"type":"可以合併","gate_id":null,"question":"可以合併","recommended":null,"options":[]}}]'
+  round || fail "可以合併 rc（$1）: $(cat "$FX/out")"
+  assert_eq "$(count '^notification show \[Agentory-AI/a\] 可以合併')" 1 "可以合併通知一次（$1）：$(cat "$OPSX_FAKE_LOG")"
+  grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF 'https://forge.example/mr/1' || fail "內文要有 MR 網址：$(cat "$OPSX_FAKE_LOG")"
+  grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "邏輯表：[logic-map.md](file://$AGD/logic-map.md)" || fail "內文要有邏輯表連結：$(cat "$OPSX_FAKE_LOG")"
+  grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$1" || fail "內文要有「$1」：$(cat "$OPSX_FAKE_LOG")"
+}
+TS=2026-11-23T10:00:00+08:00
+# proxy_answer <gate 所在目錄> <gate id> <題目> <建議> [--sub <子>]：寫一題 open gate，再用真的 opsx answer --by coordinator 照建議答掉，
+# decisions.tsv 的列由 log.sh 的 log_row 寫，跟協調者實際寫出來的一樣
+proxy_answer() {
+  printf '## %s\ntype: decision\nstatus: open\n問題: %s\n建議: %s\n' "$2" "$3" "$4" >> "$1/gates.md"
+  bash "$OPSX_ROOT/bin/opsx" answer a "${@:5}" --gate "$2" --by coordinator --repo "$AG" -- "$BY$4$PONY" > "$FX/answer-out" 2>&1 \
+    || fail "opsx answer $2 rc: $(cat "$FX/answer-out")"
+}
+# 一般場景：主殼一列代決，清單寫 gate id、題目與建議，不帶代答文字的開頭與 ponytail 結尾
+proxy_answer "$AGD" g1 '範圍要不要收窄？' 'A'
+ready_round '代決：g1 範圍要不要收窄？ → A'
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$PONY" && fail "代決清單不帶 ponytail 結尾：$(cat "$OPSX_FAKE_LOG")"
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF "$BY" && fail "代決清單不帶「協調者代決，照建議：」開頭：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$AGD/decisions.tsv" "$AGD/gates.md"
+# 一般場景：主殼一列加子 change 一列，子 change 的列標 <子>/<gate id>、題目取子 change 的 gates.md；題目只取前 60 字
+Q60='這一題的題目很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長很長'   # 剛好 60 字
+proxy_answer "$AGD" g2 "${Q60}，後面這段不會出現" '用 B'
+proxy_answer "$AGD/subs/s" g3 '子 change 的題？' '用 C' --sub s
+ready_round "代決：g2 $Q60 → 用 B；s/g3 子 change 的題？ → 用 C"
+grep '\[Agentory-AI/a\] 可以合併' "$OPSX_FAKE_LOG" | grep -qF '後面這段不會出現' && fail "題目只取前 60 字：$(cat "$OPSX_FAKE_LOG")"
+rm -f "$AGD/subs/s/decisions.tsv" "$AGD/subs/s/gates.md" "$AGD/gates.md"
+# 邊界場景：改版前代答的列開頭是「照建議：」，清單一樣只留建議本身
+rm -f "$AGD/decisions.tsv"
+printf '## g4\ntype: decision\nstatus: open\n問題: 要等嗎？\n建議: 繼續等\n' >> "$AGD/gates.md"
+bash "$OPSX_ROOT/bin/opsx" answer a --gate g4 --by coordinator --repo "$AG" -- "照建議：繼續等$PONY" > "$FX/answer-out" 2>&1 \
+  || fail "opsx answer g4 rc: $(cat "$FX/answer-out")"
+ready_round '代決：g4 要等嗎？ → 繼續等'
+rm -f "$AGD/decisions.tsv" "$AGD/gates.md"
+# 邊界場景：使用者自己答的、協調者的其他紀錄、沒有 decisions.tsv 都是無
+printf '%s\t你\t已決定\t用 A\tg1\n' "$TS" > "$AGD/decisions.tsv"
+ready_round '代決：無'
+printf '%s\t協調者\t已決定\t併入 card-x\t\n' "$TS" > "$AGD/decisions.tsv"
+ready_round '代決：無'
+rm -f "$AGD/decisions.tsv"
+ready_round '代決：無'
+# 代決清單讀不了仍送可以合併（反例）：decisions.tsv 是目錄（OSError）、不是 UTF-8（UnicodeDecodeError）
+mkdir "$AGD/decisions.tsv"
+ready_round '代決：讀不到（'
+rmdir "$AGD/decisions.tsv"
+printf '\xff\xfe\tbad\n' > "$AGD/decisions.tsv"
+ready_round '代決：讀不到（'
+rm -f "$AGD/decisions.tsv" "$MEMO"; printf '{}' > "$DISP"
 echo "coordinate: ok"

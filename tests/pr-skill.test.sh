@@ -68,6 +68,17 @@ assert_fixed 'so does a line that starts with `skip：` (the user waived the map
 # D10 skip：mr: none 只在 workplan 還標 mr: none 時算已處理
 assert_fixed '`skip：mr: none` counts only while the card'"'"'s PR in `openspec/workplan.yaml` still has `mr: none`' "$STEP"
 
+# --- logic-map-undecided-gate D1：重產後跑 review Step 4 的 Logic map, undecided 全段；開了 gate 就停，不接 babysit ---
+assert_not_fixed 'in-scope items are not gated here' "$STEP"
+assert_fixed 'run the whole **Logic map, undecided** rule of `../review/SKILL.md` Step 4' "$STEP"
+assert_fixed 'When that rule opens a gate, stop and repeat its question: do not continue to step 6.' "$STEP"
+python3 -I - "$STEP" <<'PY' || fail "5c 的 undecided 規則要在重產之後"
+import sys
+text = open(sys.argv[1], encoding="utf-8").read()
+if not text.index("run sub-steps 1–4") < text.index("**Logic map, undecided**"):
+    sys.exit("順序")
+PY
+
 # --- R1.3 router 在 gate 答完後送到 pr：pr 先認 logic-map-undecided，open 就停，答了沒寫回就先照 review 寫回 ---
 awk 'index($0,"## Where you are")==1{on=1;next} /^## /{on=0} on' "$SK" > "$FX/where"
 assert_fixed 'Look at the newest `logic-map-undecided-r*` gate in gates.md. If it is open, stop and repeat its question.' "$FX/where"

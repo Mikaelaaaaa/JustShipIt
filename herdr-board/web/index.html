@@ -76,6 +76,8 @@ main{min-width:0;padding:var(--sp-4) max(16px,env(safe-area-inset-right,0px)) 48
 .newbar.drag{outline:2px dashed var(--teal);outline-offset:4px}
 .newbar textarea{flex:1;min-width:0;font:inherit;color:var(--fg);background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 10px;outline:none;resize:vertical}
 .newbar textarea:focus{border-color:var(--teal-2)}
+.newbar .new-name{width:220px;font-family:var(--mono);font-size:13px;color:var(--fg);background:#fff;border:1px solid var(--line);border-radius:6px;padding:8px 10px;outline:none}
+.newbar .new-name:focus{border-color:var(--teal-2)}
 .newbar .side{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .new-files{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .new-files li{display:flex;align-items:center;gap:4px;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:0 0 0 8px}
@@ -380,7 +382,7 @@ main{min-width:0;padding:var(--sp-4) max(16px,env(safe-area-inset-right,0px)) 48
 </header>
 <main>
   <div id="errors" class="errors" hidden></div>
-  <div id="newbar" class="newbar" hidden><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
+  <div id="newbar" class="newbar" hidden><input id="new-name" class="new-name" aria-label="卡名" placeholder="卡名（必填，例 chat-keyboard）"><textarea id="new-text" rows="3" aria-label="新增一件事" placeholder="一句話，或貼上多行文字、連結；檔案可以拖進來。Ctrl/⌘+Enter 送出，Esc 取消"></textarea><div class="side"><button class="sm" data-act="new-attach">附檔</button><input type="file" id="new-file" multiple hidden><span class="faint mono" id="new-where" style="font-size:11px"></span></div><ul id="new-files" class="new-files" aria-label="附檔"></ul></div>
   <div id="view"><div class="empty">載入中…</div></div>
 </main>
 <div id="scrim" class="scrim" hidden></div>
@@ -436,8 +438,17 @@ function applyDeepLink(env,cards,generatedAt){
 /* card deep link end */
 const deepLinkAtLoad=readLoadHash(window);const pageLoadedAt=Date.now();
 function token(){try{return sessionStorage.getItem('opsx-token')||'';}catch(e){return '';}}
+/* collect 錯誤訊息 start */
+/* 401 分兩句：沒拿到 token 是網址的問題，拿到了還被拒是 server 那邊的 token 不同 */
+async function fetchCollect(fetchFn,tok){
+  const r=await fetchFn('/api/collect',{headers:{'X-Opsx-Token':tok}});
+  if(r.status===401)throw new Error((tok?'token 被 server 拒絕':'網址沒帶 token，或瀏覽器擋了 sessionStorage')+'：從 herdr 的 open-board 重開一次');
+  if(!r.ok)throw new Error('collect '+r.status+'：'+(await r.text()).slice(0,200));
+  return r.json();
+}
+/* collect 錯誤訊息 end */
 const api={
-  async collect(){const r=await fetch('/api/collect',{headers:{'X-Opsx-Token':token()}});if(r.status===401)throw new Error('token 不對：從 herdr 的 open-board 重開一次');if(!r.ok)throw new Error('collect '+r.status+'：'+(await r.text()).slice(0,200));return r.json();},
+  async collect(){return fetchCollect(fetch,token());},
   async log(since){const r=await fetch('/api/log'+(since?'?since='+encodeURIComponent(since):''),{headers:{'X-Opsx-Token':token()}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error('log '+r.status+'：'+(j.error||j.stderr||''));return j;},
   async output(card){const r=await fetch('/api/output?card='+encodeURIComponent(card),{headers:{'X-Opsx-Token':token()}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error('output '+r.status+'：'+(j.error||''));return j;},
   /* 400、404 也帶 {ok:false,error}，照樣交給檔案區顯示 */
@@ -1487,20 +1498,22 @@ function focusAgent(agent){
 const newRepo=()=>F.scope==='repo'?(data.repo_paths||{})[F.srepo]||null:null;
 const MAX_ATTACH=10*1024*1024;
 const ONE_LINER_MAX=200;  /* 同 herdr-board/server.py 的 ONE_LINER_MAX */
-/* 沒有檔、只有一行且不超過 ONE_LINER_MAX 字，走 /api/new（source: me，跟以前一樣）；多行、過長的一行或有檔走 /api/paste，由 server 拆出一句話並把全文存成 paste.md（/api/new 的 body 只有 64 KB） */
-function newRequest(text,files,repo){
+const CARD_NAME_RE=/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;  /* 同 bin/lib/new.sh 的 name_re */
+/* 沒有檔、只有一行且不超過 ONE_LINER_MAX 字，走 /api/new（source: me，跟以前一樣）；多行、過長的一行或有檔走 /api/paste，由 server 拆出一句話並把全文存成 paste.md（/api/new 的 body 只有 64 KB）。
+   name 是卡名，server 轉成 opsx new --name，也會是 PR 名和 branch 名 */
+function newRequest(text,files,repo,name){
   const lines=text.split(/\r\n|\r|\n/).filter(l=>l.trim());
   if(!lines.length&&!files.length)return null;
   const where=repo?{repo}:{};
-  if(lines.length===1&&!files.length&&lines[0].trim().length<=ONE_LINER_MAX)return {path:'new',body:{text:lines[0].trim(),...where}};
-  return {path:'paste',body:{text:text.trim(),files:files.map(f=>({name:f.name,data:f.data})),...where}};
+  if(lines.length===1&&!files.length&&lines[0].trim().length<=ONE_LINER_MAX)return {path:'new',body:{name,text:lines[0].trim(),...where}};
+  return {path:'paste',body:{name,text:text.trim(),files:files.map(f=>({name:f.name,data:f.data})),...where}};
 }
 function splitBySize(files){return [files.filter(f=>f.size<=MAX_ATTACH),files.filter(f=>f.size>MAX_ATTACH)];}
 let newFiles=[];  /* {name, size, data(base64)}，加進清單時就讀好 */
 /* newGen 在 closeNew 時加一，關掉之後才讀完的檔對不上就丟掉；newReading 是還在讀的批數，讀完前不准送出 */
 let newGen=0,newReading=0;
-function openNew(){$('#newbar').hidden=false;$('#new-where').textContent=newRepo()?'建在 '+F.srepo:'進待分類';$('#new-where').title=newRepo()?'':'範圍選到單一 repo 才直接建殼';$('#new-text').focus();}
-function closeNew(){$('#newbar').hidden=true;$('#new-text').value='';newFiles=[];newGen++;renderNewFiles();}
+function openNew(){$('#newbar').hidden=false;$('#new-where').textContent=newRepo()?'建在 '+F.srepo:'進待分類';$('#new-where').title=newRepo()?'':'範圍選到單一 repo 才直接建殼';$('#new-name').focus();}
+function closeNew(){$('#newbar').hidden=true;$('#new-name').value='';$('#new-text').value='';newFiles=[];newGen++;renderNewFiles();}
 function renderNewFiles(){$('#new-files').innerHTML=newFiles.map((f,i)=>`<li><span class="mono">${esc(f.name)}</span><button class="ghost sm" data-act="new-unattach" data-i="${i}" aria-label="移除 ${esc(f.name)}">×</button></li>`).join('');}
 function readBase64(file){
   return new Promise((ok,bad)=>{const r=new FileReader();r.onload=()=>ok(r.result.slice(r.result.indexOf(',')+1));r.onerror=()=>bad(r.error);r.readAsDataURL(file);});
@@ -1523,10 +1536,12 @@ async function addFiles(list){
 function submitNew(){
   if(newReading){toast('附件還在讀，讀完再送',true);return;}
   if(ui.busy){toast('上一個動作還在跑，輸入先留著，等一下再送',true);return;}
-  const text=$('#new-text').value,sent=newFiles.slice(),gen=newGen;
-  const req=newRequest(text,sent,newRepo());if(!req)return;
+  const text=$('#new-text').value,name=$('#new-name').value.trim(),sent=newFiles.slice(),gen=newGen;
+  const req=newRequest(text,sent,newRepo(),name);if(!req)return;
+  if(!name){toast('先填卡名：它會是卡名、PR 名和 branch 名',true);$('#new-name').focus();return;}
+  if(!CARD_NAME_RE.test(name)||name.length>32){toast('卡名要是 kebab-case（小寫英文開頭，小寫英數以單一 - 連接），最多 32 字：'+name,true);$('#new-name').focus();return;}
   const where=req.body.repo?' --repo '+req.body.repo:'';
-  const label=req.path==='new'?`opsx new${where} -- ${req.body.text}`:`opsx new${where}${req.body.files.map(f=>' --attach '+f.name).join('')}（貼上）`;
+  const label=req.path==='new'?`opsx new --name ${name}${where} -- ${req.body.text}`:`opsx new --name ${name}${where}${req.body.files.map(f=>' --attach '+f.name).join('')}（貼上）`;
   act(label,async()=>{
     const r=await api.post(req.path,req.body);
     if(gen===newGen){
@@ -1694,7 +1709,7 @@ document.addEventListener('change',e=>{
   const r=e.target.closest('[data-unfiled]');if(r&&e.target.matches('select'))ui.fileRepo[r.dataset.unfiled]=e.target.value;
 });
 document.addEventListener('keydown',e=>{
-  if(e.target.id==='new-text'){
+  if(e.target.id==='new-text'||e.target.id==='new-name'){
     if(e.isComposing)return;
     if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();submitNew();}
     else if(e.key==='Escape')closeNew();

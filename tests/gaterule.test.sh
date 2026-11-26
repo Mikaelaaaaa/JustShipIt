@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# 一個 gate 留給人、停 pane 或照建議答的純函式：十二條規則由上往下取第一個符合的，只有 opsx-workflow 的 decision 回 answer。
+# 一個 gate 留給人、停 pane 或照建議答的純函式：規則由上往下取第一個符合的，不看 repo，有建議的決定題回 answer。
 # 驗收：specs/gate-rule/spec.md（代不代答由一個純函式判斷）
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-decide_in() { # <repo> <waiting 的 JSON，缺的欄位補成決定題的空值> → decide 的結果
-  OPSX_REPO="$1" OPSX_W="$2" OPSX_LIB="$OPSX_ROOT/bin/lib" python3 -I -c '
+decide() { # <waiting 的 JSON，缺的欄位補成決定題的空值> → decide 的結果
+  OPSX_W="$1" OPSX_LIB="$OPSX_ROOT/bin/lib" python3 -I -c '
 import json, os, sys
 sys.path.insert(0, os.environ["OPSX_LIB"]); import gaterule
 w = {"gate_id": "g1", "type": "等待決定", "action": None, "question": "", "recommended": None, "options": [], "waits_on": None}
 w.update(json.loads(os.environ["OPSX_W"]))
-print(gaterule.decide(w, os.environ["OPSX_REPO"]))'
+print(gaterule.decide(w))'
 }
-decide() { decide_in other-repo "$1"; }
+
+# 結果不依 repo 而不同：decide 只收 waiting 一個參數，沒有 repo 可看
+assert_eq "$(OPSX_LIB="$OPSX_ROOT/bin/lib" python3 -I -c '
+import inspect, os, sys
+sys.path.insert(0, os.environ["OPSX_LIB"]); import gaterule
+print(list(inspect.signature(gaterule.decide).parameters), hasattr(gaterule, "ANSWER_REPO"))')" "['w'] False" "decide 不收 repo、沒有 ANSWER_REPO"
 
 assert_eq "$(decide '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate"
 assert_eq "$(decide '{"gate_id": "卡在接 /review #2", "recommended": "用 A"}')" "('human', 'stuck')" "Stop hook 卡住的 gate"
@@ -21,8 +26,8 @@ assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "chmod
 assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "cd /x/wt && git push gitlab feat/a/mikaela-lin"}')" "('coordinator', 'run')" "代跑：授權題"
 assert_eq "$(decide '{"type": "等待授權", "action": "push", "needs": "run", "by": "coordinator", "recommended": "push 前先 fetch 一次"}')" "('coordinator', 'run')" "代跑：授權題，by 排在授權判斷前"
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "recommended": "你在終端機跑 opsx stop x"}')" "('coordinator', 'run')" "代跑：建議含要人動手的字"
-# 只有 by 沒有 needs run 不算代跑；卡住的 gate 標了 by 仍留給人（反例）
-assert_eq "$(decide '{"by": "coordinator", "recommended": "用 A"}')" "('human', 'decision')" "只有 by"
+# 只有 by 沒有 needs run 不算代跑，照一般決定題答；卡住的 gate 標了 by 仍留給人（反例）
+assert_eq "$(decide '{"by": "coordinator", "recommended": "用 A"}')" "('answer', '用 A')" "只有 by"
 assert_eq "$(decide '{"gate_id": "drive-apply-3", "needs": "run", "by": "coordinator", "recommended": "用 A"}')" "('human', 'stuck')" "卡住的 gate 標了 by"
 # 合併類、等別張卡、type 不明、split 標了 by 仍照原規則（design D7、D8）
 assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "needs": "run", "by": "coordinator", "recommended": "glab mr merge 12"}')" "('human', 'run')" "合併 action 標了 by"
@@ -31,75 +36,225 @@ assert_eq "$(decide '{"needs": "run", "by": "coordinator", "question": "CI 綠�
 assert_eq "$(decide '{"needs": "run", "by": "coordinator", "waits_on": "other-card", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "waits-on 標了 by"
 assert_eq "$(decide '{"type": "type 不明", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "type 不明標了 by"
 assert_eq "$(decide '{"gate_id": "split", "needs": "run", "by": "coordinator", "recommended": "chmod +x x.sh"}')" "('human', 'run')" "split 標了 by"
-assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "合併授權"
-assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "打 Merge API"}')" "('human', 'merge-grant')" "題目講 forge 的 merge API，不分大小寫"
-assert_eq "$(decide '{"type": "等待授權", "action": "edit", "question": "要不要合併兩個設定檔"}')" "('human', 'approval')" "授權題講的不是 MR 合併"
-assert_eq "$(decide '{"type": "等待授權", "action": "merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "hook 第三級的 action 名 merge"
-assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "要合併這個 MR 嗎"}')" "('human', 'merge-grant')" "授權題的雙訊號"
-assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "glab api PUT merge_requests/12/merge"}')" "('human', 'merge-grant')" "forge API 路徑的 merge_requests"
-assert_eq "$(decide '{"type": "等待授權", "action": "Merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "action merge 不分大小寫"
-# 原本會代答的 gate 都留給人（Scenario Outline，正例）
-assert_eq "$(decide '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "長期授權清單內的授權題"
-assert_eq "$(decide '{"type": "等待授權", "action": "deploy", "question": "要部署嗎"}')" "('human', 'approval')" "清單外的 action"
+assert_eq "$(decide '{"type": "等待授權", "action": "deploy", "question": "要部署嗎"}')" "('human', 'approval')" "清單外的 action：授權題排在 level3 前"
 assert_eq "$(decide '{"type": "等待授權", "action": null, "question": "要做嗎"}')" "('human', 'approval')" "沒寫 action"
+# 授權題只在 MR 合併時是 merge-grant（Scenario Outline，正例＋反例）
+assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "授權：mr-merge"
+assert_eq "$(decide '{"type": "等待授權", "action": "merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "授權：hook 第三級的 action 名 merge"
+assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "要合併這個 MR 嗎"}')" "('human', 'merge-grant')" "授權：雙訊號"
+assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "glab api PUT merge_requests/12/merge"}')" "('human', 'merge-grant')" "授權：forge API 路徑的 merge_requests"
+assert_eq "$(decide '{"type": "等待授權", "action": "Merge", "question": "可以合了嗎"}')" "('human', 'merge-grant')" "授權：action merge 不分大小寫"
+assert_eq "$(decide '{"type": "等待授權", "action": "external", "question": "打 Merge API"}')" "('human', 'merge-grant')" "授權：forge 的 merge API，不分大小寫"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "授權：push"
+assert_eq "$(decide '{"type": "等待授權", "action": "edit", "question": "要不要合併兩個設定檔"}')" "('human', 'approval')" "授權：講的不是 MR 合併"
 assert_eq "$(decide '{"type": "終端機等待輸入", "question": "y/n?"}')" "('human', 'terminal')" "終端機等待輸入"
 assert_eq "$(decide '{"type": "type 不明", "recommended": "用 A"}')" "('human', 'type')" "type 不明"
-assert_eq "$(decide '{"gate_id": "split", "recommended": "拆兩張"}')" "('human', 'split')" "拆法確認"
 assert_eq "$(decide '{"waits_on": "card-x", "recommended": "等 card-x 合併後繼續"}')" "('park', 'card-x')" "waits-on 排在合併類之前"
-assert_eq "$(decide '{"recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併的決定題"
 assert_eq "$(decide '{"options": ["先合併 MR 再說"]}')" "('human', 'merge')" "沒建議時看第一個選項講不講 MR 合併"
-assert_eq "$(decide '{"question": "要不要上真機驗", "recommended": "用 A"}')" "('human', 'decision')" "真機題"
-assert_eq "$(decide '{"question": "可以 push 嗎", "recommended": "用 A"}')" "('human', 'decision')" "授權字題"
-assert_eq "$(decide '{"question": "0303 刪 skills 時改過的 prompt 要不要留", "recommended": "照現在"}')" "('human', 'decision')" "migration-edited-prompts 重現"
-assert_eq "$(decide '{"question": "範圍要不要收窄？", "recommended": "A。收窄"}')" "('human', 'decision')" "orca-allow-scope 重現"
-assert_eq "$(decide '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'decision')" "沒有建議、只有選項"
 assert_eq "$(decide '{"question": "選哪個"}')" "('human', 'no-pick')" "沒選項沒建議"
 assert_eq "$(decide '{"question": "選哪個", "recommended": "你在 sandbox 外跑"}')" "('human', 'hands')" "建議要人動手"
 assert_eq "$(decide '{"question": "這只有你能做", "recommended": "用 A"}')" "('human', 'hands')" "題目說只有你能做"
-# opsx repo 的決定題照建議答（Scenario Outline，正例）
-assert_eq "$(decide_in opsx-workflow '{"question": "範圍要不要收窄？", "recommended": "A。收窄"}')" "('answer', 'A。收窄')" "opsx 的決定題帶建議"
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "照這個拆法", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '照這個拆法')" "opsx 的 split 也照建議答"
-# opsx repo 裡留給人的題不變（Scenario Outline，反例）
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 卡住的 gate"
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "stale-wait-20261120101500", "recommended": "用 A"}')" "('human', 'stuck')" "opsx 協調者自己的 stale-wait gate"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-rec')" "opsx 沒有建議、只有選項"
-assert_eq "$(decide_in opsx-workflow '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "opsx needs run"
-assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "push", "question": "要 push 嗎"}')" "('human', 'approval')" "opsx 授權題"
-assert_eq "$(decide_in opsx-workflow '{"type": "等待授權", "action": "mr-merge", "question": "要合併嗎"}')" "('human', 'merge-grant')" "opsx 合併授權"
-assert_eq "$(decide_in opsx-workflow '{"type": "type 不明", "recommended": "用 A"}')" "('human', 'type')" "opsx type 不明"
-assert_eq "$(decide_in opsx-workflow '{"waits_on": "card-x", "recommended": "用 A"}')" "('park', 'card-x')" "opsx waits-on"
-assert_eq "$(decide_in opsx-workflow '{"recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "opsx MR 合併的決定題"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個"}')" "('human', 'no-pick')" "opsx 沒選項沒建議"
-assert_eq "$(decide_in opsx-workflow '{"question": "選哪個", "recommended": "你在 sandbox 外跑"}')" "('human', 'hands')" "opsx 建議要人動手"
-# MR 合併的決定題留給人（Scenario Outline，正例）
-assert_eq "$(decide_in opsx-workflow '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
-assert_eq "$(decide_in opsx-workflow '{"question": "要不要先合併 MR？", "recommended": "先合併 MR 再說"}')" "('human', 'merge')" "MR 合併：合併 MR"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "合進 main"}')" "('human', 'merge')" "MR 合併：合進 main"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "去板上按合併"}')" "('human', 'merge')" "MR 合併：按合併"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "Merge PR !12"}')" "('human', 'merge')" "MR 合併邊界：大小寫與 !號碼"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "gh pr merge 7 --squash"}')" "('human', 'merge')" "MR 合併邊界：gh 指令"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge into main"}')" "('human', 'merge')" "MR 合併邊界：英文寫法"
-assert_eq "$(decide_in opsx-workflow '{"question": "要合併這個 MR 嗎？", "recommended": "合併"}')" "('human', 'merge')" "雙訊號：合併字與 MR 中間隔字"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "合併到 main"}')" "('human', 'merge')" "雙訊號：合併到 main"
-assert_eq "$(decide_in opsx-workflow '{"question": "PR #12 要 merge 嗎", "recommended": "要"}')" "('human', 'merge')" "雙訊號：#號碼"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge the MR"}')" "('human', 'merge')" "雙訊號：merge the MR"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge pull request 12"}')" "('human', 'merge')" "雙訊號：pull request"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge into master"}')" "('human', 'merge')" "雙訊號：master"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "merge the PRs"}')" "('human', 'merge')" "雙訊號：複數 PRs"
-# 不是 MR 合併的合併字不擋（Scenario Outline，反例）
-assert_eq "$(decide_in opsx-workflow '{"question": "要不要把兩個 helper 合併？", "recommended": "合併成一個 helper"}')" "('answer', '合併成一個 helper')" "程式碼合併照建議答"
-assert_eq "$(decide_in opsx-workflow '{"question": "照這個拆法建殼？", "recommended": "相近的主題合併到同一個 session"}')" "('answer', '相近的主題合併到同一個 session')" "session 分組照建議答"
-assert_eq "$(decide_in opsx-workflow '{"question": "下一步？", "recommended": "重試 merge"}')" "('answer', '重試 merge')" "沒有 MR 語境的 merge 照建議答"
-assert_eq "$(decide_in opsx-workflow '{"question": "兩張卡要不要合併？", "recommended": "合併卡片"}')" "('answer', '合併卡片')" "卡片合併照建議答"
-assert_eq "$(decide_in opsx-workflow '{"question": "衝突怎麼處理？", "recommended": "git merge origin/main 再解衝突"}')" "('answer', 'git merge origin/main 再解衝突')" "分支合併照建議答"
-# 其他 repo 的決定題留給人（邊界：名字只是開頭相同）
-assert_eq "$(decide_in opsx-workflow-fork '{"question": "選哪個", "recommended": "用 A"}')" "('human', 'decision')" "opsx-workflow-fork 不算"
-# 有第二張主 change 的 split gate 不寫 建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
+# 以前其他 repo 留給人的一般決定題，現在照建議答
+assert_eq "$(decide '{"question": "要不要上真機驗", "recommended": "用 A"}')" "('answer', '用 A')" "真機題"
+assert_eq "$(decide '{"question": "可以 push 嗎", "recommended": "用 A"}')" "('answer', '用 A')" "授權字題"
+# 所有 repo 的決定題照建議答（Scenario Outline，正例）：每列一個斷言，repo 欄不進 decide
+assert_eq "$(decide '{"gate_id": "g1", "question": "範圍要不要收窄？", "recommended": "A。收窄"}')" "('answer', 'A。收窄')" "opsx-workflow g1"
+assert_eq "$(decide '{"gate_id": "split", "recommended": "照這個拆法", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '照這個拆法')" "opsx-workflow split"
+assert_eq "$(decide '{"gate_id": "g1", "question": "範圍要不要收窄？", "recommended": "A。收窄"}')" "('answer', 'A。收窄')" "Agentory-AI g1"
+assert_eq "$(decide '{"gate_id": "split", "recommended": "照這個拆法", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '照這個拆法')" "Agentory-AI split"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "recommended": "1A 2A", "options": ["1A 2A", "1B 2B"]}')" "('answer', '1A 2A')" "Agentory-AI 邏輯表 ⚠"
+assert_eq "$(decide '{"gate_id": "0303-prompt", "question": "0303 刪 skills 時改過的 prompt 要不要留", "recommended": "照現在"}')" "('answer', '照現在')" "Agentory-CS 0303-prompt"
+assert_eq "$(decide '{"gate_id": "g1", "recommended": "用 A"}')" "('answer', '用 A')" "邊界：opsx-workflow-fork 不看 repo 名"
+assert_eq "$(decide '{"gate_id": "g2", "recommended": "等 CI 綠再重跑 review"}')" "('answer', '等 CI 綠再重跑 review')" "邊界：單獨的 CI 不算改 CI"
+assert_eq "$(decide '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
+# 留給人的題在每個 repo 都一樣（Scenario Outline，反例）：Agentory-AI 與 opsx-workflow 各列
+assert_eq "$(decide '{"gate_id": "drive-apply-3", "recommended": "用 A"}')" "('human', 'stuck')" "Agentory-AI drive-apply-3"
+assert_eq "$(decide '{"gate_id": "stale-wait-20261120101500", "recommended": "用 A"}')" "('human', 'stuck')" "Agentory-AI stale-wait"
+assert_eq "$(decide '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-rec')" "Agentory-AI 選項 B、C 沒有建議（no-pick 一類，理由代碼帶出有選項）"
+assert_eq "$(decide '{"needs": "run", "recommended": "用 A"}')" "('human', 'run')" "Agentory-AI needs run"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "recommended": "准"}')" "('human', 'approval')" "Agentory-AI 授權 push 建議准"
+assert_eq "$(decide '{"type": "等待授權", "action": "mr-merge"}')" "('human', 'merge-grant')" "Agentory-AI 授權 mr-merge"
+assert_eq "$(decide '{"type": "type 不明", "recommended": "用 A"}')" "('human', 'type')" "Agentory-AI type 不明"
+assert_eq "$(decide '{"waits_on": "card-x"}')" "('park', 'card-x')" "Agentory-AI waits_on"
+assert_eq "$(decide '{"recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "Agentory-AI 重試 glab mr merge"
+assert_eq "$(decide '{}')" "('human', 'no-pick')" "Agentory-AI 沒有建議也沒有選項"
+assert_eq "$(decide '{"recommended": "你在 sandbox 外跑"}')" "('human', 'hands')" "Agentory-AI 你在 sandbox 外跑"
+assert_eq "$(decide '{"question": "選哪個", "options": ["B", "C"]}')" "('human', 'no-rec')" "opsx-workflow 選項 B、C 沒有建議"
+assert_eq "$(decide '{"type": "等待授權", "action": "push", "recommended": "准"}')" "('human', 'approval')" "opsx-workflow 授權 push 建議准"
+# 有第二張主 change 的 split gate 不寫建議、選項不標 Recommended（explore 拆卡段，me-20261122-1148 D9），協調者不代答
+assert_eq "$(decide '{"gate_id": "split", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('human', 'no-rec')" "兩張主 change 的 split gate 交人"
+# 要人動手看片語（Scenario Outline，正例）：建議取自真實 gate
+hands() { assert_eq "$(decide "{\"question\": \"下一步？\", \"recommended\": \"$1\"}")" "('human', 'hands')" "要人動手片語：$1"; }
+hands '你自己 rebase，rebase 完重跑 tests/new.test.sh'
+hands '你在 sandbox 外用 `!` 跑'
+hands '在你平常的 pane 起 claude --settings 再貼輸出'
+hands '訊息與指令都已備好，你一條命令就完成'
+hands '你在終端機跑上面那行並貼結果'
+hands '開 DevTools 錄一次回答 gate，連同機器型號貼回來'
+hands '你在 sandbox 外合併，合完我跑 /archive board-inbox'
+hands '你在沙盒外跑一次全套'
+hands '在你的終端機跑 opsx init --global'
+hands '這一步要你做，我做不到'
+hands '這題要你跑一次指令才知道'
+hands '五分鐘內可以錄完'
+hands '錄下畫面再回這題'
+hands '重新錄下畫面'
+hands '手動錄完再貼'
+hands "你在看板派一個 claude pane 重產"
+# 單字「你」「錄」不算要人動手（Scenario Outline，反例）
+not_hands() { assert_eq "$(decide "{\"question\": \"選哪個？\", \"recommended\": \"$1\"}")" "('answer', '$1')" "單字你錄不算：$1"; }
+not_hands 'A，照你上一題說的最小改動'
+not_hands 'A：跟你在 D6 的選擇一致，只影響錯誤訊息'
+not_hands '留在待指派：照派工指示，由你決定何時派'
+not_hands '不改。沒有 codex 撞到這問題的紀錄'
+not_hands '照記錄撤回'
+not_hands '1A。用相對路徑起 drive 只有在 bin/ 目錄裡手打才會發生'
+not_hands '錄影第一格就是看板，跟主圖重複'
+not_hands '建議你確認第一項'
+not_hands '照派工指示停，所以開這題請你決定'
+not_hands '開新卡。改 skill 要再跑 eval，又是一輪你跑的指令'
+not_hands 'A。記錄完整的 log 就好'
+not_hands '照記錄下方的 D3'
+not_hands '請記錄一次失敗原因'
+not_hands '紀錄完再回報'
+not_hands '放在 bin/ 目錄下就好'
+not_hands '收錄完再發'
+not_hands '附錄下方表格'
 # 要人動手的字只比建議：沒有建議時第一個選項不是建議（D4）
-assert_eq "$(decide_in opsx-workflow '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "opsx 沒建議、第一個選項含你，不算要你動手"
-assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'decision')" "其他 repo 沒建議、第一個選項含你，留在 decision"
-assert_eq "$(decide_in opsx-workflow '{"gate_id": "split", "recommended": "一張主 change", "options": ["照這個拆法", "改拆法", "不拆"]}')" "('answer', '一張主 change')" "一張主 change 的 split gate 照建議答"
+assert_eq "$(decide '{"question": "怎麼拆", "options": ["你自己拆", "照 A 拆"]}')" "('human', 'no-rec')" "沒建議、第一個選項含你，不算要你動手"
+# 第三級、花錢、對外的決定題留給人（Scenario Outline，反例）
+assert_eq "$(decide '{"question": "下一步？", "recommended": "部署到 spark1"}')" "('human', 'level3')" "level3：部署"
+assert_eq "$(decide '{"question": "要不要現在 deploy？", "recommended": "deploy monitoring"}')" "('human', 'level3')" "level3：deploy"
+assert_eq "$(decide '{"question": "分支怎麼處理？", "recommended": "force-push 覆蓋"}')" "('human', 'level3')" "level3：force-push"
+assert_eq "$(decide '{"question": "舊資料怎麼辦？", "recommended": "drop table legacy_faq"}')" "('human', 'level3')" "level3：drop table"
+assert_eq "$(decide '{"question": "lint 怎麼過？", "recommended": "改 .gitlab-ci.yml 跳過 lint"}')" "('human', 'level3')" "level3：.gitlab-ci"
+assert_eq "$(decide '{"question": "要不要改 CI 設定？", "recommended": "照建議改"}')" "('human', 'level3')" "level3：改 CI 設定"
+assert_eq "$(decide '{"question": "key 放哪？", "recommended": "寫進 sops 加密檔"}')" "('human', 'level3')" "level3：sops"
+assert_eq "$(decide '{"question": "要不要加 .env 變數？", "recommended": "加 FOO_URL 到 .env.gcp-dev"}')" "('human', 'level3')" "level3：.env"
+assert_eq "$(decide '{"question": "要不要升級方案？", "recommended": "付費升級"}')" "('human', 'level3')" "level3：付費"
+assert_eq "$(decide '{"question": "要不要通知客戶？", "recommended": "發信對客戶說明"}')" "('human', 'level3')" "level3：發信對客戶"
+assert_eq "$(decide '{"question": "要不要在 issue 留言？", "recommended": "issue comment 附連結"}')" "('human', 'level3')" "level3：issue comment"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "Deploy to prod"}')" "('human', 'level3')" "level3 邊界：大小寫不分"
+assert_eq "$(decide '{"question": "要放 Secret 嗎", "recommended": "放"}')" "('human', 'level3')" "level3 邊界：字詞在題目裡也算"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "改 CI 跳過這步"}')" "('human', 'level3')" "level3 邊界：opsx-workflow 一樣交人"
+# 改 CI 的英文說法
+assert_eq "$(decide '{"question": "fix the CI pipeline cache?", "recommended": "update ci.yml to cache pnpm"}')" "('human', 'level3')" "level3：update ci.yml、CI pipeline"
+assert_eq "$(decide '{"question": "lint 太慢？", "recommended": "update ci.yml to cache pnpm"}')" "('human', 'level3')" "level3：ci.yml"
+assert_eq "$(decide '{"question": "cache 怎麼辦？", "recommended": "edit the CI config"}')" "('human', 'level3')" "level3：CI config"
+assert_eq "$(decide '{"question": "lint 太慢？", "recommended": "change CI to skip lint"}')" "('human', 'level3')" "level3：change CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "fix the CI"}')" "('human', 'level3')" "level3：fix the CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "wait for CI green"}')" "('answer', 'wait for CI green')" "level3 邊界：等 CI 綠不是改 CI"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "update the circuit breaker"}')" "('answer', 'update the circuit breaker')" "level3 邊界：update circuit 不是改 CI"
+# 刪資料、強推與打 tag 的說法也是第三級
+assert_eq "$(decide '{"question": "舊欄位怎麼處理？", "recommended": "寫 migration ALTER TABLE faq DROP COLUMN legacy"}')" "('human', 'level3')" "level3：drop column"
+assert_eq "$(decide '{"question": "測試庫怎麼清？", "recommended": "drop database test_db"}')" "('human', 'level3')" "level3：drop database"
+assert_eq "$(decide '{"question": "舊 schema？", "recommended": "DROP SCHEMA legacy CASCADE"}')" "('human', 'level3')" "level3：drop schema"
+assert_eq "$(decide '{"question": "髒資料？", "recommended": "DELETE FROM faq WHERE id > 10"}')" "('human', 'level3')" "level3：delete from"
+assert_eq "$(decide '{"question": "build 目錄？", "recommended": "rm -rf dist 再重 build"}')" "('human', 'level3')" "level3：rm -rf"
+assert_eq "$(decide '{"question": "工作區亂了？", "recommended": "git reset --hard origin/main"}')" "('human', 'level3')" "level3：reset --hard"
+assert_eq "$(decide '{"question": "legacy 欄位？", "recommended": "刪欄位"}')" "('human', 'level3')" "level3：刪欄位"
+assert_eq "$(decide '{"question": "舊表？", "recommended": "刪除表 faq_old"}')" "('human', 'level3')" "level3：刪除表"
+assert_eq "$(decide '{"question": "舊分支？", "recommended": "刪分支 feat/x"}')" "('human', 'level3')" "level3：刪分支"
+assert_eq "$(decide '{"question": "要發版嗎？", "recommended": "git tag v1.2.0"}')" "('human', 'level3')" "level3：git tag"
+assert_eq "$(decide '{"question": "要發版嗎？", "recommended": "打 tag 觸發 CD"}')" "('human', 'level3')" "level3：打 tag"
+assert_eq "$(decide '{"question": "tag 推上去？", "recommended": "git push --tags"}')" "('human', 'level3')" "level3：push --tags"
+assert_eq "$(decide '{"question": "要不要直接改 prod 的設定？", "recommended": "改"}')" "('human', 'level3')" "level3：prod"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "推到prod"}')" "('human', 'level3')" "level3 邊界：prod 前面接中文"
+assert_eq "$(decide '{"question": "product 欄位要不要改名？", "recommended": "改成 product_name"}')" "('answer', '改成 product_name')" "level3 邊界：product 不是 prod"
+# D10：建議是「選 X」時，被選的那個選項全文也比對 level3；沒被選的選項不算
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 A", "options": ["A 直接部署到 spark1", "B 先在 staging 試"]}')" "('human', 'level3')" "D10：被選的選項寫部署"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選A", "options": ["A. 直接部署到 spark1", "B. 先在 staging 試"]}')" "('human', 'level3')" "D10 邊界：選A 沒空格、選項用 A. 開頭"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 A", "options": ["A 改成兩欄", "B 部署到 spark1"]}')" "('answer', '選 A')" "D10：沒被選的選項寫部署不算"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 C", "options": ["A 部署", "B 不部署"]}')" "('answer', '選 C')" "D10 邊界：選的代號不在選項裡"
+# D11：英文字詞有字界，不比中更長的英文字
+assert_eq "$(decide '{"question": "secretary 欄位要不要拆？", "recommended": "拆"}')" "('answer', '拆')" "D11：secretary 不是 secret"
+assert_eq "$(decide '{"question": "設定怎麼讀？", "recommended": "用 process.env 讀"}')" "('answer', '用 process.env 讀')" "D11：process.env 不是 .env 檔"
+assert_eq "$(decide '{"question": "要不要動 circuit breaker 的閾值？", "recommended": "調到 5"}')" "('answer', '調到 5')" "D11：動 circuit 不是動 CI"
+assert_eq "$(decide '{"question": "改 city 欄位格式？", "recommended": "改"}')" "('answer', '改')" "D11：改 city 不是改 CI"
+assert_eq "$(decide '{"question": "token 放哪？", "recommended": "放進 secrets"}')" "('human', 'level3')" "D11 邊界：secrets 複數仍交人"
+assert_eq "$(decide '{"question": "要不要換 credentials？", "recommended": "換"}')" "('human', 'level3')" "D11 邊界：credentials 複數仍交人"
+assert_eq "$(decide '{"question": "要不要把 migration 直接跑在 production？", "recommended": "直接跑"}')" "('human', 'level3')" "level3：production 算 prod"
+assert_eq "$(decide '{"question": "productivity 指標要不要加？", "recommended": "加"}')" "('answer', '加')" "level3 邊界：productivity 不是 prod"
+# D11 只要右字界：左邊接字母的 camelCase 與 redeploy 仍交人
+assert_eq "$(decide '{"question": "clientSecret 要不要搬到設定檔？", "recommended": "搬"}')" "('human', 'level3')" "level3：clientSecret"
+assert_eq "$(decide '{"question": "jwtSecret 換新的？", "recommended": "換"}')" "('human', 'level3')" "level3：jwtSecret"
+assert_eq "$(decide '{"question": "redeploy?", "recommended": "redeploy"}')" "('human', 'level3')" "level3：redeploy"
+assert_eq "$(decide '{"question": "awsCredentials 放哪？", "recommended": "放設定"}')" "('human', 'level3')" "level3：awsCredentials"
+# D10：建議開頭的代號指向的選項也比對 level3
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 A（最快）", "options": ["A 直接部署到 spark1", "B 不動"]}')" "('human', 'level3')" "D10：選 A 後面接理由"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 b", "options": ["A 不動", "B 部署到 spark1"]}')" "('human', 'level3')" "D10：代號大小寫不分"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "A", "options": ["A 直接部署到 spark1", "B 不動"]}')" "('human', 'level3')" "D10：建議只寫代號"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "建議選 A", "options": ["A 直接部署到 spark1", "B 不動"]}')" "('human', 'level3')" "D10：建議選 A"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "A", "options": ["(A) 直接部署到 spark1", "(B) 不動"]}')" "('human', 'level3')" "D10：選項用 (A) 開頭"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "選 1。只會改行號", "options": ["1 直接部署", "2 不動"]}')" "('human', 'level3')" "D10：選 1。理由"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "A", "options": ["A 改成兩欄", "B 部署到 spark1"]}')" "('answer', 'A')" "D10 邊界：選的是不碰部署的那個"
+assert_eq "$(decide '{"question": "怎麼做？", "recommended": "Approve 這個做法", "options": ["A 部署", "B 不動"]}')" "('answer', 'Approve 這個做法')" "D10 邊界：建議開頭的英文字不是代號 A"
+# 合併字與授權字同時出現是在問要不要合併，交人
+assert_eq "$(decide '{"question": "要授權合併嗎？", "recommended": "允許"}')" "('human', 'merge')" "合併加授權：要授權合併嗎"
+assert_eq "$(decide '{"question": "Ready to merge?", "recommended": "yes"}')" "('human', 'merge')" "合併加授權：Ready to merge"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "允許 merge"}')" "('human', 'merge')" "合併加授權：建議裡的允許 merge"
+assert_eq "$(decide '{"question": "forge 拒絕合併（pipeline 紅），要怎麼做？", "recommended": "重跑 pipeline 後重試合併"}')" "('answer', '重跑 pipeline 後重試合併')" "合併字沒有授權字照建議答"
+assert_eq "$(decide '{"question": "already 處理過的列要不要合併？", "recommended": "合併"}')" "('answer', '合併')" "合併加授權邊界：already 不是 ready"
+assert_eq "$(decide '{"question": "可以合併了嗎？", "recommended": "可以"}')" "('human', 'merge')" "合併加授權：可以合併了嗎"
+assert_eq "$(decide '{"question": "同意合併嗎？", "recommended": "同意"}')" "('human', 'merge')" "合併加授權：同意合併嗎"
+assert_eq "$(decide '{"question": "Should I merge now?", "recommended": "yes, merge"}')" "('human', 'merge')" "合併加授權：should merge now"
+assert_eq "$(decide '{"question": "要不要合 !12？", "recommended": "合"}')" "('human', 'merge')" "MR 合併：合 !12"
+assert_eq "$(decide '{"question": "要不要把兩個 helper 合併？", "recommended": "合併成一個"}')" "('answer', '合併成一個')" "合併加授權邊界：整理程式的合併照答"
+# logic-map-failed 的「無 Agent 工具」gate 要人在看板動手
+assert_eq "$(decide '{"gate_id": "logic-map-failed-1", "question": "產表失敗：無 Agent 工具", "recommended": "你在看板派一個 claude pane 重產", "options": ["你在看板派一個 claude pane 重產", "這張不要表，直接放行"]}')" "('human', 'hands')" "logic-map-failed 無 Agent 工具：要人動手"
+# 邏輯表 ⚠ gate 的建議「1A 2A」：被選那一項的選項文字也比 level3（waiting.items 由 collect 從 `選項:` 底下取）
+LMAP_ITEMS='["1 D3 欄位：A 直接 DROP COLUMN legacy (Recommended) | B 保留", "2 D5 文案：A 照舊 (Recommended) | B 部署新版"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A 2A", "items": '"$LMAP_ITEMS"'}')" "('human', 'level3')" "邏輯表項：選中的 1A 是 DROP COLUMN"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B 2A", "items": '"$LMAP_ITEMS"'}')" "('answer', '1B 2A')" "邏輯表項：選的都不碰第三級（2B 的部署沒被選）"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1b 2a", "items": '"$LMAP_ITEMS"'}')" "('answer', '1b 2a')" "邏輯表項邊界：代號大小寫不分，1B 保留照答"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A 2A"}')" "('answer', '1A 2A')" "邏輯表項邊界：沒有 items 照建議答"
+# 選項文字自己帶冒號：只在第一個冒號切掉題號與標題
+COLON_ITEMS='["1 D2：A 改設定：刪除分支 (Recommended) | B 保留"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$COLON_ITEMS"'}')" "('human', 'level3')" "邏輯表項：選項文字帶冒號，選中的 1A 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$COLON_ITEMS"'}')" "('answer', '1B')" "邏輯表項邊界：選項帶冒號時，選 1B 保留照答"
+COLON_B_ITEMS='["1 D2 收尾：A 保留 (Recommended) | B 清理：刪除分支 feat/x"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$COLON_B_ITEMS"'}')" "('human', 'level3')" "邏輯表項：後面的選項帶冒號，選中的 1B 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$COLON_B_ITEMS"'}')" "('answer', '1A')" "邏輯表項邊界：後面的選項帶冒號，選 1A 保留照答"
+PATH_ITEMS='["1 bin/lib/gaterule.py:30 收尾：A 刪除分支 feat/x (Recommended) | B 保留"]'
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1A", "items": '"$PATH_ITEMS"'}')" "('human', 'level3')" "邏輯表項：標題帶 path:line，選中的 1A 是刪除分支"
+assert_eq "$(decide '{"gate_id": "logic-map-undecided-r1", "question": "各選一個", "recommended": "1B", "items": '"$PATH_ITEMS"'}')" "('answer', '1B')" "邏輯表項邊界：標題帶 path:line，選 1B 保留照答"
+# D14：同一張卡第 3 個 logic-map-failed gate 起交人
+assert_eq "$(decide '{"gate_id": "logic-map-failed-2", "question": "產表失敗", "recommended": "重跑產表"}')" "('answer', '重跑產表')" "logic-map-failed-2 照建議答"
+assert_eq "$(decide '{"gate_id": "logic-map-failed-3", "question": "產表失敗", "recommended": "重跑產表"}')" "('human', 'stuck')" "logic-map-failed-3 交人"
+assert_eq "$(decide '{"gate_id": "logic-map-failed-12", "question": "產表失敗", "recommended": "重跑產表"}')" "('human', 'stuck')" "logic-map-failed-12 交人"
+# level3 排在 merge 之後、no-pick 之前；waits-on 仍先於它
+assert_eq "$(decide '{"question": "deploy 前先合併 MR？", "recommended": "先合併 MR"}')" "('human', 'merge')" "merge 先於 level3"
+assert_eq "$(decide '{"question": "要不要 deploy？"}')" "('human', 'level3')" "level3 先於 no-pick"
+assert_eq "$(decide '{"waits_on": "card-x", "recommended": "card-x 進 main 後再部署"}')" "('park', 'card-x')" "waits-on 先於 level3"
+# MR 合併的決定題留給人（Scenario Outline，正例）
+assert_eq "$(decide '{"question": "CI 綠了，下一步？", "recommended": "重試 glab mr merge 12"}')" "('human', 'merge')" "MR 合併：glab 指令"
+assert_eq "$(decide '{"question": "要不要先合併 MR？", "recommended": "先合併 MR 再說"}')" "('human', 'merge')" "MR 合併：合併 MR"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "合進 main"}')" "('human', 'merge')" "MR 合併：合進 main"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "去板上按合併"}')" "('human', 'merge')" "MR 合併：按合併"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "Merge PR !12"}')" "('human', 'merge')" "MR 合併邊界：大小寫與 !號碼"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "gh pr merge 7 --squash"}')" "('human', 'merge')" "MR 合併邊界：gh 指令"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "merge into main"}')" "('human', 'merge')" "MR 合併邊界：英文寫法"
+assert_eq "$(decide '{"question": "要合併這個 MR 嗎？", "recommended": "合併"}')" "('human', 'merge')" "雙訊號：合併字與 MR 中間隔字"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "合併到 main"}')" "('human', 'merge')" "雙訊號：合併到 main"
+assert_eq "$(decide '{"question": "PR #12 要 merge 嗎", "recommended": "要"}')" "('human', 'merge')" "雙訊號：#號碼"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "merge the MR"}')" "('human', 'merge')" "雙訊號：merge the MR"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "merge pull request 12"}')" "('human', 'merge')" "雙訊號：pull request"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "merge into master"}')" "('human', 'merge')" "雙訊號：master"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "merge the PRs"}')" "('human', 'merge')" "雙訊號：複數 PRs"
+# 不是 MR 合併的合併字不擋（Scenario Outline，反例）
+assert_eq "$(decide '{"question": "要不要把兩個 helper 合併？", "recommended": "合併成一個 helper"}')" "('answer', '合併成一個 helper')" "程式碼合併照建議答"
+assert_eq "$(decide '{"question": "照這個拆法建殼？", "recommended": "相近的主題合併到同一個 session"}')" "('answer', '相近的主題合併到同一個 session')" "session 分組照建議答"
+assert_eq "$(decide '{"question": "下一步？", "recommended": "重試 merge"}')" "('answer', '重試 merge')" "沒有 MR 語境的 merge 照建議答"
+assert_eq "$(decide '{"question": "兩張卡要不要合併？", "recommended": "合併卡片"}')" "('answer', '合併卡片')" "卡片合併照建議答"
+assert_eq "$(decide '{"question": "衝突怎麼處理？", "recommended": "git merge origin/main 再解衝突"}')" "('answer', 'git merge origin/main 再解衝突')" "分支合併照建議答"
+# 要人動手只看建議與題目，沒建議時選項裡的字不算（Scenario Outline，正例＋反例）；結果不依 repo 而不同
+assert_eq "$(decide '{"question": "要不要寫 log", "options": ["加記錄", "不加"]}')" "('human', 'no-rec')" "選項含「錄」不算要人動手"
+assert_eq "$(decide '{"question": "選哪個", "options": ["照你說的", "B"]}')" "('human', 'no-rec')" "選項含「你」不算要人動手"
+assert_eq "$(decide '{"question": "這段怎麼驗", "recommended": "你在 sandbox 外跑", "options": ["你在 sandbox 外跑", "略過"]}')" "('human', 'hands')" "建議含「你」要人動手"
+assert_eq "$(decide '{"question": "選哪個", "recommended": "先錄一段畫面", "options": ["先錄一段畫面", "略過"]}')" "('answer', '先錄一段畫面')" "建議含單字「錄」不算要人動手"
+assert_eq "$(decide '{"question": "這只有你能做", "options": ["A", "B"]}')" "('human', 'hands')" "邊界：題目端命中，沒建議也算"
+assert_eq "$(decide '{"question": "選哪個", "options": ["先合併 MR 再說"]}')" "('human', 'merge')" "邊界：合併檢查沒建議時仍看第一個選項"
+assert_eq "$(decide '{"question": "選哪個", "recommended": "用 A", "options": ["照你說的", "用 A"]}')" "('answer', '用 A')" "邊界：有建議時不看選項"
 # decide 回的每個 human 理由代碼都要在 coordinate.py 的 GATE_HUMAN 有文字，漏了 handle_gate 會拋 KeyError、整輪失敗。
 # terminal 由 handle_gate 在查表前自己處理，不查 GATE_HUMAN
 missing_human_text() { # <gaterule.py> <coordinate.py> → 沒有文字的理由代碼，空白分隔；全有時印空行
@@ -114,10 +269,10 @@ keys = {k.value for k in table.keys}
 print(" ".join(sorted(codes - keys - {"terminal"})))' "$1" "$2"
 }
 assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$OPSX_ROOT/bin/lib/coordinate.py")" "" "每個 human 理由代碼在 GATE_HUMAN 都有文字"
-# 自檢：GATE_HUMAN 少了 no-rec 時要抓得到
-NO_TEXT="$FX/coordinate-no-rec.py"
-grep -v '"no-rec":' "$OPSX_ROOT/bin/lib/coordinate.py" > "$NO_TEXT"
-assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$NO_TEXT")" "no-rec" "GATE_HUMAN 漏 no-rec 時要抓到"
+# 自檢：GATE_HUMAN 少了 level3 時要抓得到
+NO_TEXT="$FX/coordinate-no-level3.py"
+grep -v '"level3":' "$OPSX_ROOT/bin/lib/coordinate.py" > "$NO_TEXT"
+assert_eq "$(missing_human_text "$OPSX_ROOT/bin/lib/gaterule.py" "$NO_TEXT")" "level3" "GATE_HUMAN 漏 level3 時要抓到"
 # import 全在檔頂（~/.claude/CLAUDE.md §5）：docstring 之後，第一個非 import 敘述之前
 assert_eq "$(python3 -I -c '
 import ast, sys

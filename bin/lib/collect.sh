@@ -10,6 +10,7 @@
 #         not_dispatched_planned[], at}}（每個 repo 一份；沒設 current_milestone 或 workplan 壞了時 milestone、goal 為 null，數全部活的 main change）}
 # 每張卡：{repo, slug, title, kind, stage, section, since, waiting, open_gates[{id, opened_at}], dispatch, status, agent_status, mr,
 #        source, upstream, stale, priority{level, reason, overridden}（已歸檔或算不出來時 null）,
+#        dedup_checked（inbox frontmatter 的判過重複記號，opsx dedup 寫；沒有或空值時 null）,
 #        notes[{at, text}]（inbox.md ## 派工指示，舊的在前）,
 #        merged[{id, when, source, text, kind_of_work, type 或 area, evidence?}]（inbox.md 的 ## 併入： 段，依檔案順序；已歸檔的卡是 []）,
 #        logic_map（卡目錄 logic-map.md 的全文，已歸檔的卡也讀；沒有檔時 null，讀不了時 null 並記一筆 errors）,
@@ -203,16 +204,28 @@ if os.path.exists(agents_path) and not os.environ["OPSX_C_HERDR_ERR"]:
 
 FIELD = re.compile(r"^(type|needs|by|waits-on|blocks-from|action|status|opened_at|問題|建議|選項|證據|風險|預設|已確認|answer):\s*(.*)$")
 
+# explore 的 split gate 在 `拆法:` 底下每個 PR 寫一行 `- main change`；兩行以上要人看拆的理由
+SPLIT_MAIN = re.compile(r"^\s*- main change ")
+# 邏輯表 ⚠ gate 在 `選項:` 底下逐項寫「<題號> … A … | B …」
+OPTION_ITEM = re.compile(r"^\s*[0-9]+\s")
+
 def parse_gates(text):
-    gates, cur, key = [], None, None
+    gates, cur, key, in_split = [], None, None, False
     for line in text.split("\n"):
         if line.startswith("## "):
-            cur = {"id": line[3:].strip()}; gates.append(cur); key = None; continue
+            cur = {"id": line[3:].strip(), "main_changes": 0, "items": []}; gates.append(cur); key = None; in_split = False; continue
         if cur is None: continue
         m = FIELD.match(line)
         if m:
-            key = m.group(1); cur[key] = m.group(2).strip()
-        elif key in ("已確認", "證據", "問題") and line.strip():
+            key = m.group(1); cur[key] = m.group(2).strip(); in_split = False
+            continue
+        if line.startswith("拆法:"):
+            in_split = True
+        elif in_split and SPLIT_MAIN.match(line):
+            cur["main_changes"] += 1
+        elif key == "選項" and OPTION_ITEM.match(line):
+            cur["items"].append(line.strip())
+        if key in ("已確認", "證據", "問題") and line.strip():
             cur[key] = (cur[key] + "\n" + line.strip()).strip()
     return gates
 
@@ -238,7 +251,7 @@ def one_liner(inbox):
     return m.group(1).strip() if m else None
 
 def frontmatter(inbox, key):
-    m = re.search(r"^%s:\s*(.*)$" % key, inbox, re.M)
+    m = re.search(r"^%s:[ \t]*(.*)$" % key, inbox, re.M)
     return m.group(1).strip() or None if m else None
 
 # 段落範圍跟 note.sh 的 note_append 寫入時認的一樣，兩邊認定不同就會寫得進去、看板看不到
@@ -307,10 +320,10 @@ def merge_blockers(card, agent_status):
         return [mergeready.NOT_READY]
     sub_open = any(g.get("status", "").strip() == "open"
                    for p in glob.glob(os.path.join(d, "subs", "*", "gates.md")) for g in gates_in_force(parse_gates(read(p)), os.path.dirname(p)))
-    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, os.path.isfile(os.path.join(d, "logic-map.md")))
+    return mergeready.blockers(card["slug"], card["mr"], sub_open, agent_status, report, card["logic_map"], read(os.path.join(d, "gates.md")))
 
-# MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目（或連同邏輯表舊了）時才是要人看 report
-REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.STALE_MAP}
+# MR 全綠、沒有 open gate、pane 沒在改，只剩 report 留給人決定的項目、邏輯表沒處理的項（或連同邏輯表舊了）時才是要人看 report
+REPORT_ONLY = {mergeready.OPEN_REVIEW, mergeready.UNHANDLED_MAP, mergeready.STALE_MAP}
 
 # 跟 stage.sh 的 st_gates_file_count 同一條：blocks-from: apply 的 gate 在卡還沒有 tasks.md 時不算等人
 def gates_in_force(gates, d):
@@ -320,7 +333,7 @@ def gates_in_force(gates, d):
 def waiting_of(card, gates, agent_status):
     for g in gates:
         if g.get("status", "").strip() != "open": continue
-        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "evidence": g.get("證據"),
+        base = {"gate_id": g["id"], "question": g.get("問題"), "recommended": g.get("建議"), "items": g["items"], "evidence": g.get("證據"),
                 "risk": g.get("風險"), "default_if_unanswered": g.get("預設"), "confirmed": g.get("已確認"),
                 "needs": "run" if g.get("needs") == "run" else None,
                 "by": "coordinator" if g.get("by") == "coordinator" else None,
@@ -333,11 +346,14 @@ def waiting_of(card, gates, agent_status):
             opts = ["這次", "這張卡", "這個 repo 永遠", "拒絕"] if g.get("action") in grantactions.ACTIONS else ["拒絕"]
             return {"type": "等待授權", "action": g.get("action"), "options": opts, **base}
         opts = [o.strip() for o in (g.get("選項") or "").split("|") if o.strip()]
-        rec = base["recommended"]
+        # 兩張以上主 change 的拆法要人看理由：explore 忘了刪的 (Recommended) 或建議都不算建議
+        many_mains = g["id"] == gaterule.SPLIT_GATE and g["main_changes"] >= 2
+        rec = None if many_mains else base["recommended"]
         cleaned = []
         for o in opts:
             if "(Recommended)" in o:
-                o = o.replace("(Recommended)", "").strip(); rec = rec or o
+                o = o.replace("(Recommended)", "").strip()
+                if not many_mains: rec = rec or o
             cleaned.append(o)
         return {"type": "等待決定", "action": None, "options": cleaned, **{**base, "recommended": rec}}
     blockers = merge_blockers(card, agent_status) if card["mr"] else None
@@ -345,9 +361,9 @@ def waiting_of(card, gates, agent_status):
         return {"type": "可以合併", "action": "merge", "gate_id": None, "needs": None, "options": ["合併"], "question": "MR 五條件全綠", "recommended": "合併",
                 "evidence": card["mr"]["url"], "risk": None, "default_if_unanswered": "留在進行中", "confirmed": None}
     # 只對 pane 還在、閒著的卡：沒派出、被停掉、pane 不在或 herdr 讀不到時，唯一的動作「開啟 pane」沒有作用
-    if blockers and mergeready.OPEN_REVIEW in blockers and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
+    if blockers and {mergeready.OPEN_REVIEW, mergeready.UNHANDLED_MAP} & set(blockers) and set(blockers) <= REPORT_ONLY and agent_status in ("idle", "done"):
         return {"type": "report 待你決定", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane"],
-                "question": mergeready.OPEN_REVIEW, "recommended": None, "evidence": card["mr"]["url"], "risk": None,
+                "question": "、".join(blockers), "recommended": None, "evidence": card["mr"]["url"], "risk": None,
                 "default_if_unanswered": "MR 不合併", "confirmed": None}
     if agent_status == "blocked":
         return {"type": "終端機等待輸入", "action": None, "gate_id": None, "needs": None, "options": ["開啟 pane", "停止", "重新指派"],
@@ -363,7 +379,7 @@ def needs_human(card, gates, agent_status, top, prs, dispatched):
     open_gates = [g for g in gates if g.get("status", "").strip() == "open"]
     if not open_gates: return True
     for g in open_gates:
-        verdict = gaterule.decide(waiting_of(card, [g], agent_status), card["repo"])
+        verdict = gaterule.decide(waiting_of(card, [g], agent_status))
         if verdict[0] == "coordinator":
             if dispatched: continue
             return True
@@ -396,12 +412,13 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
     c = {"repo": repo_, "slug": slug_, "dir": dir_, "archived": archived_ == "true", "stage": stage_,
          "mr": json.loads(read(mrfile)) if mrfile else None}
     d = c["dir"]
+    c["logic_map"] = logic_map_of(os.path.join(d, "logic-map.md"), "%s/%s" % (repo_, slug_))
     if c["mr"] and c["mr"].get("error"):
         errors.append({"source": "glab" if "glab" in c["mr"]["error"] else "gh", "message": "%s/%s：%s" % (repo_, slug_, c["mr"]["error"])})
     inbox = read(os.path.join(d, "inbox.md"))
     key = "%s/%s" % (c["repo"], c["slug"])
     disp = dispatch.get(key)
-    if disp and disp.get("mode") == "stopped": disp = None
+    if disp and (disp.get("mode") == "stopped" or disp.get("released_at")): disp = None
     agent_status = mergeready.agent_status_of(agents, disp.get("pane")) if disp else None
     if disp and agents is not None and any(str(a.get("pane_id")) == str(disp.get("pane")) for a in agents): matched_panes.add(str(disp.get("pane")))
     gates_path = os.path.join(d, "gates.md")
@@ -430,9 +447,10 @@ for line in read(os.path.join(work, "cards.tsv")).split("\n"):
         "grants_repo": grants.get(c["repo"]), "path": d,
         "source": frontmatter(inbox, "source"), "upstream": frontmatter(inbox, "upstream"), "stale": frontmatter(inbox, "stale") == "true",
         "priority": priority_of(c["repo"], c["slug"], c["archived"], os.path.join(d, "inbox.md")),
+        "dedup_checked": frontmatter(inbox, "dedup_checked"),
         "notes": notes_of(inbox, c["slug"], os.path.join(d, "inbox.md")),
         "merged": [] if c["archived"] else merged_of(c["slug"], os.path.join(d, "inbox.md")),
-        "logic_map": logic_map_of(os.path.join(d, "logic-map.md"), key),
+        "logic_map": c["logic_map"],
         "stopped": stopped,
     })
 
@@ -592,7 +610,7 @@ else:
     debt = {r: [{k: h[k] for k in keep if k in h} for h in hits] for r, hits in debt_raw.items()}
 
 # 孤兒 pane：cwd（或 foreground_cwd）在 <repo>/.claude/worktrees/<slug>/ 底下（或 dispatch.json 記的 worktree），
-# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
+# 而且這張卡已歸檔、已拆（stage split）、dispatch.json 標 stopped 或 released_at（opsx release 放掉）、或卡目錄不在，而且這個 pane 就是 dispatch.json 該條記的 pane。
 # 三個都要：只看 cwd，人在同名 worktree 自己開的 pane 會被認領；只看 pane id，herdr 重用 id 時會指到別人的 pane。
 # 判斷只在這裡算一次，coordinate / reap / 看板都讀 orphans。
 # workplan 標 merged 的卡（stage archive）還沒歸檔，agent 可能正在跑 /archive，不算。
@@ -622,6 +640,7 @@ def orphan_reason(key, pane):
     if entry.get("pane_closed_at") or entry.get("reaped_at"): return None
     # 這次沒掃到的 repo（同名被丟掉、sources.toml 壞了）看不到它的卡，判不出 pane 還有沒有人用
     if key[0] not in repo_paths: return None
+    if entry.get("released_at"): return "released"
     # session 條目不是卡：走到這裡代表 pane 上已沒有活成員（live_panes 先擋掉了）
     if key[1].startswith("@"): return "session-done"
     c = card_by_key.get(key)
@@ -634,12 +653,12 @@ def orphan_reason(key, pane):
     if entry.get("mode") == "stopped": return "stopped"
     return None
 
-# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
+# 活卡（沒歸檔、不是 split、dispatch.json 不是 stopped 也沒有 released_at）佔著的 pane：續接、代管（via）的卡共用同一個 pane 與 worktree，
 # worktree_of 又是最後一筆勝出，所以 pane 上只要還有活卡，這個 pane 就不是孤兒，不管 worktree 現在算給誰。
 live_panes = set()
 for k, e in dispatch.items():
     key = tuple(k.split("/", 1)); c = card_by_key.get(key)
-    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped": continue
+    if c is None or c["archived"] or c["stage"] == "split" or e.get("mode") == "stopped" or e.get("released_at"): continue
     live_panes.add(str(e.get("pane")))
     if e.get("via"): live_panes.add(str((dispatch.get("%s/%s" % (key[0], e["via"])) or {}).get("pane")))
 

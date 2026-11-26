@@ -16,7 +16,11 @@ opt="(${valued})[[:space:]]+${tok}|--[a-z][a-z-]*(=${tok})?|-[A-Za-z]"
 commit_re="${git_word}(([[:space:]]+(${opt}))*)[[:space:]]+commit([[:space:];&|)]|\$)"
 # git 設定的鍵不分大小寫；include.path 與 includeIf.<條件>.path 讀進另一份設定檔，檔裡可以有別名，一樣當別名寫入
 alias_key='([Aa][Ll][Ii][Aa][Ss]\.|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]([Ii][Ff]\.[^[:space:];&|]*)?\.[Pp][Aa][Tt][Hh])'
-alias_re="${git_word}([[:space:]]+[^;&|]*)?[[:space:]]-c[[:space:]]+${alias_key}"
+alias_re="${git_word}([[:space:]]+[^;&|"$'\n'"]*)?[[:space:]]-c[[:space:]]+${alias_key}"
+# 找 commit：一般寫法或一次性別名。同一個 git 兩種都比中時，最長的那段吃掉整個呼叫，只算一個
+find_re="(${commit_re})|(${alias_re})"
+# command 與 builtin 之後是命令位置：command 只收全是 p 的選項（-v、-V 只印描述，不執行），可接 --
+cmd_pre='command([[:space:]]+-p+)*([[:space:]]+--)?[[:space:]]+|builtin([[:space:]]+--)?[[:space:]]+'
 # 在 git 設定寫入別名（git config alias.ci …）：別名的值可以用 bash 與 git 的引號、跳脫寫成 commit（com\mit、'c""ommit'、!f() { git commit; }），
 # 之後用別名 commit 時骨架裡沒有 commit，閘門看不到，所以任何別名的寫入在設定當下就擋（--get、--unset、--list 這類讀取與刪除不擋）。
 # 看骨架：commit 訊息之類引號裡只是提到這串字，不是在命令位置，不算
@@ -26,7 +30,7 @@ readonly_re='(^|[[:space:]])--(get|get-all|get-regexp|unset|unset-all|list)([[:s
 # 賦值只在命令位置算：export 這類設定指令不用管後面有沒有 git，前綴賦值與 env 要在同一個指令裡接著 git
 cfg_re='GIT_CONFIG_(COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_[0-9]+|VALUE_[0-9]+)='
 nv_re='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+'
-pre_re="(^|[;&|({]|"$'\n'")[[:space:]]*((then|do|else|elif|if|while|until|time|command|builtin|!)[[:space:]]+)*"
+pre_re="(^|[;&|({]|"$'\n'")[[:space:]]*((then|do|else|elif|if|while|until|time|!)[[:space:]]+|${cmd_pre})*"
 env_alias_re="(${git_word}([[:space:]]+[^;&|]*)?[[:space:]]--config-env([[:space:]=]|\$))"
 env_alias_re+="|(${pre_re}(export|declare|typeset|readonly|local)[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*(${nv_re})*${cfg_re})"
 # env 的選項可以帶值（env -u HOME），env 與賦值之間不逐個解析
@@ -53,6 +57,20 @@ fi
 # commit 實際作用的目錄決定對卡，不是 session cwd；hook_cwd 認 OPSX_CWD
 join_dir() { case "$2" in /*) printf '%s' "$2" ;; *) printf '%s/%s' "$1" "$2" ;; esac; }
 unreadable_dir() { case "$1" in *[\"\'\$\`~\\]*|*[*?\[\{]*) return 0 ;; esac; return 1; }
+in_quotes() { # <文字>：讀到結尾時還在引號裡就成立。單引號裡不認跳脫，雙引號裡與引號外認 \ 跳脫
+  local s="$1" q='' i c
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    if [ -z "$q" ]; then
+      case "$c" in \\) i=$((i + 1)) ;; \"|\') q="$c" ;; esac
+    elif [ "$q" = '"' ]; then
+      case "$c" in \\) i=$((i + 1)) ;; \") q='' ;; esac
+    elif [ "$c" = "'" ]; then
+      q=''
+    fi
+  done
+  [ -n "$q" ]
+}
 check_dir() { # <路徑>：讀不出來就記進 bad_dirs
   case "$1" in
     '""'|"''") bad_dirs="$bad_dirs 引號包住的路徑" ;;
@@ -64,18 +82,18 @@ unset OPSX_CWD
 bad_dirs=''
 before=" ${sk%%"$m0"*}"
 # commit 前面的 cd 與 pushd 照順序疊起來（cd a && cd b 的 b 是相對 a）
-# 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過，目錄在第 8 組
+# 只認命令開頭的 cd（echo cd x 的 cd 是參數），前面可以有 NAME=值；-P -L -e -@ -- 略過；cd 本身在第 6 組，目錄在第 11 組
 # ( 不算命令開頭：子程序裡的 cd 不改外層目錄，由 sub_cd 擋
 dtok='(\\.|[^[:space:];&|)<>\\])+'
-asg='[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|command[[:space:]]+|builtin[[:space:]]+|command[[:space:]]+--[[:space:]]+|builtin[[:space:]]+--[[:space:]]+'
+asg="[A-Za-z_][A-Za-z0-9_]*=[^[:space:];&|]*[[:space:]]+|then[[:space:]]+|do[[:space:]]+|else[[:space:]]+|elif[[:space:]]+|if[[:space:]]+|while[[:space:]]+|until[[:space:]]+|![[:space:]]+|time[[:space:]]+|${cmd_pre}"
 cd_re="(^|[;&|{)]|"$'\n'")[[:space:]]*(${asg})*(cd|pushd)(([[:space:]]+-[PLe@]+)*([[:space:]]+--)?)([[:space:]]+(${dtok}))?([[:space:];&|)<>]|\$)"
 cd_dirs=()
 rest_cd="$before"
 while [[ "$rest_cd" =~ $cd_re ]]; do
-  if [ -z "${BASH_REMATCH[8]}" ]; then
-    bad_dirs="$bad_dirs '${BASH_REMATCH[3]}'（沒有參數，回到哪個目錄讀不出來）"
+  if [ -z "${BASH_REMATCH[11]}" ]; then
+    bad_dirs="$bad_dirs '${BASH_REMATCH[6]}'（沒有參數，回到哪個目錄讀不出來）"
   else
-    check_dir "${BASH_REMATCH[8]}"; cd_dirs+=("${BASH_REMATCH[8]}")
+    check_dir "${BASH_REMATCH[11]}"; cd_dirs+=("${BASH_REMATCH[11]}")
   fi
   rest_cd="${rest_cd#*"${BASH_REMATCH[0]}"}"
 done
@@ -91,15 +109,23 @@ env_re="${pre_re}(env([[:space:]]+[^;&|]*)?[[:space:]]+|(export|declare|typeset|
 bad_env=''
 [[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[9]}"
 # 子程序（( )、$( )、反引號、sh -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來（雙引號裡的 $( ) 沒有括號，sh -c 的內容被攤平成外層的 cd），
-# 所以看原文第一個 commit 之前那段；commit 訊息在 commit 之後，不受影響
+# 所以看原文第一個不在引號裡的 commit 之前那段：echo "git -c alias.x" 這類引號裡的字樣不是指令，不能把範圍截短；
+# commit 訊息與 heredoc 本文在 commit 之後，不受影響。全部比中都在引號裡（bash -c "… git commit"）就看第一個
 sub_re='(\(|`|(^|[^[:alnum:]_])(ba|z|k|da)?sh([[:space:]]+-[[:alnum:]]+)*[[:space:]]+-[[:alnum:]]*c|eval[[:space:]])'
 cd_word_re='(^|[^[:alnum:]_.-])(cd|pushd)([[:space:]]|$)'
-# 原文寫 git "commit" 時對不上 commit_re，改在去掉引號字元的原文上找
+# 原文寫 git "commit" 或 -c "alias.ci=commit" 時對不上，改在去掉引號字元的原文上找
 raw="$cmd"
-[[ "$raw" =~ $commit_re ]] || raw="${cmd//[\"\']/}"
+[[ "$raw" =~ $find_re ]] || raw="${cmd//[\"\']/}"
 raw_m=''; raw_before=''
-if [[ "$raw" =~ $commit_re ]]; then
+if [[ "$raw" =~ $find_re ]]; then
   raw_m="${BASH_REMATCH[0]}"; raw_before="${raw%%"$raw_m"*}"
+  rest_raw="$raw"; seen=''
+  while [[ "$rest_raw" =~ $find_re ]]; do
+    m="${BASH_REMATCH[0]}"; pre="${rest_raw%%"$m"*}"
+    # 比中的第一個字可能是 git 前面那個引號（git_word 會吃掉前一個字），所以一起算
+    if ! in_quotes "$seen$pre${m:0:1}"; then raw_m="$m"; raw_before="$seen$pre"; break; fi
+    seen="$seen$pre$m"; rest_raw="${rest_raw#*"$m"}"
+  done
 fi
 sub_cd=0
 [[ "$raw_before" =~ $sub_re && "$raw_before" =~ $cd_word_re ]] && sub_cd=1
@@ -113,7 +139,7 @@ fi
 # 兩個以上 commit 只判得了第一個
 commit_n=0
 rest_n="$sk"
-while [[ "$rest_n" =~ $commit_re ]]; do
+while [[ "$rest_n" =~ $find_re ]]; do
   commit_n=$((commit_n + 1)); rest_n="${rest_n#*"${BASH_REMATCH[0]}"}"
 done
 # popd 回到哪個目錄要追目錄堆疊，讀不出來
@@ -216,10 +242,9 @@ if [ -n "$bad_dirs" ]; then
   deny "opsx commit 閘門：指令裡的目錄（${bad_dirs# }）讀不出 commit 實際作用的 repo：含空白、引號、變數、~ 或萬用字元，或 --git-dir 不是 <repo>/.git，或 cd -。改用不含空白的字面路徑（git -C /abs/path commit 或 cd /abs/path && git commit）。"
 fi
 
-# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3text：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
-# （它也扣 opsx answer 的答案與 cat、tee 寫檔 heredoc，那兩種寫法照舊算數）
+# [no-change] 要在這個 commit 自己的訊息裡。-m 的字串交給 cmd_l3commit：它扣掉的 [no-change] 比原文少，就是有一個在訊息裡
 nc_in_msg=0
-l3="$(cmd_l3text "$cmd")" || l3="$cmd"
+l3="$(cmd_l3commit "$cmd")" || deny "opsx commit 閘門：perl 執行失敗，算不出 commit 訊息裡有沒有 [no-change]，先擋下。確認 perl 可用"
 nc_cmd="${cmd//\[no-change\]/}"; nc_l3="${l3//\[no-change\]/}"
 [ $(( ${#cmd} - ${#nc_cmd} )) -gt $(( ${#l3} - ${#nc_l3} )) ] && nc_in_msg=1
 # -F -、--file=- 讀的 heredoc 本體也是訊息：結尾行要整行相同，<<- 先去掉行首 tab；找不到結尾行就不算
