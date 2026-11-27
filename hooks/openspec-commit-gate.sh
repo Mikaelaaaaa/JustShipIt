@@ -104,9 +104,13 @@ if [[ "${m0:0:1}" == [[:blank:]] && "$before" =~ $env_c_re ]]; then
   check_dir "${BASH_REMATCH[6]}"; cd_dirs+=("${BASH_REMATCH[6]}")
 fi
 # CDPATH 會改變相對 cd 的落點；GIT_DIR、GIT_WORK_TREE、GIT_COMMON_DIR 直接換掉 repo，都讀不出來
-env_re='(^|[[:space:];&|(])(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)='
+# 只認命令位置的賦值（前綴賦值、env 之後、export 這類設定指令之後）；echo GIT_DIR=x 的是參數。
+# 變數名從比對尾端取，不靠組號：pre_re 的括號數會變
+env_re="${pre_re}(env([[:space:]]+[^;&|]*)?[[:space:]]+|(export|declare|typeset|readonly|local)[[:space:]]+(-[[:alnum:]]+[[:space:]]+)*)?(${nv_re})*(CDPATH|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR)="
 bad_env=''
-[[ "$before" =~ $env_re ]] && bad_env="${BASH_REMATCH[2]}"
+if [[ "$before" =~ $env_re ]]; then
+  bad_env="${BASH_REMATCH[0]%=}"; bad_env="${bad_env##*[!A-Z_]}"
+fi
 # 子程序（( )、$( )、反引號、sh -c、eval）裡的 cd 不影響外層目錄，骨架讀不出來（雙引號裡的 $( ) 沒有括號，sh -c 的內容被攤平成外層的 cd），
 # 所以看原文第一個不在引號裡的 commit 之前那段：echo "git -c alias.x" 這類引號裡的字樣不是指令，不能把範圍截短；
 # commit 訊息與 heredoc 本文在 commit 之後，不受影響。全部比中都在引號裡（bash -c "… git commit"）就看第一個
