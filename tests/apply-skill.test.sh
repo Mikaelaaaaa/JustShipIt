@@ -198,4 +198,29 @@ has 'When a red guard lists no failure to compare (it timed out, or only exited 
 has 'The number compared is the one in the same place in the message once line and column numbers are removed; when the places do not line up, compare by count.' "$TA"
 # D32：stash 之後任何一步失敗都先切回並 apply
 has 'When any step after the stash fails, check the branch out again and apply the stash first' "$TA"
+# --- agent-20261126-1119 specs/apply-related-checks：Test agent 的型別檢查與守門測試 ---
+# 觸發條件與指令找法（D3、D5、D8）
+for k in 'exported symbol' 'imported by a file outside the diff' '`.tsx`' '`.py`' 'mypy' 'Otherwise run no typecheck' 'no typecheck command' 'say so in the reply'; do
+  has "$k" "$TA"
+done
+has '`git diff --name-only <pre-merge sha> HEAD`' "$TA"
+has 'the pre-merge sha (`ORIG_HEAD` read right after the merge)' "$TA"
+has 'with no pre-merge sha given, no merge happened' "$TA"
+! grep -qF 'HEAD^1' "$TA" || fail "Test agent 不該再用 HEAD^1 判斷 merge 帶進的檔（D8）"
+# 被拒開 gate，不交 CI（D5）；回報帶型別檢查結果，由 session 開 gate（R1.2）
+for k in 'When a hook or dontAsk denies the typecheck, never hand it to CI' '`type: decision`' '`needs: run`' '`by: coordinator`' 'does not continue to review' '`TYPECHECK: PASS|FAIL|DENIED <command and deny message>|SKIPPED <reason>|NOT-TRIGGERED`' 'the session that spawned the Test agent (apply, or babysit after its merge) writes the gate, not the Test agent' 'whose recommendation is the full command' 'apply does not continue to review and babysit does not push' 'A `TYPECHECK: FAIL` from an error this change or this merge brought makes `STATUS` FAIL'; do
+  has "$k" "$TA"
+done
+! grep -qF 'the apply session writes the gate' "$TA" || fail "寫 gate 的不只 apply session（R3.2）"
+# 紅時先在 main 跑（D6）
+has 'An error that main also has is listed in the reply and not fixed here' "$TA"
+has 'only the errors this change or this merge brought are fixed' "$TA"
+has '`git worktree add --detach <scratch dir> <remote>/main`, never by switching or stashing this tree' "$TA"
+has 'remove it with `git worktree remove` afterwards' "$TA"
+has 'when that is denied or cannot run' "$TA"
+has 'same file and the same message, whatever the line' "$TA"
+# 守門測試三個來源，逐檔判斷（D4、D10、D11）
+for k in "the guard tests the repo's CLAUDE.md names" '`git grep -l -F' "the changed file's directory and the directory above it" 'do not guess' '`.yml`' 'whether or not the change also touches source'; do
+  has "$k" "$TA"
+done
 echo ok
