@@ -163,7 +163,7 @@ has "$(cat "$WT/AGENTS.md")" "$(rule_autopilot "$WT" | awk -F' · ' '{ print $1 
 has "$(cat "$WT/AGENTS.md")" '- 沒有時：跑測試用這個 repo 的指令' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
 has "$(cat "$WT/AGENTS.md")" '- worktree 根有 `tests/run.sh` 時：跑測試一律 bash tests/run.sh' "沒有 tests/run.sh 的 worktree 的 AGENTS.md"
 assert_eq "$(git -C "$WT" status --porcelain)" "" "AGENTS.md 不進 git"
-assert_grep "^agent start cx --kind codex --pane w1:pE -- -a never -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR\$" "$OPSX_FAKE_LOG"
+assert_grep "^agent start cx --kind codex --pane w1:pE -- -a never -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR -c shell_environment_policy.set.OPSX_CARD=\"cx\"\$" "$OPSX_FAKE_LOG"
 
 opsx stop cx >/dev/null 2>&1 || fail "stop cx"
 : > "$OPSX_FAKE_LOG"
@@ -171,7 +171,7 @@ out="$(opsx dispatch cx --agent codex --mode interactive 2>&1)" || fail "redispa
 has "$(cat "$WT/AGENTS.md")" "$(rule_interactive)" "重派後的 AGENTS.md"
 gone "$(cat "$WT/AGENTS.md")" '要問人的事寫 gates.md' "重派後的 AGENTS.md"
 assert_eq "$(grep -cx '/AGENTS.md' "$EXCL")" 1 "info/exclude 的 /AGENTS.md 只該有一行"
-assert_grep "^agent start cx --kind codex --pane w1:pE -- -a on-request -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR\$" "$OPSX_FAKE_LOG"
+assert_grep "^agent start cx --kind codex --pane w1:pE -- -a on-request -s workspace-write --add-dir $D/openspec --add-dir $OPSX_STATE_DIR -c shell_environment_policy.set.OPSX_CARD=\"cx\"\$" "$OPSX_FAKE_LOG"
 
 out="$(opsx dispatch cl --agent claude --mode interactive 2>&1)" || fail "dispatch claude: $out"
 assert_no_file "$D/.claude/worktrees/cl/AGENTS.md"

@@ -135,6 +135,14 @@ for p in "GIT_DIR|GIT_DIR=$R/.git git commit -m x" "GIT_WORK_TREE|export GIT_WOR
   c="${p#*|}"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "git 目錄環境變數要擋：${c}｜$(reason "$out")"
   reason "$out" | grep -q "${p%%|*}" || fail "deny 要點名 ${p%%|*}: $(reason "$out")"
 done
+# gate-env-cmdpos：只有命令位置的賦值算設了變數，別的命令參數裡的同樣字樣不算
+for c in "echo GIT_DIR=$R/.git; git commit -m x" 'echo CDPATH=/tmp; git commit -m x' "printf '%s\n' GIT_WORK_TREE=$R && git commit -m x" 'grep GIT_COMMON_DIR= f; git commit -m x'; do
+  out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" allow "參數裡的賦值不算設變數：${c}｜$(reason "$out")"
+done
+for p in "CDPATH|CDPATH=/tmp cd $FX/wt && git commit -m x" "GIT_DIR|echo hi; GIT_DIR=$R/.git git commit -m x"; do
+  c="${p#*|}"; out="$(cgin "$FX/wt" "$c")"; assert_eq "$(decision "$out")" deny "命令位置的賦值照擋：${c}｜$(reason "$out")"
+  reason "$out" | grep -q "${p%%|*}" || fail "deny 要點名 ${p%%|*}: $(reason "$out")"
+done
 out="$(cgin "$N" 'git commit -m x')"; [ "$(decision "$out")" != deny ] || fail "沒有子程序照常判: $(reason "$out")"
 out="$(cgin "$FX/wt" 'git add $(git ls-files -m) && git commit -m x')"; assert_eq "$(decision "$out")" allow "有 \$( ) 沒有 cd 照常判: $(reason "$out")"
 # review R1.1：cd 後面接重導向、前綴關鍵字、管線或背景時，作用目錄照樣讀得出來或擋下

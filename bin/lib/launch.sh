@@ -20,6 +20,8 @@ launch_args() { # <agent> <model> <mode> <repo> <herdr 名> <主 repo>
     if [ "$mode" = interactive ]; then LAUNCH_ARGS+=(-a on-request -s workspace-write); else LAUNCH_ARGS+=(-a never -s workspace-write); fi
     # 卡的檔在主 repo 的 openspec/，不在 worktree；沒有這兩個，規則叫它寫的 gates.md / status.json 寫不進
     LAUNCH_ARGS+=(--add-dir "$top/openspec" --add-dir "$OPSX_STATE_DIR")
+    # codex 沒有 --settings 的 env：OPSX_CARD 讓 opsx new 與 git 端 commit 閘門認出 dispatch 的 agent
+    LAUNCH_ARGS+=(-c "shell_environment_policy.set.OPSX_CARD=\"$name\"")
   fi
 }
 

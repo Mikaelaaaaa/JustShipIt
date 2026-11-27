@@ -43,6 +43,11 @@ assert_grep "去重" "$R/openspec/schemas/opsx/schema.yaml"
 ( cd "$R" && openspec schema validate opsx >/dev/null 2>&1 ) || fail "forked schema invalid"
 assert_grep "^openspec/$" "$R/.git/info/exclude"           # 不進 git，不動 .gitignore
 assert_no_file "$R/.gitignore"
+# git 端 commit 閘門：config-based hook，不動 core.hooksPath
+assert_eq "$(git -C "$R" config --get hook.opsx.event)" prepare-commit-msg "init 要寫 hook.opsx.event"
+assert_eq "$(git -C "$R" config --get hook.opsx.command)" "bash '$OPSX_ROOT/hooks/git-prepare-commit-msg.sh'" "init 要寫 hook.opsx.command"
+assert_file "$OPSX_ROOT/hooks/git-prepare-commit-msg.sh"
+assert_eq "$(git -C "$R" config --get core.hooksPath)" "" "init 不改 core.hooksPath"
 assert_file "$OPSX_STATE_DIR/sources.toml"
 assert_grep 'kind = "gitlab"' "$OPSX_STATE_DIR/sources.toml"
 assert_grep 'repo = "Acmecorp-CS"' "$OPSX_STATE_DIR/sources.toml"
@@ -66,6 +71,24 @@ assert_eq "$(cat "$CLAUDE_CONFIG_DIR/.claude.json")" "$trust_before" "opsx 不�
 after="$(cat "$OPSX_STATE_DIR/sources.toml" "$R/.git/info/exclude" "$CR")"
 assert_eq "$after" "$before" "rerun changed files"
 assert_eq "$(grep -c 'repo = "Acmecorp-CS"' "$OPSX_STATE_DIR/sources.toml")" 1 "duplicate registration"
+assert_eq "$(git -C "$R" config --get-all hook.opsx.event | wc -l | tr -d ' ')" 1 "重跑不重複寫 hook.opsx.event"
+case "$out2" in *"hook.opsx 已有"*) ;; *) fail "重跑要印 hook.opsx 已有：$out2" ;; esac
+
+# --- git 端閘門：已有 core.hooksPath 時兩個 hook 都跑；腳本不見時 commit 失敗 ---
+HP="$(mk_repo hookspath)"
+mkdir -p "$FX/hp-hooks"; printf '#!/bin/sh\ntouch "%s"\n' "$FX/hp-marker" > "$FX/hp-hooks/prepare-commit-msg"; chmod +x "$FX/hp-hooks/prepare-commit-msg"
+git -C "$HP" config core.hooksPath "$FX/hp-hooks"
+( cd "$HP" && opsx init >/dev/null 2>&1 ) || fail "hookspath repo init 失敗"
+assert_eq "$(git -C "$HP" config --get core.hooksPath)" "$FX/hp-hooks" "init 不動既有的 core.hooksPath"
+mk_change "$HP" card; printf 'prs:\n  - name: card\n' > "$HP/openspec/workplan.yaml"; printf -- '- [ ] 1.1 a\n' > "$HP/openspec/changes/card/tasks.md"
+echo x > "$HP/f.txt"; git -C "$HP" add f.txt; h="$(git -C "$HP" rev-parse HEAD)"
+( cd "$HP" && env -u OPSX_CARD CLAUDECODE=1 git commit -q -m x ) >/dev/null 2>&1
+assert_file "$FX/hp-marker"
+assert_eq "$(git -C "$HP" rev-parse HEAD)" "$h" "卡沒有勾，agent 的 commit 要被 git 端閘門擋下"
+git -C "$HP" config hook.opsx.command "bash '$FX/no-such-hook.sh'"
+( cd "$HP" && env -u OPSX_CARD -u CLAUDECODE git commit -q -m x ) >/dev/null 2>&1; rc=$?
+[ $rc -ne 0 ] || fail "hook 腳本不見時 commit 要失敗"
+assert_eq "$(git -C "$HP" rev-parse HEAD)" "$h" "hook 腳本不見時 HEAD 不變"
 
 # --- 邊界：已有 openspec/（既有 repo）→ 不重跑 openspec init，只補 schema 和登記 ---
 R2="$(mk_repo scam-guard https://github.com/Mikaelaaaaa/scam-guard.git)"
