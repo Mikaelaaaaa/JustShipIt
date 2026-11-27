@@ -235,6 +235,26 @@ for s in 'opsx merge' 'glab mr merge' 'gh pr merge' 'CronCreate' 'max-working' '
   case "$D19" in *"$s"*) fail "職責 19 不能有：$s — $D19" ;; esac
 done
 
+# 讀看板與 CI（specs/opsx-lead「協調者讀看板取自 /api/collect」）：只讀 ## 讀看板與 CI 到下一個 ## 標題，段落要夾在 ## Duties 與 ## 怎麼問 gate 之間
+BOARD="$(awk '/^## 讀看板與 CI/{f=1;next} f&&/^## /{exit} f' "$F")"
+[ -n "$BOARD" ] || fail "找不到「## 讀看板與 CI」段"
+n_board="$(heading_of '## 讀看板與 CI')"
+[ -n "$n_board" ] && [ "$n_board" -gt "$n_duties" ] && [ "$n_board" -lt "$n_ask" ] \
+  || fail "「## 讀看板與 CI」要在 ## Duties（${n_duties}）與 ## 怎麼問 gate（${n_ask}）之間，現在在 ${n_board:-沒有}"
+for s in 'GET http://127.0.0.1:<port>/api/collect' 'X-Opsx-Token' '$OPSX_STATE_DIR/board-token' '8791' '$OPSX_STATE_DIR/board-*.pid' \
+  'run `opsx collect`, which prints the same JSON' '`section`' '`hold`' \
+  'Never count a column from status.json' 'Never call the board'"'"'s POST endpoints' '絕不合併' '不代答'; do
+  case "$BOARD" in *"$s"*) ;; *) fail "讀看板與 CI 段缺：$s" ;; esac
+done
+case "$D19" in *'`## 讀看板與 CI`'*) ;; *) fail "職責 19 要指向 ## 讀看板與 CI — $D19" ;; esac
+# CI log（specs/opsx-lead「協調者用 read token 讀 CI log」）：Examples 三列各一個斷言，401／403 列進 ①，write token 的 403 改用 read token
+for s in '$OPSX_STATE_DIR/gitlab-read-token' 'pipeline jobs' 'job trace' 'allowed_domains' \
+  'Never ask the user to paste a log' \
+  'answers 401' 'answers 403' 'paste the response body as it came into block ① and ask the user for a new token' \
+  'The write token answers 403 on those endpoints' 'switch to the read token; that 403 does not go in block ①'; do
+  case "$BOARD" in *"$s"*) ;; *) fail "讀看板與 CI 段缺：$s" ;; esac
+done
+
 # frontmatter 的 name 是 lead（/opsx-workflow:lead）
 assert_eq "$(sed -n 2p "$F")" "name: lead" "frontmatter name"
 # 職責 2：每個 repo 有建議的 decision 由 opsx coordinate 照建議答、註「協調者代決」並列在 ④，其餘 gate 轉給使用者
