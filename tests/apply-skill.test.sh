@@ -95,4 +95,107 @@ grep -qF '協調者代決' "$FX/apply5" || fail "apply 第 5 步要寫代答註�
 ! grep -qF 'In the opsx-workflow repo the coordinator answers' "$FX/apply5" || fail "apply 第 5 步不該再把代答限定在 opsx-workflow"
 ! grep -qF '協調者判定' "$FX/apply5" || fail "apply 第 5 步不該再有範圍判斷的答案文字（D5）"
 ! grep -qF 'The coordinator never answers any gate' "$SK" || fail "apply SKILL.md 不該再寫協調者不答任何 gate"
+
+# 驗收：openspec/changes/apply-static-guards/specs/apply-static-guards/spec.md
+TA="$FX/test-agent"
+section "Test agent" > "$TA"
+[ -s "$TA" ] || fail "section missing: Test agent"
+# Scenario：Test agent 段落寫明靜態守門算相關測試
+has 'a static guard whose scan covers a file you changed' "$TA"
+has 'needs no database, network or other service' "$TA"
+# R1.1、D15：brief 帶被改檔案，清單用本地的 main，不 fetch
+has 'the files this change touches (`git diff --name-only <primary remote>/main...HEAD` against the local ref, no fetch, plus the uncommitted ones, untracked new files included, from `git status --porcelain`;' "$TA"
+# Scenario：不跑全套的原句保留
+has 'Do not run the whole suite; CI does that.' "$TA"
+! grep -qiE 'exception to|except for static' "$TA" || fail "靜態守門不能寫成不跑全套的例外（D2）"
+# Scenario：Test agent 段落寫明找守門的兩種方法（D12、D20：宣告的目標只用來列守門檔）
+has 'pnpm test:ring0' "$TA"
+has 'use it only to list the guard files, and run only the ones whose scan covers a file you changed' "$TA"
+has 'skip the search below; a script name alone (`test:unit`) does not count. Otherwise, first check' "$TA"
+# D13：不管改了哪類檔都讀索引
+has 'check whether the repo'"'"'s CLAUDE.md lists a document to read before changing files, whatever kind of file you changed' "$TA"
+has 'read the guard index it points to in full, never through `grep | head`' "$TA"
+has 'run every guard the index lists whose scan covers a file you changed, whether or not the grep below finds it' "$TA"
+has 'the helpers they import' "$TA"
+# D14：清單不含 find
+has '(`readdirSync`, `readdir`, `glob`, `os.walk`, `os.listdir`, `os.scandir`, `iterdir`, `WalkDir`, `ReadDir`, `git ls-files`)' "$TA"
+# D39：宣告的指令帶環境變數時用它本身跑
+has 'when that command sets environment variables in front, run the guards through the command itself with the guard paths appended, `pnpm test:ring0 <guard paths>`, not through vitest directly' "$TA"
+# D41：「失敗」只指 git 步驟
+has 'A failure here means a git step (checkout, apply); the guard exiting non-zero on the base is what you compare, not a failure.' "$TA"
+! grep -qF '`find`' "$TA" || fail "grep 清單不能有 find（D14）"
+# Scenario：只 grep 被改路徑不夠
+has 'A grep for the changed path alone misses a guard that builds its root from segments' "$TA"
+! grep -qF 'grep the test files for the changed path' "$TA" || fail "不能叫 agent 只 grep 被改路徑（D3）"
+# Scenario：守門在 base 也紅時不擋卡（Examples 三列）
+has 'compare it with the base before fixing anything' "$TA"
+has 'run the same guard on the base commit' "$TA"
+has 'git merge-base HEAD <primary remote>/main' "$TA"
+has 'when the fetch fails, the red is this change'"'"'s failure' "$TA"
+# D19、D25：只在這張卡自己的 worktree 比 base
+has 'anywhere else other sessions'"'"' edits may share the tree, so the base is not run' "$TA"
+# D16、R3.1：stash 安全步驟，順序一整串
+has 'git branch --show-current' "$TA"
+has 'set the work aside with `git stash push -u -m <unique tag>` and note the entry'"'"'s SHA by matching that tag in `git stash list --format='"'"'%H %gs'"'"'`, never from the top of the list' "$TA"
+has 'no matching entry means nothing was stashed, so do not run the base' "$TA"
+has 'When the tree is clean, skip the stash.' "$TA"
+has 'Check out the base, run the guard in the foreground until it exits, then check the branch out again and, when you stashed, `git stash apply <sha>`, whether the guard passed or failed.' "$TA"
+has 'Drop the entry found by its tag only after the apply exits 0 and `git status --porcelain` shows the changes back' "$TA"
+has 'keep the entry, leave the tree as it is, and write a gate that names the SHA' "$TA"
+has 'never a bare `git stash`' "$TA"
+has 'When any of that cannot be done, do not run the base' "$TA"
+# D11、R3.3：逐筆比，去掉行號欄號
+has 'Compare failure by failure (file and message, with line and column numbers and any other standalone numbers in the message removed), not red against green, and count them' "$TA"
+# D35：識別字裡的數字保留
+has 'A number inside an identifier (`msg_404`) is part of the message and stays.' "$TA"
+# D36：base 列不出失敗時不用 base 結果
+has 'When the guard on the base times out, or is red but lists no failure, do not use the base result: the red is this change'"'"'s failure, and the reply says the base comparison was not run.' "$TA"
+# D22：比筆數
+has 'count them: more failures with the same file and message on this change than on the base is this change'"'"'s failure' "$TA"
+# D23：base 跑完切不回或 apply 失敗
+has 'When the branch cannot be checked out again, or the apply fails or does not bring the changes back after the base ran, do not use the base result: the red is this change'"'"'s failure; stop and write a gate that names the commit you are on and the stash SHA' "$TA"
+# D21：被改檔案含 untracked
+has 'plus the uncommitted ones, untracked new files included' "$TA"
+has 'Every failure on this change also on the base: not this change'"'"'s failure; say so in the reply, open a card by skeleton row 6, and count that guard as green' "$TA"
+has 'the run'"'"'s other tests keep their own result' "$TA"
+has 'Any failure the base does not have: it is this change'"'"'s failure, and the two fix cycles below apply' "$TA"
+has 'still red after two cycles is recorded `--tests red` like any other test' "$TA"
+# R1.2、R3.2、D17：只有往下掉或刪檔才改基線，往上是這張卡的紅
+has 'A ratchet guard red because this change lowered a count or removed a file is fixed in this task: the baseline file the guard names is in scope.' "$TA"
+has 'A count that went up is this change'"'"'s failure; never raise a baseline number.' "$TA"
+# D18：needs: run gate 之後記紅、往下做
+has 'write a `needs: run` gate for that command instead of aborting the change, record that guard `--tests red`, and go on to the next change' "$TA"
+# D24：宣告的目標要 CLAUDE.md 寫明只跑不需服務的測試，script 名字不算
+has 'When the repo'"'"'s CLAUDE.md says a command runs only tests that need no service (such as `pnpm test:ring0`)' "$TA"
+has 'a script name alone (`test:unit`) does not count' "$TA"
+# D25：只在目錄名等於卡名的 worktree 跑 base
+has 'Run the base only in the worktree whose directory name is this card'"'"'s name' "$TA"
+! grep -qF 'one under `.claude/worktrees/` that no other session uses' "$TA"
+# D26：改到守門檔本身不做 base 比對
+has 'When this change edits the guard file itself, do not run the base: the red is this change'"'"'s failure.' "$TA"
+# D27：免服務指令那條路也讀組掃描根的那幾行
+has 'read the lines in each guard that build the root it scans, as for the grep below, to decide whether it covers a file you changed' "$TA"
+# D28：必讀表多份文件時都讀
+has 'When it lists several documents, read every one that has a table of test files or guards; each counts as an index.' "$TA"
+# D29：數字也去掉，數字比 base 大才算紅
+has 'with line and column numbers and any other standalone numbers in the message removed' "$TA"
+has 'a matched failure whose number is higher on this change than on the base is this change'"'"'s failure' "$TA"
+# D30：import 被改檔也算蓋到
+has 'A guard that imports a file you changed directly also covers it; an indirect import is left to CI.' "$TA"
+# D37：本地沒有 main ref 時先 fetch
+has 'when the local `<primary remote>/main` ref does not exist, `git fetch <primary remote> main` first' "$TA"
+# D38：detached HEAD 不跑 base
+has 'When it prints nothing (a detached HEAD), do not run the base: the red is this change'"'"'s failure.' "$TA"
+# D42：base 通過就是比過了
+has 'A guard that passes on the base was compared: the red is this change'"'"'s failure, and the reply does not say the comparison was skipped.' "$TA"
+# D43：修正後仍紅，拿第一次的 base 清單再比
+has 'When the guard is still red after a fix cycle, compare again against the base failures from the first run; do not run the base again.' "$TA"
+# D44：apply 成功但改動沒回來也要寫 gate
+has 'when the apply fails, or exits 0 but `git status --porcelain` does not show the changes back, keep the entry' "$TA"
+# D34：列不出可比失敗時不比 base
+has 'When a red guard lists no failure to compare (it timed out, or only exited non-zero), do not run the base: the red is this change'"'"'s failure.' "$TA"
+# D31：比同一位置的數字，對不上照筆數
+has 'The number compared is the one in the same place in the message once line and column numbers are removed; when the places do not line up, compare by count.' "$TA"
+# D32：stash 之後任何一步失敗都先切回並 apply
+has 'When any step after the stash fails, check the branch out again and apply the stash first' "$TA"
 echo ok
